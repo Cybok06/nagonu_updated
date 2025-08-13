@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <style>
+    .kpi { font-variant-numeric: tabular-nums; }
+    .card h6 { margin-bottom: .25rem; }
+    .chart-wrap { position: relative; width: 100%; height: 360px; }
+    @media (min-width: 1400px) { .chart-wrap { height: 420px; } }
+    .table td, .table th { vertical-align: middle; }
+    .card-icon {
+      width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+      border-radius: .75rem; background: rgba(13,110,253,.12);
+    }
+    .card-icon.success { background: rgba(25,135,84,.12); }
+    .card-icon.warning { background: rgba(255,193,7,.15); }
+    .card-icon.info    { background: rgba(13,202,240,.12); }
+  </style>
+</head>
+<body>
+  {% include 'admin_sidebar.html' %}
+
+  <!-- Content area respects the fixed sidebar margins from your include -->
+  <div class="customer-content">
+    <div class="container-fluid">
+      <div class="d-flex flex-wrap align-items-center justify-content-between mb-3">
+        <h3 class="mb-2 mb-sm-0">Admin Dashboard</h3>
+      </div>
+
+      <!-- KPIs -->
+      <div class="row g-3 mb-3">
+        <!-- Total Orders -->
+        <div class="col-12 col-sm-6 col-xl-3">
+          <div class="card shadow-sm h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <h6 class="text-muted mb-0">Total Orders</h6>
+                <span class="card-icon"><i class="bi bi-bag-check-fill text-primary"></i></span>
+              </div>
+              <div class="display-6 kpi mt-2">{{ total_orders or 0 }}</div>
+              <div class="small text-muted">All-time orders across customers</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Total Amount (sum of total_amount) -->
+        <div class="col-12 col-sm-6 col-xl-3">
+          <div class="card shadow-sm h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <h6 class="text-muted mb-0">Total Amount</h6>
+                <span class="card-icon info"><i class="bi bi-currency-exchange text-info"></i></span>
+              </div>
+              <div class="display-6 kpi mt-2">
+                <span class="ghs" data-amt="{{ (sum_total_amount or 0)|float }}">GHS 0.00</span>
+              </div>
+              <div class="small text-muted">Sum of order totals</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Total Charged (sum of charged_amount) -->
+        <div class="col-12 col-sm-6 col-xl-3">
+          <div class="card shadow-sm h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <h6 class="text-muted mb-0">Total Charged</h6>
+                <span class="card-icon warning"><i class="bi bi-credit-card-2-front text-warning"></i></span>
+              </div>
+              <div class="display-6 kpi mt-2">
+                <span class="ghs" data-amt="{{ (sum_charged_amount or 0)|float }}">GHS 0.00</span>
+              </div>
+              <div class="small text-muted">What customers actually paid</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Total Profit (sum of profit_amount_total) -->
+        <div class="col-12 col-sm-6 col-xl-3">
+          <div class="card shadow-sm h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <h6 class="text-muted mb-0">Total Profit</h6>
+                <span class="card-icon success"><i class="bi bi-graph-up-arrow text-success"></i></span>
+              </div>
+              <div class="display-6 kpi mt-2">
+                <span class="ghs" data-amt="{{ (sum_profit_amount or 0)|float }}">GHS 0.00</span>
+              </div>
+              <div class="small text-muted">Cumulative profit from all orders</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts + Top Offers -->
+      <div class="row g-3">
+        <!-- Top customers by orders -->
+        <div class="col-12 col-xxl-6">
+          <div class="card shadow-sm h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span class="fw-semibold">Top Customers by Orders</span>
+              <span class="text-muted small">Top 10</span>
+            </div>
+            <div class="card-body">
+              {% if chart_values and chart_values|length > 0 %}
+                <div class="chart-wrap">
+                  <canvas id="ordersBarChart" aria-label="Top customers by orders" role="img"></canvas>
+                </div>
+              {% else %}
+                <div class="text-center text-muted py-5">
+                  <div class="mb-2">No order data yet.</div>
+                  <small>When orders come in, you’ll see your top customers here.</small>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <!-- Top customers by profit -->
+        <div class="col-12 col-xxl-6">
+          <div class="card shadow-sm h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span class="fw-semibold">Top Customers by Profit</span>
+              <span class="text-muted small">Top 10</span>
+            </div>
+            <div class="card-body">
+              {% if profit_chart_values and profit_chart_values|length > 0 %}
+                <div class="chart-wrap">
+                  <canvas id="profitBarChart" aria-label="Top customers by profit" role="img"></canvas>
+                </div>
+              {% else %}
+                <div class="text-center text-muted py-5">
+                  <div class="mb-2">No profit data yet.</div>
+                  <small>As profits accrue, this chart will populate.</small>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mt-1">
+        <!-- Top Offers Purchased -->
+        <div class="col-12">
+          <div class="card shadow-sm h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span class="fw-semibold">Top Offers Purchased</span>
+              <span class="text-muted small">Top 3</span>
+            </div>
+            <div class="card-body">
+              {% if top_offers and top_offers|length %}
+                <div class="table-responsive">
+                  <table class="table table-sm align-middle">
+                    <thead class="table-light">
+                      <tr>
+                        <th style="width:40px;">#</th>
+                        <th>Service</th>
+                        <th>Offer</th>
+                        <th class="text-end">Purchases</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in top_offers %}
+                        <tr>
+                          <td>{{ loop.index }}</td>
+                          <td>{{ row.service }}</td>
+                          <td>{{ row.offer }}</td>
+                          <td class="text-end">{{ row.count }}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% else %}
+                <div class="text-center text-muted py-5">
+                  <div class="mb-2">No purchases to rank yet.</div>
+                  <small>Once completed orders exist, this list will update.</small>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- JSON data blobs for lint-safe JS consumption -->
+      <script id="orders-chart-data" type="application/json">
+        {{ {'labels': chart_labels or [], 'values': chart_values or []} | tojson }}
+      </script>
+      <script id="profit-chart-data" type="application/json">
+        {{ {'labels': profit_chart_labels or [], 'values': profit_chart_values or []} | tojson }}
+      </script>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script>
+    // Format any .ghs amounts as "GHS 12,345.00"
+    document.querySelectorAll('.ghs').forEach(el => {
+      const raw = (el.getAttribute('data-amt') || '').toString().replace(/[^\d.-]/g,'');
+      const n = parseFloat(raw);
+      if (!isNaN(n)) {
+        el.textContent = 'GHS ' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+    });
+
+    function renderBarChart(canvasId, blobId, labelText, valueFormatter) {
+      const blob = document.getElementById(blobId);
+      if (!blob) return;
+      let data;
+      try { data = JSON.parse(blob.textContent || '{}'); } catch { data = {}; }
+      const labels = Array.isArray(data.labels) ? data.labels : [];
+      const values = Array.isArray(data.values) ? data.values : [];
+      if (!values.length) return;
+
+      const ctx = document.getElementById(canvasId);
+      if (!ctx) return;
+
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: labelText,
+            data: values,
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              ticks: { maxRotation: 45, minRotation: 0, autoSkip: true }
+            },
+            y: {
+              beginAtZero: true,
+              ticks: {
+                precision: 0,
+                callback: (v) => valueFormatter ? valueFormatter(v) : v
+              }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const v = ctx.parsed.y;
+                  return valueFormatter ? `${labelText}: ${valueFormatter(v)}` : `${labelText}: ${v}`;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Orders chart
+    renderBarChart('ordersBarChart', 'orders-chart-data', 'Orders');
+
+    // Profit chart (format y-axis as currency)
+    const fmtMoney = (n) => 'GHS ' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    renderBarChart('profitBarChart', 'profit-chart-data', 'Profit', fmtMoney);
+  </script>
+</body>
+</html>

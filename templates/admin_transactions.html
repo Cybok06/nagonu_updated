@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin - Transactions</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background-color: #f8f9fa;
+    }
+    .table th, .table td {
+      vertical-align: middle;
+    }
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    @media (max-width: 576px) {
+      .filter-bar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+    }
+  </style>
+</head>
+<body>
+    {% include 'admin_sidebar.html' %}
+
+  <div class="container py-4">
+    <h2 class="mb-4 text-primary fw-bold">💰 All Transactions</h2>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Filter Form -->
+    <form method="get" class="filter-bar">
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <label class="form-label mb-0">Customer:</label>
+        <select name="customer" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">All Customers</option>
+          {% for customer in customers %}
+            <option value="{{ customer._id }}" {% if selected_customer == customer._id|string %}selected{% endif %}>
+              {{ customer.first_name }} {{ customer.last_name }} - {{ customer.phone }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <label class="form-label mb-0">Start Date:</label>
+        <input type="date" name="start_date" value="{{ start_date }}" class="form-control form-control-sm">
+      </div>
+
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <label class="form-label mb-0">End Date:</label>
+        <input type="date" name="end_date" value="{{ end_date }}" class="form-control form-control-sm">
+      </div>
+
+      <div>
+        <button type="submit" class="btn btn-sm btn-outline-primary">Filter</button>
+      </div>
+    </form>
+
+    <!-- Transactions Table -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover align-middle">
+        <thead class="table-dark text-center">
+          <tr>
+            <th>#</th>
+            <th>Customer</th>
+            <th>Amount (₵)</th>
+            <th>Reference</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for txn in transactions %}
+          <tr>
+            <td class="text-center">{{ loop.index + ((page - 1) * 10) }}</td>
+            <td>
+              <strong>{{ txn.user.first_name }} {{ txn.user.last_name }}</strong><br>
+              <small>{{ txn.user.phone }}</small>
+            </td>
+            <td class="text-success fw-bold text-center">₵{{ "%.2f"|format(txn.amount or 0) }}</td>
+            <td class="text-center">{{ txn.reference or 'N/A' }}</td>
+            <td class="text-center">
+              {{ txn.verified_at.strftime('%Y-%m-%d %H:%M') if txn.verified_at else 'N/A' }}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5" class="text-center text-muted">No transactions found.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <nav class="mt-3">
+      <ul class="pagination justify-content-center">
+        {% for p in range(1, total_pages + 1) %}
+          <li class="page-item {% if p == page %}active{% endif %}">
+            <a class="page-link"
+               href="?page={{ p }}{% if selected_customer %}&customer={{ selected_customer }}{% endif %}
+                      {% if start_date %}&start_date={{ start_date }}{% endif %}
+                      {% if end_date %}&end_date={{ end_date }}{% endif %}">
+              {{ p }}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </nav>
+    {% endif %}
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
