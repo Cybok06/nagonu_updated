@@ -376,16 +376,18 @@
     } catch { /* ignore */ }
   }
 
-  function formatVolumeLabel(value) {
-    if (value && typeof value === "string") return value;
-    if (value && typeof value === "object") {
-      const vol = Number(value.volume || 0);
-      let label = vol >= 1000 ? `${(vol/1000).toString().replace(/\.0+$/,'')}GB` : `${vol}MB`;
-      if (value.id) label += ` (Pkg ${value.id})`;
-      return label;
-    }
-    return "-";
+function formatVolumeLabel(value) {
+  if (value && typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const vol = Number(value.volume || 0);
+    // Only show size (GB or MB), no package id
+    return vol >= 1000
+      ? `${(vol / 1000).toString().replace(/\.0+$/, '')}GB`
+      : `${vol}MB`;
   }
+  return "-";
+}
+
 
   /**
    * We expect offers shaped like: { amount, total, profit_percent_used, value, value_text }
@@ -442,6 +444,7 @@
     sel.addEventListener("change", () => {
   amtCell.textContent = "";
 });
+
 
     if (selectedIdx !== null) {
       const found = sel.querySelector(`option[data-idx="${selectedIdx}"]`);
@@ -717,4 +720,3 @@
 
 </body>
 </html>
-
