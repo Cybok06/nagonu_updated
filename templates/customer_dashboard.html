@@ -440,13 +440,8 @@
     const sel = row.querySelector(".offer-select");
     const amtCell = row.querySelector(".amount-cell");
     sel.addEventListener("change", () => {
-      const opt = sel.selectedOptions[0];
-      if (!opt || !sel.value) { amtCell.textContent = "-"; return; }
-      const total = Number(opt.getAttribute("data-total") || sel.value || 0);
-      const base  = opt.getAttribute("data-base");
-      const pp    = opt.getAttribute("data-pp");
-      amtCell.innerHTML = `GHS ${money(total)}${(base && pp) ? ` <small class="text-muted d-block">Base GHS ${money(base)} + ${pp}%</small>` : ""}`;
-    });
+  amtCell.textContent = "";
+});
 
     if (selectedIdx !== null) {
       const found = sel.querySelector(`option[data-idx="${selectedIdx}"]`);
@@ -722,3 +717,4 @@
 
 </body>
 </html>
+
