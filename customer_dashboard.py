@@ -60,13 +60,22 @@ def _parse_value_field(value):
     return value
 
 def _value_text_for_display(value):
-    # dict: {'volume': MB, 'id': package_id}
+    """
+    Return a clean label for the offer's value with NO package id.
+    Accepts a dict like {'volume': 2000, 'id': 5} or a plain string like '1GB (Pkg 5)'.
+    """
     if isinstance(value, dict):
         vol = value.get("volume")
-        pkg = value.get("id")
-        vol_txt = _format_volume(vol) if vol else "-"
-        return f"{vol_txt} (Pkg {pkg})" if pkg else vol_txt
+        # show only the size (e.g., '2GB' or '500MB'), never the package id
+        return _format_volume(vol) if vol is not None else "-"
+
+    if isinstance(value, str):
+        # if any '(Pkg 123)' text sneaks in, strip it
+        cleaned = re.sub(r"\s*\(Pkg\s*\d+\)\s*$", "", value, flags=re.IGNORECASE).strip()
+        return cleaned or "-"
+
     return value or "-"
+
 
 def _get_service_default_profit(service_doc):
     return _to_float(service_doc.get("default_profit_percent")) or 0.0
