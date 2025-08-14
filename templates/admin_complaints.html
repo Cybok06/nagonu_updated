@@ -94,12 +94,7 @@
 
             <!-- Order Ref -->
             <td>
-              {% if c.order_no_display %}
-                <div><span class="text-muted">Entered:</span> <code>{{ c.order_no_display }}</code></div>
-              {% endif %}
-              {% if c.order_ref and c.order_ref._id %}
-                <div><span class="text-muted">_id:</span> <code>{{ c.order_ref._id }}</code></div>
-              {% endif %}
+              
               {% if c.order_ref and c.order_ref.order_no %}
                 <div><span class="text-muted">order_no:</span> <code>{{ c.order_ref.order_no }}</code></div>
               {% endif %}
