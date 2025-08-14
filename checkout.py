@@ -142,6 +142,7 @@ def _post_requests(body, verify):
         data = resp.json()
     except Exception:
         data = {"raw": text}
+    # keep original ok detection; downstream we normalize "failed" to processing anyway
     ok = resp.ok and bool(data.get("success", False))
     return ok, data, resp, text
 
@@ -437,10 +438,11 @@ def process_checkout():
         results = []
         debug_events = []
 
-        total_success_api_amount = 0.0   # amount for API lines that succeeded
-        total_non_api_amount = 0.0       # amount for non-API lines OR API lines we intentionally pend
-        api_requested_total = 0.0        # sum of amounts for API-intended lines (for final status)
-        has_pending_non_api = False
+        # We will charge for: successful API lines + any line we keep "processing"
+        total_delivered_api_amount = 0.0    # amount for API lines that are delivered (formerly 'completed')
+        total_processing_amount = 0.0       # amount for non-API, API-missing-fields, or API "failed" (forced to processing)
+        api_requested_total = 0.0
+        has_processing = False
 
         # NEW: rollup profit
         profit_amount_total = 0.0
@@ -480,24 +482,24 @@ def process_checkout():
             base_amount, profit_amount = _derive_base_profit(amt_total, base_hint, eff_p)
             profit_amount_total += profit_amount
 
-            # ---------- NON-API path: charge now, mark pending, DO NOT call provider ----------
+            # ---------- NON-API path → FORCE processing and CHARGE ----------
             if not svc_doc or (svc_type and str(svc_type).upper() != "API"):
-                has_pending_non_api = True
-                total_non_api_amount += amt_total
+                has_processing = True
+                total_processing_amount += amt_total
                 results.append({
                     "phone": phone,
                     "base_amount": base_amount,
-                    "amount": amt_total,                 # total charged per line
-                    "profit_amount": profit_amount,      # ABSOLUTE profit GHS
-                    "profit_percent_used": eff_p,        # for audit only
+                    "amount": amt_total,
+                    "profit_amount": profit_amount,
+                    "profit_percent_used": eff_p,
                     "value": item.get("value"),
                     "value_obj": value_obj,
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
                     "service_type": svc_type if svc_type else ("unknown" if not svc_doc else None),
-                    "line_status": "pending",
+                    "line_status": "processing",                    # <— was 'pending'
                     "api_status": "not_applicable",
-                    "api_response": {"note": "Service is not API; queued without provider call"}
+                    "api_response": {"note": "Service not API; queued for processing"}
                 })
                 continue
 
@@ -509,9 +511,9 @@ def process_checkout():
             shared_bundle = _resolve_shared_bundle(item, value_obj)
 
             if not phone or network_id is None or shared_bundle is None:
-                # Treat missing API fields as non-API pending (charge now & succeed overall)
-                has_pending_non_api = True
-                total_non_api_amount += amt_total
+                # Missing API fields → treat as processing and CHARGE
+                has_processing = True
+                total_processing_amount += amt_total
                 results.append({
                     "phone": phone,
                     "base_amount": base_amount,
@@ -523,10 +525,10 @@ def process_checkout():
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
                     "service_type": svc_type,
-                    "line_status": "pending",
+                    "line_status": "processing",
                     "api_status": "skipped_missing_fields",
                     "api_response": {
-                        "note": "API fields missing; queued without provider call",
+                        "note": "API fields missing; queued for processing",
                         "got": {"phone": bool(phone), "network_id": network_id, "shared_bundle": shared_bundle}
                     }
                 })
@@ -535,33 +537,54 @@ def process_checkout():
             trx_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
             ok, payload = _send_toppily_shared_bundle(phone, network_id, shared_bundle, trx_ref, order_id, debug_events)
 
-            results.append({
-                "phone": phone,
-                "base_amount": base_amount,
-                "amount": amt_total,
-                "profit_amount": profit_amount,
-                "profit_percent_used": eff_p,
-                "value": item.get("value"),
-                "value_obj": value_obj,
-                "serviceId": service_id_raw,
-                "serviceName": svc_name,
-                "service_type": svc_type,
-                "trx_ref": trx_ref,
-                "line_status": "completed" if ok else "failed",
-                "api_status": "success" if ok else "failed",
-                "api_response": payload
-            })
             if ok:
-                total_success_api_amount += amt_total
+                # Delivered immediately
+                results.append({
+                    "phone": phone,
+                    "base_amount": base_amount,
+                    "amount": amt_total,
+                    "profit_amount": profit_amount,
+                    "profit_percent_used": eff_p,
+                    "value": item.get("value"),
+                    "value_obj": value_obj,
+                    "serviceId": service_id_raw,
+                    "serviceName": svc_name,
+                    "service_type": svc_type,
+                    "trx_ref": trx_ref,
+                    "line_status": "delivered",          # <— rename completed → delivered
+                    "api_status": "success",
+                    "api_response": payload
+                })
+                total_delivered_api_amount += amt_total
+            else:
+                # FORCE processing (no failure surfaced) and CHARGE
+                has_processing = True
+                total_processing_amount += amt_total
+                results.append({
+                    "phone": phone,
+                    "base_amount": base_amount,
+                    "amount": amt_total,
+                    "profit_amount": profit_amount,
+                    "profit_percent_used": eff_p,
+                    "value": item.get("value"),
+                    "value_obj": value_obj,
+                    "serviceId": service_id_raw,
+                    "serviceName": svc_name,
+                    "service_type": svc_type,
+                    "trx_ref": trx_ref,
+                    "line_status": "processing",          # <— was 'failed'
+                    "api_status": "processing",
+                    "api_response": payload
+                })
 
         # keep last debug entries
         if len(debug_events) > 10:
             debug_events = debug_events[-10:]
 
-        # Total to charge now = successful API + all non-API/pended items (totals already include profit)
-        total_to_charge_now = round(total_success_api_amount + total_non_api_amount, 2)
+        # Total to charge now = delivered API + all processing lines (totals already include profit)
+        total_to_charge_now = round(total_delivered_api_amount + total_processing_amount, 2)
 
-        # ==== NEW BEHAVIOR: all lines failed → charge full cart, mark 'processing' ====
+        # ==== If nothing counted yet (extreme case) → charge full cart and mark processing ====
         if total_to_charge_now <= 0:
             status = "processing"
 
@@ -576,8 +599,8 @@ def process_checkout():
             orders_col.insert_one({
                 "user_id": user_id,
                 "order_id": order_id,
-                "items": results,                       # lines may be "failed"; overall is "processing"
-                "total_amount": total_requested,        # cart grand total
+                "items": results,
+                "total_amount": total_requested,
                 "charged_amount": total_requested,      # charged entire cart
                 "profit_amount_total": round(profit_amount_total, 2),
                 "status": status,                       # "processing"
@@ -600,13 +623,12 @@ def process_checkout():
                 "verified_at": datetime.utcnow(),
                 "meta": {
                     "order_status": status,
-                    "api_success_amount": 0.0,
-                    "non_api_pending_amount": 0.0,
+                    "api_delivered_amount": 0.0,
+                    "processing_amount": round(total_requested, 2),
                     "profit_amount_total": round(profit_amount_total, 2)
                 }
             })
 
-            # Friendlier user message
             friendly_msg = (
                 f"✅ We’ve received your order. It’s now processing and will be delivered within 30 minutes. "
                 f"Order ID: {order_id}"
@@ -621,30 +643,27 @@ def process_checkout():
                 "profit_amount_total": round(profit_amount_total, 2),
                 "items": results
             }), 200
-        # ==== END NEW BEHAVIOR ====
+        # ==== END extreme case ====
 
-        # Deduct now for: (successful API + ALL non-API/pended)
+        # Deduct now for: (delivered API + ALL processing)
         balances_col.update_one(
             {"user_id": user_id},
             {"$inc": {"amount": -total_to_charge_now}, "$set": {"updated_at": datetime.utcnow()}},
             upsert=True
         )
 
-        # Determine overall status
-        if has_pending_non_api:
-            status = "pending"
-        else:
-            status = "completed" if total_success_api_amount >= api_requested_total else "partial"
+        # Determine overall status (no 'failed'/'partial' exposed)
+        status = "delivered" if (not has_processing and total_delivered_api_amount >= api_requested_total) else "processing"
 
-        # Persist order (now with absolute profit totals)
+        # Persist order
         orders_col.insert_one({
             "user_id": user_id,
             "order_id": order_id,
             "items": results,
-            "total_amount": total_requested,              # cart grand total (UI computed)
-            "charged_amount": total_to_charge_now,        # charged now
-            "profit_amount_total": round(profit_amount_total, 2),  # ABS profit roll-up
-            "status": status,
+            "total_amount": total_requested,                # cart grand total (UI computed)
+            "charged_amount": total_to_charge_now,          # charged now
+            "profit_amount_total": round(profit_amount_total, 2),
+            "status": status,                               # delivered | processing
             "paid_from": method,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
@@ -664,20 +683,18 @@ def process_checkout():
             "verified_at": datetime.utcnow(),
             "meta": {
                 "order_status": status,
-                "api_success_amount": round(total_success_api_amount, 2),
-                "non_api_pending_amount": round(total_non_api_amount, 2),
-                "profit_amount_total": round(profit_amount_total, 2)  # NEW
+                "api_delivered_amount": round(total_delivered_api_amount, 2),
+                "processing_amount": round(total_processing_amount, 2),
+                "profit_amount_total": round(profit_amount_total, 2)
             }
         })
 
-        # Response message
-        if status == "pending":
-            msg = ("📝 Order received. Some items are pending fulfilment. "
-                   "We charged your wallet for pending items. Order ID: {oid}").format(oid=order_id)
-        elif status == "completed":
-            msg = "✅ Order completed. Order ID: {oid}".format(oid=order_id)
+        # Response message (always success to frontend)
+        if status == "delivered":
+            msg = "✅ Order delivered. Order ID: {oid}".format(oid=order_id)
         else:
-            msg = "⚠️ Order partially completed. Order ID: {oid}".format(oid=order_id)
+            msg = ("📝 Order received and is processing. "
+                   "We’ve charged your wallet. Order ID: {oid}").format(oid=order_id)
 
         return jsonify({
             "success": True,
@@ -691,4 +708,5 @@ def process_checkout():
 
     except Exception:
         jlog("checkout_uncaught", error=traceback.format_exc())
+        # Still keep a generic failure here for truly exceptional cases (auth/validation/500)
         return jsonify({"success": False, "message": "Server error"}), 500
