@@ -803,28 +803,31 @@ function formatVolumeLabel(value) {
   updateCartUI();
 </script>
 <script>
-document.addEventListener("DOMContentLoaded", function () {
-  const serviceButtons = document.querySelectorAll(".select-service-btn");
-  const workArea = document.getElementById("work-area");
-  const chosenNameEl = document.getElementById("chosen-service-name");
-  const profitPctEl = document.getElementById("profit-pct");
+document.querySelectorAll(".select-service-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const svcData = JSON.parse(btn.getAttribute("data-service"));
+    chosenService = svcData;
+    chosenNameEl.textContent = svcData.name;
+    profitPctEl.textContent = (svcData.effective_profit_percent ?? 0).toFixed(2);
 
-  serviceButtons.forEach(btn => {
-    btn.addEventListener("click", function () {
-      const svcData = JSON.parse(this.getAttribute("data-service"));
-      
-      // Set service name and profit
-      chosenNameEl.textContent = svcData.name;
-      profitPctEl.textContent = svcData.effective_profit_percent || 0;
-
-      // Show work area if hidden
-      workArea.classList.remove("d-none");
-
-      // Smooth scroll to work area
-      workArea.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    // Find the service card column
+    const cardCol = btn.closest(".col-12");
+    
+    // Move the work-area right below this card
+    cardCol.insertAdjacentElement("afterend", workArea);
+    
+    // Show it and reset form
+    workArea.classList.remove("d-none");
+    clearRows();
+    addRow();
+    document.getElementById("bulk-card").classList.add("d-none");
+    document.getElementById("bulk-trigger").value = "";
+    
+    // Optional smooth scroll
+    workArea.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 });
+
 </script>
 
 </body>
