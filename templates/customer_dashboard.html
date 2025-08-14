@@ -54,48 +54,99 @@
     .modal-content { border: 0; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.15); }
     .table > :not(caption) > * > * { vertical-align: middle; }
   </style>
-  <style>
-  .wallet-hero { position: relative; min-height: 220px; }
-  .wallet-hero-bg {
-    position: absolute; inset: 0;
-    background-size: cover; background-position: center;
-    filter: brightness(.55);
+ <style>
+ /* Section background (ocean) */
+.wallet-hero {
+  position: relative;
+}
+.wallet-hero-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: saturate(1.05) contrast(1.02);
+  z-index: 0;
+}
+
+/* Subtle overlay for legibility */
+.wallet-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom right,
+    rgba(6, 24, 38, 0.55),
+    rgba(6, 24, 38, 0.25) 40%,
+    rgba(6, 24, 38, 0.15)
+  );
+  z-index: 1;
+}
+
+/* Card styling */
+.wallet-hero-card {
+  position: relative;
+  z-index: 2;
+  border-radius: 16px;
+  padding: 24px;
+  background: rgba(5, 48, 71, 0.35);
+  backdrop-filter: blur(4px) saturate(1.1);
+  -webkit-backdrop-filter: blur(4px) saturate(1.1);
+  overflow: hidden;
+}
+
+/* Circular logo overlay */
+.wallet-hero-card::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 24px;
+  transform: translateY(-50%);
+  width: clamp(120px, 26vw, 220px);
+  height: clamp(120px, 26vw, 220px);
+  border-radius: 50%;
+  pointer-events: none;
+
+  background:
+    radial-gradient(circle at center, rgba(6,24,38,0.18), rgba(6,24,38,0) 55%),
+    url("https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg") no-repeat center/cover;
+
+  opacity: 0.42;
+  filter: drop-shadow(0 1px 0 rgba(0,0,0,0.18));
+}
+
+/* Typography & pill styles */
+.wallet-hero-card .eyebrow { letter-spacing: .02em; }
+.wallet-hero-card .title { font-weight: 700; }
+.wallet-hero-card .balance-amount {
+  font-size: clamp(1.35rem, 2.6vw, 2rem);
+  font-weight: 800;
+}
+.wallet-hero-card .pill {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 999px;
+  backdrop-filter: blur(2px);
+}
+
+/* Text shadow for readability */
+.wallet-hero-card .title,
+.wallet-hero-card .balance-label,
+.wallet-hero-card .balance-amount,
+.wallet-hero-card .eyebrow {
+  text-shadow: 0 1px 0 rgba(0,0,0,0.35);
+}
+
+/* Mobile adjustments */
+@media (max-width: 575.98px) {
+  .wallet-hero-card { padding: 20px 18px; }
+  .wallet-hero-card::after {
+    right: 16px;
+    width: clamp(110px, 40vw, 180px);
+    height: clamp(110px, 40vw, 180px);
   }
-  /* Gradient veil for readability */
-  .wallet-hero::after {
-    content: ""; position: absolute; inset: 0;
-    background: linear-gradient(90deg, rgba(5,48,71,.75), rgba(5,48,71,.45), rgba(0,0,0,.2));
-    pointer-events: none;
-  }
-  .wallet-hero-card {
-    position: relative; z-index: 1;
-    border-radius: 18px;
-    padding: 1.25rem 1.5rem;
-    color: #fff;
-    background: rgba(255,255,255,.12);
-    border: 1px solid rgba(255,255,255,.28);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-  }
-  @media (min-width: 768px) {
-    .wallet-hero-card { padding: 1.75rem 2rem; }
-  }
-  .eyebrow { font-size: .9rem; letter-spacing: .02em; }
-  .title { font-weight: 800; line-height: 1.2; }
-  .balance-label { font-size: .95rem; }
-  .balance-amount {
-    font-weight: 800;
-    font-size: clamp(1.6rem, 2.2vw + 1rem, 2.6rem);
-    line-height: 1.1;
-  }
-  .pill {
-    background: rgba(255,255,255,.16);
-    border: 1px solid rgba(255,255,255,.28);
-    border-radius: 999px;
-    padding: .55rem .9rem;
-    font-weight: 600;
-    white-space: nowrap;
-  }
+}
+
 </style>
 </head>
 <body>
@@ -114,7 +165,7 @@
       <div class="row align-items-center g-3">
         <div class="col-12 col-md">
           <div class="eyebrow text-white-50">Welcome back</div>
-          <h2 class="title mb-2">{{ customer_username or username }}</h2>
+          <h2 class="title mb-2 text-white">{{ customer_username or username }}</h2>
 
           <div class="balance-label text-white-50">Wallet Balance</div>
           <div class="balance-amount text-white">
@@ -123,9 +174,7 @@
         </div>
 
         <div class="col-12 col-md-auto">
-          <div class="pill d-inline-flex align-items-center gap-2">
-            <i class="bi bi-shield-check"></i> Secure • Real‑time
-          </div>
+
         </div>
       </div>
     </div>
@@ -133,7 +182,7 @@
 </section>
 
 
-    
+  
 
     <!-- Make an Order -->
     <div class="container py-4" id="services">
@@ -756,4 +805,3 @@ function formatVolumeLabel(value) {
 
 </body>
 </html>
-
