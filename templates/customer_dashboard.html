@@ -54,24 +54,83 @@
     .modal-content { border: 0; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.15); }
     .table > :not(caption) > * > * { vertical-align: middle; }
   </style>
+  <style>
+  .wallet-hero { position: relative; min-height: 220px; }
+  .wallet-hero-bg {
+    position: absolute; inset: 0;
+    background-size: cover; background-position: center;
+    filter: brightness(.55);
+  }
+  /* Gradient veil for readability */
+  .wallet-hero::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, rgba(5,48,71,.75), rgba(5,48,71,.45), rgba(0,0,0,.2));
+    pointer-events: none;
+  }
+  .wallet-hero-card {
+    position: relative; z-index: 1;
+    border-radius: 18px;
+    padding: 1.25rem 1.5rem;
+    color: #fff;
+    background: rgba(255,255,255,.12);
+    border: 1px solid rgba(255,255,255,.28);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  @media (min-width: 768px) {
+    .wallet-hero-card { padding: 1.75rem 2rem; }
+  }
+  .eyebrow { font-size: .9rem; letter-spacing: .02em; }
+  .title { font-weight: 800; line-height: 1.2; }
+  .balance-label { font-size: .95rem; }
+  .balance-amount {
+    font-weight: 800;
+    font-size: clamp(1.6rem, 2.2vw + 1rem, 2.6rem);
+    line-height: 1.1;
+  }
+  .pill {
+    background: rgba(255,255,255,.16);
+    border: 1px solid rgba(255,255,255,.28);
+    border-radius: 999px;
+    padding: .55rem .9rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+</style>
 </head>
 <body>
   {% include 'customer_sidebar.html' %}
 
   <main class="customer-content">
 
-    <!-- Wallet -->
-   <div class="container my-4">
-  <div class="row g-4">
-    <div class="col-12">
-      <div class="card shadow-sm rounded-4 text-center p-4 bg-light border-0">
-        <h5 class="mb-1 text-muted">Welcome, {{ customer_username or username }}</h5>
-        <h3 class="text-success fw-bold mb-0">Wallet: GHS {{ '%.2f'|format(balance) }}</h3>
-       
+  <section class="wallet-hero my-4">
+  <!-- Background image -->
+  <div class="wallet-hero-bg"
+       style="background-image:url('https://e1.pxfuel.com/desktop-wallpaper/586/807/desktop-wallpaper-1920x1080-beautiful-ocean-pics-data-id-115186-ocean-sea.jpg');">
+  </div>
+
+  <div class="container position-relative">
+    <div class="wallet-hero-card shadow-lg">
+      <div class="row align-items-center g-3">
+        <div class="col-12 col-md">
+          <div class="eyebrow text-white-50">Welcome back</div>
+          <h2 class="title mb-2">{{ customer_username or username }}</h2>
+
+          <div class="balance-label text-white-50">Wallet Balance</div>
+          <div class="balance-amount text-white">
+            GHS {{ '%.2f'|format(balance) }}
+          </div>
+        </div>
+
+        <div class="col-12 col-md-auto">
+          <div class="pill d-inline-flex align-items-center gap-2">
+            <i class="bi bi-shield-check"></i> Secure • Real‑time
+          </div>
+        </div>
       </div>
     </div>
   </div>
-</div>
+</section>
 
 
     <!-- Hero -->
