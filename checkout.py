@@ -1,8 +1,10 @@
 # checkout.py — Toppily shared-bundle flow only (network_id + shared_bundle)
 from flask import Blueprint, request, jsonify, session
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 import os, uuid, random, requests, certifi, traceback, json, hashlib, pathlib, shutil, ast
+
+from apscheduler.schedulers.background import BackgroundScheduler  # NEW
 
 from db import db
 
@@ -365,10 +367,42 @@ def _send_toppily_shared_bundle(phone: str, network_id: int, shared_bundle: int,
         jlog("toppily_network_error", order_id=order_id, trx_ref=trx_ref, error=str(e))
         return False, {"success": False, "error": str(e), "http_status": 599}
 
+# ===== Auto-deliver (processing → delivered after 30 minutes) =====
+_scheduler: BackgroundScheduler | None = None
+
+def _autodeliver_due_orders():
+    """Flip processing → delivered when 30+ mins old."""
+    cutoff = datetime.utcnow() - timedelta(minutes=30)
+    now = datetime.utcnow()
+    res = orders_col.update_many(
+        {"status": "processing", "created_at": {"$lte": cutoff}},
+        {"$set": {"status": "delivered", "delivered_at": now, "updated_at": now}}
+    )
+    if getattr(res, "modified_count", 0):
+        jlog("autodeliver_run", modified=res.modified_count)
+
+def _ensure_scheduler_started():
+    global _scheduler
+    if _scheduler and _scheduler.running:
+        return
+    try:
+        _scheduler = BackgroundScheduler(daemon=True)
+        _scheduler.add_job(_autodeliver_due_orders, "interval", minutes=1, id="autodeliver", replace_existing=True)
+        _scheduler.start()
+        jlog("scheduler_started", job="autodeliver_every_minute")
+    except Exception as e:
+        jlog("scheduler_error", error=str(e))
+
+# Start the scheduler on import (safe; no-op if already running)
+_ensure_scheduler_started()
+
 # ===== Route =====
 @checkout_bp.route("/checkout", methods=["POST"])
 def process_checkout():
     try:
+        # Opportunistic sweep to catch up (in case scheduler paused/restarted)
+        _autodeliver_due_orders()
+
         # Auth
         if "user_id" not in session or session.get("role") != "customer":
             jlog("checkout_auth_fail", session_keys=list(session.keys()))
@@ -527,28 +561,67 @@ def process_checkout():
         # Total to charge now = successful API + all non-API/pended items (totals already include profit)
         total_to_charge_now = round(total_success_api_amount + total_non_api_amount, 2)
 
+        # ==== NEW BEHAVIOR: all lines failed → charge full cart, mark 'processing' ====
         if total_to_charge_now <= 0:
+            status = "processing"
+
+            # Deduct the full cart total (balance already verified >= total_requested)
+            balances_col.update_one(
+                {"user_id": user_id},
+                {"$inc": {"amount": -total_requested}, "$set": {"updated_at": datetime.utcnow()}},
+                upsert=True
+            )
+
+            # Persist order
             orders_col.insert_one({
                 "user_id": user_id,
                 "order_id": order_id,
-                "items": results,
-                "total_amount": total_requested,
-                "charged_amount": 0.0,
-                "profit_amount_total": round(profit_amount_total, 2),  # still persist for visibility
-                "status": "failed",
+                "items": results,                       # lines may be "failed"; overall is "processing"
+                "total_amount": total_requested,        # cart grand total
+                "charged_amount": total_requested,      # charged entire cart
+                "profit_amount_total": round(profit_amount_total, 2),
+                "status": status,                       # "processing"
                 "paid_from": method,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow(),
                 "debug": {"events": debug_events}
             })
-            blocked_any = any(x.get("api_response", {}).get("blocked_by_cloudflare") for x in results)
+
+            # Record transaction for full cart amount
+            transactions_col.insert_one({
+                "user_id": user_id,
+                "amount": total_requested,
+                "reference": order_id,
+                "status": "success",
+                "type": "purchase",
+                "gateway": "Wallet",
+                "currency": "GHS",
+                "created_at": datetime.utcnow(),
+                "verified_at": datetime.utcnow(),
+                "meta": {
+                    "order_status": status,
+                    "api_success_amount": 0.0,
+                    "non_api_pending_amount": 0.0,
+                    "profit_amount_total": round(profit_amount_total, 2)
+                }
+            })
+
+            # Friendlier user message
+            friendly_msg = (
+                f"✅ We’ve received your order. It’s now processing and will be delivered within 30 minutes. "
+                f"Order ID: {order_id}"
+            )
+
             return jsonify({
-                "success": False,
-                "message": "No items could be processed.",
+                "success": True,
+                "message": friendly_msg,
                 "order_id": order_id,
-                "blocked_by_cloudflare": bool(blocked_any),
-                "details": results
-            }), 502
+                "status": status,
+                "charged_amount": total_requested,
+                "profit_amount_total": round(profit_amount_total, 2),
+                "items": results
+            }), 200
+        # ==== END NEW BEHAVIOR ====
 
         # Deduct now for: (successful API + ALL non-API/pended)
         balances_col.update_one(
@@ -600,15 +673,15 @@ def process_checkout():
         # Response message
         if status == "pending":
             msg = ("📝 Order received. Some items are pending fulfilment. "
-                   "We charged your wallet for pending items.")
+                   "We charged your wallet for pending items. Order ID: {oid}").format(oid=order_id)
         elif status == "completed":
-            msg = "✅ Order completed."
+            msg = "✅ Order completed. Order ID: {oid}".format(oid=order_id)
         else:
-            msg = "Order partially completed."
+            msg = "⚠️ Order partially completed. Order ID: {oid}".format(oid=order_id)
 
         return jsonify({
             "success": True,
-            "message": f"{msg} Order ID: {order_id}",
+            "message": msg,
             "order_id": order_id,
             "status": status,
             "charged_amount": total_to_charge_now,
