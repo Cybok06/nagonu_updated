@@ -14,7 +14,6 @@
       background-color: #f8fafc;
       font-family: 'Segoe UI', sans-serif;
     }
-
     .complaint-form-card {
       background: #fff;
       padding: 2rem;
@@ -23,28 +22,32 @@
       max-width: 700px;
       margin: 0 auto;
     }
-
     .preview-img {
       max-width: 100%;
-      max-height: 180px;
+      max-height: 220px;
       border-radius: 8px;
       margin-top: 10px;
       border: 1px solid #dee2e6;
     }
-
-    h3.title-heading {
-      font-weight: 600;
-      color: #0ea5e9;
+    h3.title-heading { font-weight: 600; color: #0ea5e9; }
+    .form-label i { color: #0ea5e9; margin-right: 4px; }
+    .hint { font-size: .9rem; color: #6b7280; }
+    .dropzone {
+      border: 1.5px dashed #cbd5e1;
+      border-radius: 10px;
+      padding: 14px;
+      background: #f9fafb;
+      transition: background .2s, border-color .2s;
+      cursor: pointer;
     }
-
-    .form-label i {
-      color: #0ea5e9;
-      margin-right: 4px;
+    .dropzone.dragover {
+      background: #eef7fd;
+      border-color: #0ea5e9;
     }
   </style>
 </head>
 <body>
-    {% include 'customer_sidebar.html' %}
+  {% include 'customer_sidebar.html' %}
 
   <div class="container my-5">
     <div class="complaint-form-card">
@@ -63,46 +66,72 @@
         {% endif %}
       {% endwith %}
 
-      <form action="{{ url_for('complaints.submit_complaint') }}" method="POST" enctype="multipart/form-data">
-        <!-- Order Dropdown -->
+      <form action="{{ url_for('complaints.submit_complaint') }}" method="POST" enctype="multipart/form-data" id="complaint-form" novalidate>
+        <!-- Order Number -->
         <div class="mb-3">
-          <label class="form-label fw-semibold">
-            <i class="bi bi-bag-check-fill"></i> Select Order
+          <label class="form-label fw-semibold" for="order_number">
+            <i class="bi bi-hash"></i> Order Number
           </label>
-          <select name="order_id" class="form-select" id="order-select" required>
-            <option value="">-- Choose Order --</option>
-            {% for order in orders %}
-              {% set item = order['items'][0] %}
-              <option value="{{ order._id }}">
-                {{ item.serviceName }} — {{ item.value }} ({{ order.created_at.strftime('%Y-%m-%d') }})
-              </option>
-            {% endfor %}
-          </select>
+          <input
+            type="text"
+            id="order_number"
+            name="order_number"
+            class="form-control"
+            placeholder="Enter your order number (e.g. NAN36071)"
+            required
+          >
+          <div class="form-text hint">We’ll match this against your orders. You can paste your <code>order_no</code>.</div>
+          <div class="invalid-feedback">Order number is required.</div>
         </div>
 
-        <!-- WhatsApp Number -->
+        <!-- Screenshot: Data Balance -->
         <div class="mb-3">
-          <label class="form-label fw-semibold">
-            <i class="bi bi-whatsapp"></i> WhatsApp Number
+          <label class="form-label fw-semibold" for="screenshot_balance">
+            <i class="bi bi-image-fill"></i> Screenshot of Data Balance
           </label>
-          <input type="text" name="whatsapp" class="form-control" placeholder="e.g. 0241234567" required>
+
+          <label class="dropzone w-100" id="dz-balance">
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi bi-cloud-arrow-up"></i>
+              <span>Click to upload or drag & drop</span>
+            </div>
+            <input
+              type="file"
+              id="screenshot_balance"
+              name="screenshot_balance"
+              class="form-control d-none"
+              accept="image/png, image/jpeg, image/jpg, image/webp"
+              required
+            >
+          </label>
+          <div class="form-text hint">Allowed: PNG, JPG, JPEG, WEBP. Max size: 8MB.</div>
+          <img id="preview_balance" class="preview-img d-none" alt="Balance preview">
+          <div class="invalid-feedback">Please upload a valid data balance screenshot (PNG/JPG/WEBP, ≤ 8MB).</div>
         </div>
 
-        <!-- Description -->
-        <div class="mb-3">
-          <label class="form-label fw-semibold">
-            <i class="bi bi-chat-left-text-fill"></i> Complaint Description
+        <!-- Screenshot: Phone Number (MSISDN) -->
+        <div class="mb-4">
+          <label class="form-label fw-semibold" for="screenshot_msisdn">
+            <i class="bi bi-phone"></i> Screenshot of Phone Number (MSISDN)
           </label>
-          <textarea name="description" class="form-control" rows="4" placeholder="Describe the issue…" required></textarea>
-        </div>
 
-        <!-- Image Upload -->
-        <div class="mb-3">
-          <label class="form-label fw-semibold">
-            <i class="bi bi-image-fill"></i> Upload Image (optional)
+          <label class="dropzone w-100" id="dz-msisdn">
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi bi-cloud-arrow-up"></i>
+              <span>Click to upload or drag & drop</span>
+            </div>
+            <input
+              type="file"
+              id="screenshot_msisdn"
+              name="screenshot_msisdn"
+              class="form-control d-none"
+              accept="image/png, image/jpeg, image/jpg, image/webp"
+              required
+            >
           </label>
-          <input type="file" name="image" class="form-control" accept="image/*" onchange="previewImage(event)">
-          <img id="preview" class="preview-img d-none" />
+          <div class="form-text hint">The screenshot should clearly show the phone number used. Max size: 8MB.</div>
+          <img id="preview_msisdn" class="preview-img d-none" alt="MSISDN preview">
+          <div class="invalid-feedback">Please upload the phone number screenshot (PNG/JPG/WEBP, ≤ 8MB).</div>
         </div>
 
         <div class="d-grid">
@@ -116,11 +145,69 @@
 
   <!-- Scripts -->
   <script>
-    function previewImage(event) {
-      const preview = document.getElementById('preview');
-      preview.src = URL.createObjectURL(event.target.files[0]);
-      preview.classList.remove('d-none');
+    // Basic client-side checks matching backend rules
+    const MAX_MB = 8;
+    const ALLOWED = ['png','jpg','jpeg','webp'];
+
+    function previewFile(input, previewEl) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      const okType = ALLOWED.includes(ext);
+      const okSize = file.size <= MAX_MB * 1024 * 1024;
+
+      if (!okType || !okSize) {
+        input.value = '';
+        previewEl.classList.add('d-none');
+        previewEl.removeAttribute('src');
+        input.closest('.mb-3, .mb-4').querySelector('.invalid-feedback').style.display = 'block';
+        return;
+      }
+
+      input.closest('.mb-3, .mb-4').querySelector('.invalid-feedback').style.display = '';
+      previewEl.src = URL.createObjectURL(file);
+      previewEl.classList.remove('d-none');
     }
+
+    function wireDropzone(dz, input, preview) {
+      dz.addEventListener('click', () => input.click());
+      ['dragenter','dragover'].forEach(evt =>
+        dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); dz.classList.add('dragover'); })
+      );
+      ['dragleave','drop'].forEach(evt =>
+        dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); dz.classList.remove('dragover'); })
+      );
+      dz.addEventListener('drop', e => {
+        const file = e.dataTransfer.files && e.dataTransfer.files[0];
+        if (file) {
+          input.files = e.dataTransfer.files;
+          previewFile(input, preview);
+        }
+      });
+      input.addEventListener('change', () => previewFile(input, preview));
+    }
+
+    const inputBalance = document.getElementById('screenshot_balance');
+    const inputMsisdn  = document.getElementById('screenshot_msisdn');
+    const prevBalance  = document.getElementById('preview_balance');
+    const prevMsisdn   = document.getElementById('preview_msisdn');
+    wireDropzone(document.getElementById('dz-balance'), inputBalance, prevBalance);
+    wireDropzone(document.getElementById('dz-msisdn'),  inputMsisdn,  prevMsisdn);
+
+    // Bootstrap-style validation
+    const form = document.getElementById('complaint-form');
+    form.addEventListener('submit', function (e) {
+      // trigger previews/validation if user skipped selection
+      if (inputBalance.files.length === 0) previewFile(inputBalance, prevBalance);
+      if (inputMsisdn.files.length === 0) previewFile(inputMsisdn, prevMsisdn);
+
+      if (!form.checkValidity()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      form.classList.add('was-validated');
+    });
   </script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
