@@ -148,6 +148,25 @@
 }
 
 </style>
+<style>
+  .svc-card {
+    transition: all 0.25s ease;
+    border-color: #e9ecef !important;
+  }
+  .svc-card:hover {
+    border-color: var(--sea-blue) !important;
+    box-shadow: 0 6px 20px rgba(14, 165, 233, 0.15) !important;
+    transform: translateY(-3px);
+  }
+  .svc-img {
+    background: #f8f9fa;
+  }
+  @media (max-width: 576px) {
+    .svc-img {
+      height: 120px !important;
+    }
+  }
+</style>
 </head>
 <body>
   {% include 'customer_sidebar.html' %}
@@ -185,43 +204,48 @@
   
 
     <!-- Make an Order -->
-    <div class="container py-4" id="services">
-      <h2 class="text-center mb-4">Make an Order</h2>
+    <!-- Make an Order -->
+<div class="container py-4" id="services">
+  <h2 class="text-center mb-4">Make an Order</h2>
 
-      <!-- Services -->
-      <div class="mb-4">
-  <label class="form-label fw-semibold">Service</label>
+  <!-- Services -->
+  <div class="mb-4">
+    <label class="form-label fw-semibold">Service</label>
 
-  <div class="row g-3">
-    {% for svc in services %}
-    <div class="col-12 col-sm-6">
-      <div class="svc-card h-100 shadow-sm p-2 rounded bg-white">
-        {% if svc.image_url %}
-          <img src="{{ svc.image_url }}" class="svc-img mb-2 w-100" alt="{{ svc.name }}" style="border-radius: 8px; object-fit: cover; max-height: 160px;">
-        {% endif %}
-        <div class="d-flex justify-content-between align-items-center gap-2">
-          <div class="fw-semibold text-truncate">{{ svc.name }}</div>
-          <button
-            class="btn btn-sm btn-outline-primary select-service-btn"
-            data-service='{{ {
-                "_id_str": svc._id_str,
-                "name": svc.name,
-                "effective_profit_percent": svc.effective_profit_percent | default(0),
-                "offers": svc.offers or []
-              } | tojson }}'>
-            Buy
-          </button>
+    <div class="row g-3">
+      {% for svc in services %}
+      <div class="col-6 col-md-4 col-lg-3">
+        <div class="svc-card h-100 border border-2 border-light rounded-4 bg-white shadow-sm p-2 d-flex flex-column">
+          {% if svc.image_url %}
+            <img src="{{ svc.image_url }}"
+                 class="svc-img w-100 rounded-3 mb-3"
+                 alt="{{ svc.name }}"
+                 style="object-fit: cover; height: 140px;">
+          {% endif %}
+
+          <div class="mt-auto d-flex justify-content-between align-items-center gap-2">
+            <div class="fw-semibold text-truncate">{{ svc.name }}</div>
+            <button
+              class="btn btn-sm btn-outline-primary select-service-btn"
+              data-service='{{ {
+                  "_id_str": svc._id_str,
+                  "name": svc.name,
+                  "effective_profit_percent": svc.effective_profit_percent | default(0),
+                  "offers": svc.offers or []
+                } | tojson }}'>
+              Buy
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-    {% endfor %}
+      {% endfor %}
 
-    {% if services|length == 0 %}
-      <div class="col-12 text-muted">No services available yet.</div>
-    {% endif %}
+      {% if services|length == 0 %}
+        <div class="col-12 text-muted">No services available yet.</div>
+      {% endif %}
+    </div>
   </div>
 </div>
-
 <hr class="my-5">
 
       <!-- Work area -->
