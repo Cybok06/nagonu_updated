@@ -10,40 +10,15 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
 
   <style>
-    body {
-      background-color: #f8fafc;
-      font-family: 'Segoe UI', sans-serif;
-    }
-    .complaint-form-card {
-      background: #fff;
-      padding: 2rem;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-      max-width: 700px;
-      margin: 0 auto;
-    }
-    .preview-img {
-      max-width: 100%;
-      max-height: 220px;
-      border-radius: 8px;
-      margin-top: 10px;
-      border: 1px solid #dee2e6;
-    }
-    h3.title-heading { font-weight: 600; color: #0ea5e9; }
-    .form-label i { color: #0ea5e9; margin-right: 4px; }
-    .hint { font-size: .9rem; color: #6b7280; }
-    .dropzone {
-      border: 1.5px dashed #cbd5e1;
-      border-radius: 10px;
-      padding: 14px;
-      background: #f9fafb;
-      transition: background .2s, border-color .2s;
-      cursor: pointer;
-    }
-    .dropzone.dragover {
-      background: #eef7fd;
-      border-color: #0ea5e9;
-    }
+    body { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
+    .complaint-form-card { background:#fff; padding:2rem; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,.05); max-width:700px; margin:0 auto; }
+    .preview-img { max-width:100%; max-height:220px; border-radius:8px; margin-top:10px; border:1px solid #dee2e6; }
+    h3.title-heading { font-weight:600; color:#0ea5e9; }
+    .form-label i { color:#0ea5e9; margin-right:4px; }
+    .hint { font-size:.9rem; color:#6b7280; }
+    .dropzone { border:1.5px dashed #cbd5e1; border-radius:10px; padding:14px; background:#f9fafb; transition:background .2s, border-color .2s; }
+    .dropzone.dragover { background:#eef7fd; border-color:#0ea5e9; }
+    .visually-hidden-input { position:absolute !important; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
   </style>
 </head>
 <body>
@@ -72,15 +47,9 @@
           <label class="form-label fw-semibold" for="order_number">
             <i class="bi bi-hash"></i> Order Number
           </label>
-          <input
-            type="text"
-            id="order_number"
-            name="order_number"
-            class="form-control"
-            placeholder="Enter your order number (e.g. NAN36071)"
-            required
-          >
-          <div class="form-text hint">We’ll match this against your orders. You can paste your <code>order_no</code>.</div>
+          <input type="text" id="order_number" name="order_number" class="form-control"
+                 placeholder="Enter your order number (e.g. NAN36071)" required>
+          <div class="form-text hint">You can paste <code>order_no</code>, <code>order_id</code>, or the MongoDB <code>_id</code>.</div>
           <div class="invalid-feedback">Order number is required.</div>
         </div>
 
@@ -90,20 +59,18 @@
             <i class="bi bi-image-fill"></i> Screenshot of Data Balance
           </label>
 
-          <label class="dropzone w-100" id="dz-balance">
+          <!-- Hidden input OUTSIDE label + label uses for="..." (native open) -->
+          <input type="file" id="screenshot_balance" name="screenshot_balance"
+                 class="visually-hidden-input"
+                 accept="image/png, image/jpeg, image/jpg, image/webp" required>
+
+          <label class="dropzone w-100" for="screenshot_balance" id="dz-balance">
             <div class="d-flex align-items-center gap-2">
               <i class="bi bi-cloud-arrow-up"></i>
               <span>Click to upload or drag & drop</span>
             </div>
-            <input
-              type="file"
-              id="screenshot_balance"
-              name="screenshot_balance"
-              class="form-control d-none"
-              accept="image/png, image/jpeg, image/jpg, image/webp"
-              required
-            >
           </label>
+
           <div class="form-text hint">Allowed: PNG, JPG, JPEG, WEBP. Max size: 8MB.</div>
           <img id="preview_balance" class="preview-img d-none" alt="Balance preview">
           <div class="invalid-feedback">Please upload a valid data balance screenshot (PNG/JPG/WEBP, ≤ 8MB).</div>
@@ -115,21 +82,18 @@
             <i class="bi bi-phone"></i> Screenshot of Phone Number (MSISDN)
           </label>
 
-          <label class="dropzone w-100" id="dz-msisdn">
+          <input type="file" id="screenshot_msisdn" name="screenshot_msisdn"
+                 class="visually-hidden-input"
+                 accept="image/png, image/jpeg, image/jpg, image/webp" required>
+
+          <label class="dropzone w-100" for="screenshot_msisdn" id="dz-msisdn">
             <div class="d-flex align-items-center gap-2">
               <i class="bi bi-cloud-arrow-up"></i>
               <span>Click to upload or drag & drop</span>
             </div>
-            <input
-              type="file"
-              id="screenshot_msisdn"
-              name="screenshot_msisdn"
-              class="form-control d-none"
-              accept="image/png, image/jpeg, image/jpg, image/webp"
-              required
-            >
           </label>
-          <div class="form-text hint">The screenshot should clearly show the phone number used. Max size: 8MB.</div>
+
+          <div class="form-text hint">Screenshot should clearly show the phone number used. Max size: 8MB.</div>
           <img id="preview_msisdn" class="preview-img d-none" alt="MSISDN preview">
           <div class="invalid-feedback">Please upload the phone number screenshot (PNG/JPG/WEBP, ≤ 8MB).</div>
         </div>
@@ -145,9 +109,15 @@
 
   <!-- Scripts -->
   <script>
-    // Basic client-side checks matching backend rules
+    // Client-side checks
     const MAX_MB = 8;
     const ALLOWED = ['png','jpg','jpeg','webp'];
+
+    function showInvalid(input, on = true) {
+      const group = input.closest('.mb-3, .mb-4');
+      const feedback = group ? group.querySelector('.invalid-feedback') : null;
+      if (feedback) feedback.style.display = on ? 'block' : '';
+    }
 
     function previewFile(input, previewEl) {
       const file = input.files && input.files[0];
@@ -161,17 +131,16 @@
         input.value = '';
         previewEl.classList.add('d-none');
         previewEl.removeAttribute('src');
-        input.closest('.mb-3, .mb-4').querySelector('.invalid-feedback').style.display = 'block';
+        showInvalid(input, true);
         return;
       }
-
-      input.closest('.mb-3, .mb-4').querySelector('.invalid-feedback').style.display = '';
+      showInvalid(input, false);
       previewEl.src = URL.createObjectURL(file);
       previewEl.classList.remove('d-none');
     }
 
+    // Only DRAG/DROP events wired; no manual click() to avoid re-open loops
     function wireDropzone(dz, input, preview) {
-      dz.addEventListener('click', () => input.click());
       ['dragenter','dragover'].forEach(evt =>
         dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); dz.classList.add('dragover'); })
       );
@@ -179,12 +148,17 @@
         dz.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); dz.classList.remove('dragover'); })
       );
       dz.addEventListener('drop', e => {
-        const file = e.dataTransfer.files && e.dataTransfer.files[0];
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
         if (file) {
-          input.files = e.dataTransfer.files;
+          // Set files via DataTransfer for consistency
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          input.files = dt.files;
           previewFile(input, preview);
         }
       });
+
+      // Native open handled by <label for="...">; just listen to change for preview
       input.addEventListener('change', () => previewFile(input, preview));
     }
 
@@ -198,9 +172,8 @@
     // Bootstrap-style validation
     const form = document.getElementById('complaint-form');
     form.addEventListener('submit', function (e) {
-      // trigger previews/validation if user skipped selection
-      if (inputBalance.files.length === 0) previewFile(inputBalance, prevBalance);
-      if (inputMsisdn.files.length === 0) previewFile(inputMsisdn, prevMsisdn);
+      if (inputBalance.files.length === 0) showInvalid(inputBalance, true);
+      if (inputMsisdn.files.length === 0) showInvalid(inputMsisdn, true);
 
       if (!form.checkValidity()) {
         e.preventDefault();
