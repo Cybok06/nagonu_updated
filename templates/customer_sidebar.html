@@ -128,7 +128,7 @@
 <!-- Top Navbar (Mobile) -->
 <nav class="navbar navbar-dark customer-topbar d-lg-none fixed-top">
   <div class="container-fluid d-flex justify-content-between align-items-center">
-    <div class="fw-bold text-white fs-5">Nagonu</div>
+    <div class="fw-bold text-white fs-5">Ngonu</div>
     <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#adminDrawer" aria-controls="adminDrawer">
       <span class="navbar-toggler-icon"></span>
     </button>
@@ -211,6 +211,12 @@
           <i class="bi bi-person-plus-fill"></i> Invite Friends
         </a>
       </li>
+<li class="nav-item">
+  <a href="{{ url_for('deposit.deposit_page') }}" class="nav-link {% if current == 'deposit.deposit_page' %}active{% endif %}">
+    <i class="bi bi-wallet2"></i> Deposit
+  </a>
+</li>
+
       <li class="nav-item">
         <a href="{{ url_for('customer_profile.customer_profile') }}" class="nav-link {% if current == 'customer_profile.customer_profile' %}active{% endif %}">
           <i class="bi bi-person-circle"></i> Profile
@@ -306,6 +312,11 @@
       </a>
     </li>
     <li class="nav-item">
+  <a href="{{ url_for('deposit.deposit_page') }}" class="nav-link {% if current == 'deposit.deposit_page' %}active{% endif %}">
+    <i class="bi bi-wallet2"></i> Deposit
+  </a>
+</li>
+    <li class="nav-item">
       <a href="{{ url_for('customer_profile.customer_profile') }}" class="nav-link {% if current == 'customer_profile.customer_profile' %}active{% endif %}">
         <i class="bi bi-person-circle"></i> Profile
       </a>
@@ -360,5 +371,4 @@
     });
   })();
 </script>
-
 
