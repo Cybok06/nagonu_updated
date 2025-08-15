@@ -15,7 +15,7 @@ balances_col = db["balances"]
 orders_col = db["orders"]
 transactions_col = db["transactions"]
 services_col = db["services"]
-service_profits_col = db["service_profits"]  # NEW: per-customer overrides
+service_profits_col = db["service_profits"]  # per-customer overrides
 
 # ===== Toppily config (HARD-CODED) =====
 TOPPILY_URL = "https://toppily.com/api/v1/buy-other-package"
@@ -87,10 +87,7 @@ def _to_float(x, default=None):
 def _coerce_value_obj(v):
     """
     Accepts dict, JSON string, or python-dict-like string.
-    Returns a dict (possibly empty). Example inputs handled:
-      - {"id": 5, "volume": 1000}
-      - "{'id': 5, 'volume': 1000}"
-      - {"volume": "1000"}
+    Returns a dict (possibly empty).
     """
     if isinstance(v, dict):
         return v
@@ -98,12 +95,10 @@ def _coerce_value_obj(v):
         return {}
     s = str(v).strip()
     if s.startswith("{") and s.endswith("}"):
-        # Try JSON
         try:
             d = json.loads(s)
             return d if isinstance(d, dict) else {}
         except Exception:
-            # Try pythonic dict
             try:
                 d = ast.literal_eval(s)
                 return d if isinstance(d, dict) else {}
@@ -142,7 +137,6 @@ def _post_requests(body, verify):
         data = resp.json()
     except Exception:
         data = {"raw": text}
-    # keep original ok detection; downstream we normalize "failed" to processing anyway
     ok = resp.ok and bool(data.get("success", False))
     return ok, data, resp, text
 
@@ -164,11 +158,6 @@ def _post_cloudscraper(body):
 
 # ===== Profit helpers (absolute profit amount) =====
 def _get_service_default_profit_percent(service_doc):
-    """
-    Service-level default percent — only used to INFER base_amount if the client
-    didn't send it AND we couldn't match an offer. We still persist profit_amount,
-    not the percent.
-    """
     return _to_float(service_doc.get("default_profit_percent"), 0.0) or 0.0
 
 def _get_customer_profit_override_percent(service_id, customer_id_obj):
@@ -180,11 +169,6 @@ def _effective_profit_percent(service_doc, customer_id_obj):
     return override if override is not None else _get_service_default_profit_percent(service_doc)
 
 def _pick_offer_base_amount_from_service(svc_doc, value_obj, raw_value):
-    """
-    Try to locate the matching offer in the service and return its base amount.
-    Match by value_obj.id or value_obj.volume or raw value text.
-    Returns None if no match.
-    """
     try:
         offers = svc_doc.get("offers") or []
         vid = (value_obj or {}).get("id")
@@ -192,7 +176,6 @@ def _pick_offer_base_amount_from_service(svc_doc, value_obj, raw_value):
         for of in offers:
             of_val = of.get("value")
             of_amt = _to_float(of.get("amount"))
-            # normalize dictionary-ish value fields
             if isinstance(of_val, str) and of_val.strip().startswith("{") and of_val.strip().endswith("}"):
                 try:
                     of_val = json.loads(of_val)
@@ -201,7 +184,6 @@ def _pick_offer_base_amount_from_service(svc_doc, value_obj, raw_value):
                         of_val = ast.literal_eval(of_val)
                     except Exception:
                         pass
-            # Match by id/volume when possible, else by string equality
             if isinstance(of_val, dict):
                 if (vid is not None and of_val.get("id") == vid) or (vvol is not None and of_val.get("volume") == vvol):
                     return of_amt
@@ -213,13 +195,6 @@ def _pick_offer_base_amount_from_service(svc_doc, value_obj, raw_value):
     return None
 
 def _derive_base_profit(amount_total, base_amount_hint, eff_percent):
-    """
-    Return (base_amount, profit_amount)
-    Priority:
-      1) base_amount_hint (from client) → profit = amount_total - base_hint
-      2) If no hint, back out base from percent: base = amount_total / (1 + p)
-         (only as a last resort; we still persist absolute profit_amount)
-    """
     a = _money(amount_total)
     if a <= 0:
         return 0.0, 0.0
@@ -230,7 +205,6 @@ def _derive_base_profit(amount_total, base_amount_hint, eff_percent):
             profit = 0.0
             base = a
         return round(base, 2), profit
-    # fallback: infer base from percent
     p = _to_float(eff_percent, 0.0) or 0.0
     try:
         base = round(a / (1.0 + (p / 100.0)), 2) if p > 0 else a
@@ -244,15 +218,12 @@ def _derive_base_profit(amount_total, base_amount_hint, eff_percent):
 
 # ===== Resolve fields for shared-bundle =====
 def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
-    # 1) explicit in payload
     nid = (item or {}).get("network_id") or (value_obj or {}).get("network_id")
     if nid not in (None, "", []):
         try:
             return int(nid)
         except Exception:
             pass
-
-    # 2) from bound service doc
     if svc_doc:
         try:
             if "network_id" in svc_doc and svc_doc["network_id"] not in (None, ""):
@@ -262,13 +233,10 @@ def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
                 return int(NETWORK_ID_FALLBACK[guess])
         except Exception:
             pass
-
-    # 3) from serviceName fallback (only if we have no service doc)
     if not svc_doc:
         name = (item.get("serviceName") or "").strip().upper()
         if name in NETWORK_ID_FALLBACK:
             return int(NETWORK_ID_FALLBACK[name])
-
     return None
 
 def _resolve_shared_bundle(item: dict, value_obj: dict):
@@ -422,7 +390,7 @@ def process_checkout():
         if not cart or not isinstance(cart, list):
             return jsonify({"success": False, "message": "Cart is empty or invalid"}), 400
 
-        # Total requested (this should already be the customer-facing price — includes profit)
+        # Total requested (customer-facing price — includes profit)
         total_requested = sum(_money(item.get("amount")) for item in cart)
         if total_requested <= 0:
             return jsonify({"success": False, "message": "Total amount must be greater than zero"}), 400
@@ -439,12 +407,12 @@ def process_checkout():
         debug_events = []
 
         # We will charge for: successful API lines + any line we keep "processing"
-        total_delivered_api_amount = 0.0    # amount for API lines that are delivered (formerly 'completed')
-        total_processing_amount = 0.0       # amount for non-API, API-missing-fields, or API "failed" (forced to processing)
+        total_delivered_api_amount = 0.0
+        total_processing_amount = 0.0
         api_requested_total = 0.0
         has_processing = False
 
-        # NEW: rollup profit
+        # Rollup profit
         profit_amount_total = 0.0
 
         for idx, item in enumerate(cart, start=1):
@@ -471,10 +439,9 @@ def process_checkout():
                     svc_doc = None
                     svc_type = None
 
-            # --- Compute base_amount & profit_amount (ABSOLUTE), not just a percent ---
+            # --- Compute base_amount & profit_amount (ABSOLUTE) ---
             base_hint = _to_float(item.get("base_amount"))
             if base_hint is None:
-                # try to pick from offers
                 base_hint = _pick_offer_base_amount_from_service(svc_doc or {}, value_obj, item.get("value"))
             eff_p = 0.0
             if svc_doc:
@@ -497,7 +464,7 @@ def process_checkout():
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
                     "service_type": svc_type if svc_type else ("unknown" if not svc_doc else None),
-                    "line_status": "processing",                    # <— was 'pending'
+                    "line_status": "processing",                    # never 'failed'
                     "api_status": "not_applicable",
                     "api_response": {"note": "Service not API; queued for processing"}
                 })
@@ -551,7 +518,7 @@ def process_checkout():
                     "serviceName": svc_name,
                     "service_type": svc_type,
                     "trx_ref": trx_ref,
-                    "line_status": "delivered",          # <— rename completed → delivered
+                    "line_status": "delivered",
                     "api_status": "success",
                     "api_response": payload
                 })
@@ -572,7 +539,7 @@ def process_checkout():
                     "serviceName": svc_name,
                     "service_type": svc_type,
                     "trx_ref": trx_ref,
-                    "line_status": "processing",          # <— was 'failed'
+                    "line_status": "processing",          # never 'failed'
                     "api_status": "processing",
                     "api_response": payload
                 })
@@ -584,7 +551,7 @@ def process_checkout():
         # Total to charge now = delivered API + all processing lines (totals already include profit)
         total_to_charge_now = round(total_delivered_api_amount + total_processing_amount, 2)
 
-        # ==== If nothing counted yet (extreme case) → charge full cart and mark processing ====
+        # ==== If nothing counted yet → charge full cart and mark processing ====
         if total_to_charge_now <= 0:
             status = "processing"
 
@@ -708,5 +675,5 @@ def process_checkout():
 
     except Exception:
         jlog("checkout_uncaught", error=traceback.format_exc())
-        # Still keep a generic failure here for truly exceptional cases (auth/validation/500)
+        # Only truly exceptional cases return a 500; normal API failures never surface as 'failed'
         return jsonify({"success": False, "message": "Server error"}), 500
