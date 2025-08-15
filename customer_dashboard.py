@@ -13,9 +13,11 @@ users_col = db["users"]                      # for display name
 
 # ---------- helpers ----------
 _NUM = re.compile(r"^\s*-?\d+(\.\d+)?\s*$", re.IGNORECASE)
-_GB = re.compile(r"(\d+(?:\.\d+)?)\s*GB\b", re.IGNORECASE)
-_MB = re.compile(r"(\d+(?:\.\d+)?)\s*MB\b", re.IGNORECASE)
+_GB  = re.compile(r"(\d+(?:\.\d+)?)[\s]*G(?:B|IG)?\b", re.IGNORECASE)
+_MB  = re.compile(r"(\d+(?:\.\d+)?)[\s]*MB\b", re.IGNORECASE)
+_MIN = re.compile(r"(\d+(?:\.\d+)?)[\s]*(?:MIN|MINS|MINUTE|MINUTES)\b", re.IGNORECASE)
 _PKG_TAIL = re.compile(r"\s*\(Pkg\s*\d+\)\s*$", re.IGNORECASE)
+_mapping_like = re.compile(r"^\s*\{.*\}\s*$", re.DOTALL)
 
 def _to_float(x):
     try:
@@ -23,26 +25,54 @@ def _to_float(x):
     except Exception:
         return None
 
-def _format_volume(vol_mb):
+# ---- unit helpers ------------------------------------------------------------
+
+def _service_unit(svc) -> str:
+    """
+    Returns the unit for a service:
+      - 'minutes' for AFA talktime (by name or optional svc['unit']=='minutes')
+      - 'data' (MB/GB) for everything else
+    If you later add svc['unit'] for other services, this will auto-honor it.
+    """
+    unit = (svc.get("unit") or "").strip().lower()
+    name = (svc.get("name") or "").strip().lower()
+    if unit in ("min", "mins", "minute", "minutes"):
+        return "minutes"
+    if name == "afa talktime":
+        return "minutes"
+    return "data"
+
+def _format_volume_unit(value: float | None, unit: str) -> str:
+    """
+    Pretty-print a numeric volume given the unit.
+      - data: interpret as MB and show MB/GB
+      - minutes: show as 'X mins'
+    """
+    if value is None:
+        return "-"
     try:
-        v = float(vol_mb)
+        v = float(value)
     except Exception:
         return "-"
+
+    if unit == "minutes":
+        # Always whole minutes visually
+        return f"{int(round(v))} mins"
+
+    # default: 'data' -> value is MB
     if v >= 1000:
         gb = v / 1000.0
-        # pretty print: 1GB not 1.00GB
         return f"{int(gb)}GB" if abs(gb - int(gb)) < 1e-9 else f"{gb:.2f}GB"
     return f"{int(v)}MB"
-
-_mapping_like = re.compile(r"^\s*\{.*\}\s*$", re.DOTALL)
 
 def _parse_value_field(value):
     """
     Accepts:
       - dict like {"id": 50, "volume": 20000}
       - Python-like string "{'id': 50, 'volume': 20000}"
-      - raw string like "1GB" or "1000MB" or "GHS 160 — 1GB (Pkg 2)"
-    Returns either dict or string.
+      - raw string like "1GB" or "1000MB" or "250 MIN"
+      - display string like "GHS 160 — 1GB (Pkg 2)"
+    Returns either dict (preferred) or the original string.
     """
     if isinstance(value, dict) or value is None:
         return value
@@ -66,56 +96,88 @@ def _parse_value_field(value):
         return vt
     return value
 
-def _extract_volume_mb(value) -> float | None:
+def _extract_volume(value, unit: str) -> float | None:
     """
-    Try to get a numeric volume in MB for sorting/price display.
-    Priority:
-      - dict {"volume": <mb or gb-intended?>}
-      - strings: "1GB", "1000MB", "... — 1GB", etc.
-    If dict volume looks like GB (e.g., <= 100 and amount looks large), we still treat it literally (no guesses).
+    Get a numeric 'volume' suitable for sorting and display, depending on unit:
+      - unit == 'data': return MB (float)
+      - unit == 'minutes': return minutes (float)
     """
-    # dict case
+    # dict case (preferred storage shape: {"id": X, "volume": Y})
     if isinstance(value, dict):
         vol = value.get("volume")
         if vol is None:
             return None
-        # If it is clearly numeric, assume MB unless the surrounding schema is GB-only (we won't assume that).
         if isinstance(vol, (int, float)) or (_NUM.match(str(vol))):
+            # stored numeric; interpret according to unit
             return float(vol)
-        # Could be a string like "1GB"
-        vol = str(vol)
-        m = _GB.search(vol)
-        if m:
-            return float(m.group(1)) * 1000.0
-        m = _MB.search(vol)
-        if m:
-            return float(m.group(1))
-        return None
+        # could be "1GB", "1000MB", "250 mins"
+        vol_s = str(vol)
+        if unit == "minutes":
+            m = _MIN.search(vol_s)
+            if m:
+                return float(m.group(1))
+            # if only digits, treat as minutes
+            if _NUM.match(vol_s):
+                return float(vol_s)
+            return None
+        else:
+            # data
+            m = _GB.search(vol_s)
+            if m:
+                return float(m.group(1)) * 1000.0
+            m = _MB.search(vol_s)
+            if m:
+                return float(m.group(1))
+            if _NUM.match(vol_s):
+                # numeric without suffix -> assume MB
+                return float(vol_s)
+            return None
 
     # string case
     if isinstance(value, str):
         s = value
-        m = _GB.search(s)
-        if m:
-            return float(m.group(1)) * 1000.0
-        m = _MB.search(s)
-        if m:
-            return float(m.group(1))
-        # sometimes value is just "1", which could be GB in your UI, but we will not guess
-        return None
+        if unit == "minutes":
+            m = _MIN.search(s)
+            if m:
+                return float(m.group(1))
+            if _NUM.match(s):
+                return float(s)
+            # strip adornments and try again
+            s2 = _PKG_TAIL.sub("", s)
+            m = _MIN.search(s2)
+            if m:
+                return float(m.group(1))
+            return None
+        else:
+            # data
+            m = _GB.search(s)
+            if m:
+                return float(m.group(1)) * 1000.0
+            m = _MB.search(s)
+            if m:
+                return float(m.group(1))
+            s2 = _PKG_TAIL.sub("", s)
+            m = _GB.search(s2)
+            if m:
+                return float(m.group(1)) * 1000.0
+            m = _MB.search(s2)
+            if m:
+                return float(m.group(1))
+            if _NUM.match(s2):
+                return float(s2)  # assume MB
+            return None
 
     return None
 
-def _value_text_for_display(value):
-    """Return a clean label: volume formatted w/o package id suffixes."""
+def _value_text_for_display(value, unit: str):
+    """Return a clean label for UI, based on unit."""
     if isinstance(value, dict):
-        vol = _extract_volume_mb(value)
-        return _format_volume(vol) if vol is not None else "-"
+        vol = _extract_volume(value, unit)
+        return _format_volume_unit(vol, unit) if vol is not None else "-"
     if isinstance(value, str):
         cleaned = _PKG_TAIL.sub("", value).strip()
-        # If it contains a volume, normalize its print:
-        vol = _extract_volume_mb(cleaned)
-        return _format_volume(vol) if vol is not None else cleaned or "-"
+        vol = _extract_volume(cleaned, unit)
+        return _format_volume_unit(vol, unit) if vol is not None else (cleaned or "-")
     return value or "-"
 
 def _get_service_default_profit(service_doc):
@@ -137,7 +199,6 @@ def _price_with_profit(amount, profit_percent):
     return round(a + (a * (p / 100.0)), 2)
 
 # ---- service ordering ----
-# Desired top order; match loosely (case-insensitive)
 PREFERRED_ORDER = [
     "MTN",
     "AT - iShare",
@@ -149,13 +210,10 @@ def _norm(s: str) -> str:
     return (s or "").strip().lower()
 
 def _name_rank(name: str) -> int | None:
-    """Return index in PREFERRED_ORDER if name matches (case-insensitive, hyphen/space tolerant)."""
     n = _norm(name)
-    # allow small spelling variants like iSHare/iShare etc.
     for i, want in enumerate(PREFERRED_ORDER):
         if _norm(want) == n:
             return i
-    # also try minimal normalization (remove repeated spaces)
     n2 = " ".join(n.split())
     for i, want in enumerate(PREFERRED_ORDER):
         if " ".join(_norm(want).split()) == n2:
@@ -163,56 +221,30 @@ def _name_rank(name: str) -> int | None:
     return None
 
 def _created_ts(service_doc) -> float:
-    """
-    Return epoch SECONDS (float) for created_at (best effort).
-    Accepts datetime, epoch seconds, or epoch milliseconds.
-    """
     ca = service_doc.get("created_at")
-    # datetime
     if isinstance(ca, datetime):
         return ca.timestamp()
-    # numeric-like
     try:
         val = float(ca)
-        # Heuristic: if it's very large, treat as milliseconds
-        if val > 1e12:  # ~ Sat Nov 20 33658 🤭
+        if val > 1e12:
             return val / 1000.0
         return val
     except Exception:
         return 0.0
 
 def _service_priority_tuple(svc):
-    """
-    Order by:
-      1) explicit numeric 'priority' (lower first) if present
-      2) then preferred-name rank (MTN, iShare, BigTime, AFA)
-      3) then 'display_order' if present (lower first)
-      4) then newest first by created_at
-      5) then name A→Z
-    """
-    # explicit numeric priority override from DB
     prio = _to_float(svc.get("priority"))
     prio = prio if prio is not None else float("inf")
-
-    # preferred name rank
     name = svc.get("name") or ""
     nrank = _name_rank(name)
     nrank = nrank if nrank is not None else 10_000
-
-    # optional display_order from DB
     display_order = _to_float(svc.get("display_order"))
     display_order = display_order if display_order is not None else float("inf")
-
-    # created: newest first -> use negative timestamp
     ts = -_created_ts(svc)
-
-    # tie-break alphabetically
     alpha = _norm(name)
-
     return (prio, nrank, display_order, ts, alpha)
 
 def _display_name(user_doc):
-    """Pick the best display name from users doc."""
     if not user_doc:
         return "Customer"
     for key in ("full_name", "name"):
@@ -228,19 +260,17 @@ def _display_name(user_doc):
         return str(user_doc["email"]).split("@", 1)[0]
     return "Customer"
 
-# ---------- make username/balance available in all templates ----------
+# ---------- globals ----------
 @customer_dashboard_bp.app_context_processor
 def inject_customer_globals():
     bal = 0.0
-    uname = session.get("username")  # optional session hint
+    uname = session.get("username")
     try:
         if session.get("role") == "customer" and session.get("user_id"):
             uid = ObjectId(session["user_id"])
-            # balance
             bal_doc = balances_col.find_one({"user_id": uid})
             if bal_doc and bal_doc.get("amount") is not None:
                 bal = float(bal_doc["amount"])
-            # name from users collection
             user_doc = users_col.find_one({"_id": uid}, {
                 "full_name": 1, "name": 1, "first_name": 1, "last_name": 1, "username": 1, "email": 1
             })
@@ -260,13 +290,13 @@ def customer_dashboard():
         return redirect(url_for("login.login"))
     user_oid = ObjectId(user_id)
 
-    # fetch user (for direct use on dashboard)
+    # user doc
     user_doc = users_col.find_one({"_id": user_oid}, {
         "full_name": 1, "name": 1, "first_name": 1, "last_name": 1, "username": 1, "email": 1
     })
     customer_name = _display_name(user_doc)
 
-    # fetch & sort services with robust priority
+    # services (sorted)
     raw_services = list(services_col.find({}))
     raw_services.sort(key=_service_priority_tuple)
 
@@ -275,18 +305,21 @@ def customer_dashboard():
         s["_id_str"] = str(s["_id"])
         eff_profit = _effective_profit_percent(s, user_oid)
 
+        unit = _service_unit(s)  # <-- minutes for AFA TALKTIME, data otherwise
         offers = s.get("offers") or []
 
-        # normalize offers; sort by volume (asc), then amount (asc)
         normalized_offers = []
         for of in offers:
             parsed_value = _parse_value_field(of.get("value"))
-            value_text = _value_text_for_display(parsed_value)
+
+            # derive numeric volume for sorting (MB for data, minutes for talktime)
+            vol_num = _extract_volume(parsed_value, unit)
+
+            # user-facing label
+            value_text = _value_text_for_display(parsed_value, unit)
 
             amount = _to_float(of.get("amount"))
             total = _price_with_profit(amount, eff_profit) if amount is not None else None
-
-            vol_mb = _extract_volume_mb(parsed_value)
 
             normalized_offers.append({
                 "amount": amount,
@@ -295,17 +328,16 @@ def customer_dashboard():
                 "legacy_profit": _to_float(of.get("profit")),
                 "profit_percent_used": eff_profit,
                 "total": total,
-                "_sort_vol": vol_mb if vol_mb is not None else float("inf"),
+                "_sort_vol": vol_num if vol_num is not None else float("inf"),
                 "_sort_amt": amount if amount is not None else float("inf"),
             })
 
+        # sort by volume asc, then amount asc
         normalized_offers.sort(key=lambda x: (x["_sort_vol"], x["_sort_amt"]))
 
-        s["offers"] = [
-            {k: v for k, v in o.items() if not k.startswith("_sort_")}
-            for o in normalized_offers
-        ]
+        s["offers"] = [{k: v for k, v in o.items() if not k.startswith("_sort_")} for o in normalized_offers]
         s["effective_profit_percent"] = eff_profit
+        s["unit"] = unit  # optional: expose to template if you want
         services.append(s)
 
     # Balance
