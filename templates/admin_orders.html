@@ -21,6 +21,7 @@
       --success-color: #10b981;
       --warning-color: #f59e0b;
       --danger-color: #ef4444;
+      --info-color: #0ea5e9;
       --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
       --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
       --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
@@ -35,121 +36,52 @@
 
     .container { max-width: 1400px; }
 
-    h2 {
-      color: var(--primary-blue);
-      font-weight: 700;
-      text-shadow: 0 1px 2px rgba(37, 99, 235, 0.1);
-      margin-bottom: 1rem !important;
-    }
+    h2 { color: var(--primary-blue); font-weight: 700; text-shadow: 0 1px 2px rgba(37, 99, 235, 0.1); margin-bottom: 1rem !important; }
+    .subhead { color: var(--text-secondary); margin-bottom: 1.5rem; font-size: .95rem; }
 
-    .subhead {
-      color: var(--text-secondary);
-      margin-bottom: 1.5rem;
-      font-size: .95rem;
-    }
-
-    /* Card-like containers */
-    .filter-bar {
-      background: var(--card-background);
-      padding: 1rem 1.25rem;
-      border-radius: 16px;
-      box-shadow: var(--shadow-md);
-      border: 1px solid var(--border-color);
-      margin-bottom: 1.25rem;
-      transition: all .25s ease;
-    }
+    .filter-bar { background: var(--card-background); padding: 1rem 1.25rem; border-radius: 16px; box-shadow: var(--shadow-md); border: 1px solid var(--border-color); margin-bottom: 1.25rem; transition: all .25s ease; }
     .filter-bar:hover { box-shadow: var(--shadow-lg); transform: translateY(-1px); }
-
     .filter-row { row-gap: .75rem; }
+    .chip { display: inline-flex; align-items: center; gap: .5rem; background: #eef2ff; color: #3730a3; padding: .375rem .625rem; border-radius: 999px; font-size: .8rem; border: 1px solid #c7d2fe; }
 
-    .chip {
-      display: inline-flex; align-items: center; gap: .5rem;
-      background: #eef2ff; color: #3730a3;
-      padding: .375rem .625rem; border-radius: 999px; font-size: .8rem;
-      border: 1px solid #c7d2fe;
-    }
-
-    /* Table Container */
-    .table-responsive {
-      background: var(--card-background);
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: var(--shadow-md);
-      border: 1px solid var(--border-color);
-      transition: all 0.3s ease;
-    }
+    .table-responsive { background: var(--card-background); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-md); border: 1px solid var(--border-color); transition: all 0.3s ease; }
     .table-responsive:hover { box-shadow: var(--shadow-lg); }
-
-    /* Table Styling */
     .table { margin-bottom: 0; border-collapse: separate; border-spacing: 0; }
     .table td, .table th { vertical-align: middle; border-bottom: 1px solid var(--border-color); padding: 1rem .75rem; }
-    .table thead th {
-      background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-blue-dark) 100%);
-      color: white; font-weight: 600; border: none; text-transform: uppercase;
-      font-size: .85rem; letter-spacing: .5px;
-    }
+    .table thead th { background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-blue-dark) 100%); color: white; font-weight: 600; border: none; text-transform: uppercase; font-size: .85rem; letter-spacing: .5px; }
     .table tbody tr { transition: all .2s ease; }
     .table tbody tr:hover { background-color: var(--secondary-blue); transform: translateX(4px); }
 
-    /* Form Controls */
-    .form-select, .form-control {
-      border: 2px solid var(--border-color);
-      border-radius: 10px;
-      padding: .55rem .8rem;
-      font-size: .9rem;
-      transition: all .2s ease;
-      background-color: var(--card-background);
-    }
+    .form-select, .form-control { border: 2px solid var(--border-color); border-radius: 10px; padding: .55rem .8rem; font-size: .9rem; transition: all .2s ease; background-color: var(--card-background); }
     .form-select:focus, .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 .2rem rgba(37, 99, 235, .25); }
     .form-select:hover, .form-control:hover { border-color: var(--primary-blue-light); }
-
     .form-label { color: var(--text-primary); font-weight: 600; font-size: .85rem; }
 
-    /* Pagination */
-    .pagination {
-      --bs-pagination-bg: var(--card-background);
-      --bs-pagination-border-color: var(--border-color);
-      --bs-pagination-hover-bg: var(--secondary-blue);
-      --bs-pagination-hover-border-color: var(--primary-blue);
-      --bs-pagination-focus-bg: var(--secondary-blue);
-      --bs-pagination-active-bg: var(--primary-blue);
-      --bs-pagination-active-border-color: var(--primary-blue);
-    }
+    .pagination { --bs-pagination-bg: var(--card-background); --bs-pagination-border-color: var(--border-color); --bs-pagination-hover-bg: var(--secondary-blue); --bs-pagination-hover-border-color: var(--primary-blue); --bs-pagination-focus-bg: var(--secondary-blue); --bs-pagination-active-bg: var(--primary-blue); --bs-pagination-active-border-color: var(--primary-blue); }
     .page-link { border-radius: 8px !important; margin: 0 2px; font-weight: 500; transition: all .2s ease; }
     .page-link:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
 
-    /* Badges */
     .badge { font-weight: 600; padding: .5rem .75rem; border-radius: 50px; font-size: .75rem; }
     .bg-info { background: linear-gradient(135deg, var(--accent-blue), #0284c7) !important; color: white !important; }
 
-    /* Alerts */
-    .alert { border-radius: 12px; border: none; box-shadow: var(--shadow-md); margin-bottom: 1.25rem; }
+    /* status chips */
+    .status-chip { display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .6rem; border-radius:999px; font-size:.75rem; font-weight:600; }
+    .st-pending { background: rgba(245,158,11,.12); color: #b45309; border: 1px solid rgba(245,158,11,.35); }
+    .st-processing { background: rgba(14,165,233,.12); color: #0369a1; border: 1px solid rgba(14,165,233,.35); }
+    .st-completed { background: rgba(16,185,129,.12); color: #065f46; border: 1px solid rgba(16,185,129,.35); }
+    .st-failed { background: rgba(239,68,68,.12); color: #7f1d1d; border: 1px solid rgba(239,68,68,.35); }
 
-    /* Items List */
-    .list-unstyled li {
-      background: rgba(37, 99, 235, .05);
-      padding: .5rem; border-radius: 8px; margin-bottom: .5rem !important;
-      border-left: 3px solid var(--primary-blue); transition: all .2s ease;
-    }
+    .list-unstyled li { background: rgba(37, 99, 235, .05); padding: .5rem; border-radius: 8px; margin-bottom: .5rem !important; border-left: 3px solid var(--primary-blue); transition: all .2s ease; }
     .list-unstyled li:hover { background: rgba(37, 99, 235, .1); transform: translateX(3px); }
 
-    /* Mobile */
-    @media (max-width: 576px) {
-      .container { padding: 1rem; }
-      h2 { font-size: 1.5rem; text-align: center; }
-    }
-
-    /* Smooth */
+    @media (max-width: 576px) { .container { padding: 1rem; } h2 { font-size: 1.5rem; text-align: center; } }
     * { transition: color .2s ease, background-color .2s ease, border-color .2s ease; }
-
-    /* Scrollbar */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: var(--border-color); border-radius: 4px; }
     ::-webkit-scrollbar-thumb { background: var(--primary-blue); border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--primary-blue-dark); }
 
     .table tbody tr:nth-child(even) { background-color: rgba(248, 250, 252, .5); }
-
     .btn-icon { display: inline-flex; align-items: center; gap: .5rem; }
     .btn-icon i { font-size: .9rem; }
   </style>
@@ -158,10 +90,23 @@
   {% include 'admin_sidebar.html' %}
 
   <div class="container py-4">
-    <h2 class="mb-1"><i class="fas fa-box me-2"></i>Customer Orders</h2>
-    <div class="subhead">
-      <span class="chip"><i class="fa-solid fa-database"></i> Total: {{ total_orders or 0 }}</span>
-      {% if status_filter %}<span class="chip"><i class="fa-solid fa-filter"></i> Status: {{ status_filter|capitalize }}</span>{% endif %}
+    <div class="d-flex flex-wrap justify-content-between align-items-center">
+      <div>
+        <h2 class="mb-1"><i class="fas fa-box me-2"></i>Customer Orders</h2>
+        <div class="subhead">
+          <span class="chip"><i class="fa-solid fa-database"></i> Total: {{ total_orders or 0 }}</span>
+          {% if status_filter %}<span class="chip"><i class="fa-solid fa-filter"></i> Status: {{ status_filter|capitalize }}</span>{% endif %}
+        </div>
+      </div>
+
+      <!-- NEW: Bulk complete button -->
+      <form method="POST"
+            action="{{ url_for('admin_orders.bulk_complete_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+        <button class="btn btn-success btn-icon"
+                onclick="return confirm('Mark ALL pending orders in the current filters as COMPLETED?');">
+          <i class="fa-solid fa-check-double"></i> Mark All Pending as Completed
+        </button>
+      </form>
     </div>
 
     <!-- Flash Messages -->
@@ -227,6 +172,20 @@
         <div class="col-6 col-md-2">
           <label class="form-label"><i class="fa-solid fa-calendar-check me-1"></i>To</label>
           <input type="date" name="date_to" value="{{ date_to or '' }}" class="form-control">
+        </div>
+
+        <!-- NEW: Similar item filters -->
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-boxes-stacked me-1"></i>Item Service</label>
+          <input type="text" name="item_service" value="{{ item_service or '' }}" class="form-control" placeholder="e.g., Bigtime Data">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-tags me-1"></i>Item Offer</label>
+          <input type="text" name="item_offer" value="{{ item_offer or '' }}" class="form-control" placeholder="e.g., 1GB">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-mobile-screen-button me-1"></i>Item Phone</label>
+          <input type="text" name="item_phone" value="{{ item_phone or '' }}" class="form-control" placeholder="e.g., 055xxxxxxx">
         </div>
 
         <div class="col-6 col-md-2">
@@ -312,15 +271,41 @@
             <td class="text-center text-success fw-semibold">
               <i class="fas fa-coins me-1"></i>₵{{ "%.2f"|format(order.get("total_amount", 0) or 0) }}
             </td>
+
+            <!-- Colored status + inline changer -->
             <td class="text-center">
-              <form method="POST" action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
-                <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
-                  {% for s in ['pending', 'processing', 'completed', 'failed'] %}
-                    <option value="{{ s }}" {% if order.get('status') == s %}selected{% endif %}>{{ s|capitalize }}</option>
-                  {% endfor %}
-                </select>
-              </form>
+              {% set st = (order.get('status') or '').lower() %}
+              <div class="d-inline-flex align-items-center gap-2">
+                <span class="status-chip
+                  {% if st=='completed' %}st-completed
+                  {% elif st=='pending' %}st-pending
+                  {% elif st=='processing' %}st-processing
+                  {% elif st=='failed' %}st-failed
+                  {% else %}st-processing{% endif %}">
+                  <i class="fa-solid fa-circle"></i> {{ st|capitalize }}
+                </span>
+
+                <!-- small dropdown to change -->
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    Change
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    {% for s in ['pending','processing','completed','failed'] %}
+                      <li>
+                        <form method="POST" action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+                          <input type="hidden" name="status" value="{{ s }}">
+                          <button class="dropdown-item {% if s==st %}active{% endif %}" type="submit">
+                            {{ s|capitalize }}
+                          </button>
+                        </form>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              </div>
             </td>
+
             <td class="text-center">
               <span class="badge bg-info text-dark">
                 <i class="fas fa-wallet me-1"></i>{{ (order.get("paid_from") or "N/A")|capitalize }}
