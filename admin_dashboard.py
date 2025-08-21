@@ -15,7 +15,6 @@ users_col = db["users"]
 # ----------------------------
 
 def _users_display_map(user_ids: List[ObjectId]) -> Dict[ObjectId, str]:
-    """Return {user_id: display_name} for the given user_ids."""
     users_map: Dict[ObjectId, str] = {}
     if not user_ids:
         return users_map
@@ -28,12 +27,8 @@ def _users_display_map(user_ids: List[ObjectId]) -> Dict[ObjectId, str]:
 
 
 def top_customers_by_orders(limit: int = 10) -> Tuple[List[str], List[int]]:
-    """
-    Build top-N customers by order count.
-    Returns (labels, values).
-    """
     pipeline = [
-        {"$group": {"_id": "$user_id", "order_count": {"$sum": 1}}},
+        {"$group": {"_id": "$user_id", "order_count": {"$sum": 1}}},  # noqa
         {"$sort": {"order_count": -1}},
         {"$limit": int(limit)},
     ]
@@ -56,10 +51,6 @@ def top_customers_by_orders(limit: int = 10) -> Tuple[List[str], List[int]]:
 
 
 def top_customers_by_profit(limit: int = 10) -> Tuple[List[str], List[float]]:
-    """
-    Top-N customers by total profit (sum of profit_amount_total per order).
-    Returns (labels, profit_values).
-    """
     pipeline = [
         {"$group": {
             "_id": "$user_id",
@@ -87,11 +78,6 @@ def top_customers_by_profit(limit: int = 10) -> Tuple[List[str], List[float]]:
 
 
 def top_offers_by_purchases(limit: int = 3, status_filter: Union[str, List[str], None] = "completed") -> List[Dict[str, Any]]:
-    """
-    Top-N offers purchased, grouped by (serviceName, items.value).
-    By default, considers only orders with status == 'completed'.
-    Returns [{service, offer, count}, ...]
-    """
     match_stage: Dict[str, Any] = {}
     if status_filter:
         if isinstance(status_filter, (list, tuple, set)):
@@ -131,12 +117,6 @@ def top_offers_by_purchases(limit: int = 3, status_filter: Union[str, List[str],
 
 
 def compute_totals() -> Dict[str, float]:
-    """
-    Compute overall totals:
-    - sum_total_amount: sum of total_amount
-    - sum_charged_amount: sum of charged_amount
-    - sum_profit_amount: sum of profit_amount_total
-    """
     pipeline = [{
         "$group": {
             "_id": None,
@@ -156,6 +136,28 @@ def compute_totals() -> Dict[str, float]:
         "sum_profit_amount": float((doc or {}).get("sum_profit_amount", 0) or 0),
     }
 
+def compute_customer_counts() -> Dict[str, int]:
+    """Return counts for customers by status."""
+    try:
+        total_customers = users_col.count_documents({"role": "customer"})
+        blocked_customers = users_col.count_documents({"role": "customer", "status": "blocked"})
+        # Active = explicitly 'active' OR missing/anything not 'blocked'
+        active_customers = users_col.count_documents({
+            "role": "customer",
+            "$or": [
+                {"status": {"$exists": False}},
+                {"status": {"$ne": "blocked"}}
+            ]
+        })
+    except Exception:
+        total_customers = blocked_customers = active_customers = 0
+
+    return {
+        "total_customers": int(total_customers),
+        "blocked_customers": int(blocked_customers),
+        "active_customers": int(active_customers),
+    }
+
 # ----------------------------
 # Route
 # ----------------------------
@@ -164,9 +166,10 @@ def compute_totals() -> Dict[str, float]:
 def admin_dashboard():
     # Protect route: only accessible if admin is logged in
     if not session.get("admin_logged_in"):
-        return redirect(url_for("auth.login"))
+        # Use your actual login endpoint name; earlier code used "login.login"
+        return redirect(url_for("login.login"))
 
-    # Totals
+    # Orders totals
     try:
         total_orders = orders_col.estimated_document_count()
     except Exception:
@@ -177,14 +180,15 @@ def admin_dashboard():
     sum_charged_amount = totals["sum_charged_amount"]
     sum_profit_amount = totals["sum_profit_amount"]
 
-    # Top customers (orders)
+    # Top customers (orders & profit)
     chart_labels, chart_values = top_customers_by_orders(limit=10)
-
-    # Top customers (profit)
     profit_chart_labels, profit_chart_values = top_customers_by_profit(limit=10)
 
     # Top offers (service + offer), from completed orders
     top_offers = top_offers_by_purchases(limit=3, status_filter="completed")
+
+    # Customer counts
+    cust_counts = compute_customer_counts()
 
     return render_template(
         "admin_dashboard.html",
@@ -194,14 +198,17 @@ def admin_dashboard():
         sum_charged_amount=sum_charged_amount,
         sum_profit_amount=sum_profit_amount,
 
-        # Chart: top customers by orders
+        # Charts
         chart_labels=chart_labels,
         chart_values=chart_values,
-
-        # Chart: top customers by profit
         profit_chart_labels=profit_chart_labels,
         profit_chart_values=profit_chart_values,
 
-        # Top 3 offers purchased
+        # Lists
         top_offers=top_offers,
+
+        # New: customer counters
+        total_customers=cust_counts["total_customers"],
+        blocked_customers=cust_counts["blocked_customers"],
+        active_customers=cust_counts["active_customers"],
     )
