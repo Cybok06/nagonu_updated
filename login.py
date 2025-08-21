@@ -190,14 +190,21 @@ def login():
         # Find by username only
         user = users_col.find_one({"username": username})
 
-        # Failed auth
-        if not user or not check_password_hash(user["password"], password):
-            # Log failed attempt (no user doc if not found)
+        # Invalid credentials (user missing or password mismatch)
+        if (not user) or (not check_password_hash(user.get("password", ""), password)):
             log_login_event(user or {"username": username, "role": "unknown"}, success=False, reason="invalid_credentials")
             flash("❌ Invalid username or password", "danger")
             return render_template("login.html")
 
-        # Successful auth
+        # Blocked status check AFTER password is correct
+        status = (user.get("status") or "active").lower()
+        if status == "blocked":
+            # Log a blocked login attempt and refuse to create a session
+            log_login_event(user, success=False, reason="blocked")
+            flash("🚫 Your account is blocked. Please contact support.", "danger")
+            return render_template("login.html")
+
+        # Successful auth (active or missing status treated as active)
         session.clear()
         session["user_id"] = str(user["_id"])
         session["username"] = user["username"]
