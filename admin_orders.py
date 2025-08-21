@@ -1,4 +1,3 @@
-# admin_orders.py
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash
 from bson import ObjectId, Regex
 from db import db
@@ -9,7 +8,8 @@ admin_orders_bp = Blueprint("admin_orders", __name__)
 orders_col = db["orders"]
 users_col = db["users"]
 
-ALLOWED_STATUSES = {"pending", "processing", "completed", "failed"}
+# Keep 'completed' for legacy records, but prefer 'delivered'
+ALLOWED_STATUSES = {"pending", "processing", "delivered", "failed", "completed"}
 ALLOWED_SORTS = {"newest", "oldest", "amount_desc", "amount_asc"}
 DEFAULT_PER_PAGE = 10
 
@@ -42,7 +42,7 @@ def _build_query_from_params(args):
     if date_to_raw:
         date_to = datetime(date_to_raw.year, date_to_raw.month, date_to_raw.day) + timedelta(days=1)
 
-    # NEW: similar item filters
+    # similar item filters
     item_service = (args.get("item_service") or "").strip()
     item_offer = (args.get("item_offer") or "").strip()
     item_phone = (args.get("item_phone") or "").strip()
@@ -91,12 +91,11 @@ def _build_query_from_params(args):
             {"_id": 1},
         )]
         if not user_ids:
-            # no matches → force empty
             query["user_id"] = {"$in": []}
         else:
             query["user_id"] = {"$in": user_ids}
 
-    # NEW: similar item filters (any item in items[] that matches)
+    # similar item filters (any item in items[] that matches)
     item_and = []
     if item_service:
         item_and.append({"items.serviceName": Regex(item_service, "i")})
@@ -188,7 +187,7 @@ def admin_view_orders():
         date_to=(request.args.get("date_to") or "").strip(),
         sort=sort, per_page=per_page,
 
-        # NEW: item filters
+        # item filters
         item_service=(request.args.get("item_service") or "").strip(),
         item_offer=(request.args.get("item_offer") or "").strip(),
         item_phone=(request.args.get("item_phone") or "").strip(),
@@ -208,9 +207,13 @@ def update_order_status(order_id):
         return redirect(url_for("admin_orders.admin_view_orders"))
 
     try:
+        update_doc = {"status": new_status, "updated_at": datetime.utcnow()}
+        if new_status == "delivered":
+            update_doc["delivered_at"] = datetime.utcnow()
+
         res = orders_col.update_one(
             {"_id": ObjectId(order_id)},
-            {"$set": {"status": new_status, "updated_at": datetime.utcnow()}},
+            {"$set": update_doc},
         )
         if res.modified_count:
             flash("✅ Order status updated.", "success")
@@ -224,23 +227,38 @@ def update_order_status(order_id):
     return redirect(f"{back_to}?{qs}" if qs else back_to)
 
 
-# NEW: BULK complete all pending in current filter set
-@admin_orders_bp.route("/admin/orders/bulk-complete", methods=["POST"])
-def bulk_complete_orders():
+# NEW: BULK deliver all processing in current filter set
+@admin_orders_bp.route("/admin/orders/bulk-deliver", methods=["POST"])
+def bulk_deliver_orders():
     if session.get("role") != "admin":
         return redirect(url_for("login.login"))
 
-    # Build the same query as the list view, but enforce status=pending
+    # Build the same query as the list view, but enforce status=processing
     args = request.args.to_dict(flat=True)
-    args["status"] = "pending"
+    args["status"] = "processing"
     query = _build_query_from_params(args)
 
     try:
+        # 1) Set the order status fields
         res = orders_col.update_many(
             query,
-            {"$set": {"status": "completed", "updated_at": datetime.utcnow()}}
+            {"$set": {"status": "delivered", "delivered_at": datetime.utcnow(), "updated_at": datetime.utcnow()}}
         )
-        flash(f"✅ Marked {res.modified_count} pending order(s) as completed.", "success")
+        modified = getattr(res, "modified_count", 0)
+
+        # 2) (Optional) Flip any processing line items to delivered too.
+        #    Requires MongoDB 3.6+ with arrayFilters support. If not supported, it's safe to ignore failures.
+        try:
+            orders_col.update_many(
+                {"_id": {"$in": [o["_id"] for o in orders_col.find(query, {"_id": 1})]}},
+                {"$set": {"items.$[it].line_status": "delivered"}},
+                array_filters=[{"it.line_status": "processing"}]
+            )
+        except Exception:
+            # silently ignore if not supported
+            pass
+
+        flash(f"✅ Marked {modified} processing order(s) as delivered.", "success")
     except Exception:
         flash("❌ Bulk update failed.", "danger")
 
