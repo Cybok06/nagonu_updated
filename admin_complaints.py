@@ -177,6 +177,58 @@ def update_complaint_status(complaint_id):
     if session.get("role") != "admin":
         return redirect(url_for("login.login"))
 
-    new_status = request.form.get("status")
-    if new_status not in {"resolved", "refund"}:
-        fl
+    # Read new status and preserve current filters for redirect
+    new_status = (request.form.get("status") or "").strip().lower()
+    allowed = {"pending", "resolved", "refund"}
+    if new_status not in allowed:
+        flash("Invalid status selected.", "warning")
+        return redirect(url_for(
+            "admin_complaints.admin_view_complaints",
+            status=request.args.get("status") or request.form.get("status_filter") or "",
+            start_date=request.args.get("start_date") or request.form.get("start_date") or "",
+            end_date=request.args.get("end_date") or request.form.get("end_date") or ""
+        ))
+
+    # Validate id
+    try:
+        _id = ObjectId(complaint_id)
+    except Exception:
+        flash("Invalid complaint id.", "danger")
+        return redirect(url_for(
+            "admin_complaints.admin_view_complaints",
+            status=request.args.get("status") or request.form.get("status_filter") or "",
+            start_date=request.args.get("start_date") or request.form.get("start_date") or "",
+            end_date=request.args.get("end_date") or request.form.get("end_date") or ""
+        ))
+
+    c = complaints_col.find_one({"_id": _id})
+    if not c:
+        flash("Complaint not found.", "warning")
+        return redirect(url_for(
+            "admin_complaints.admin_view_complaints",
+            status=request.args.get("status") or request.form.get("status_filter") or "",
+            start_date=request.args.get("start_date") or request.form.get("start_date") or "",
+            end_date=request.args.get("end_date") or request.form.get("end_date") or ""
+        ))
+
+    # Update document
+    update_doc = {
+        "status": new_status,
+        "updated_at": datetime.utcnow(),
+        "updated_by": {
+            "user_id": session.get("user_id"),
+            "username": session.get("username") or session.get("email") or "admin"
+        }
+    }
+    complaints_col.update_one({"_id": _id}, {"$set": update_doc})
+
+    flash(f"Complaint status updated to {new_status}.", "success")
+
+    # Redirect back to the list (preserve current filters if present)
+    return redirect(url_for(
+        "admin_complaints.admin_view_complaints",
+        status=request.args.get("status") or request.form.get("status_filter") or "",
+        start_date=request.args.get("start_date") or request.form.get("start_date") or "",
+        end_date=request.args.get("end_date") or request.form.get("end_date") or ""
+    ))
+
