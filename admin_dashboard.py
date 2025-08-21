@@ -3,12 +3,14 @@ from flask import Blueprint, render_template, session, redirect, url_for
 from db import db
 from bson import ObjectId
 from typing import Dict, Any, List, Tuple, Union
+from datetime import datetime, timedelta  # NEW
 
 admin_dashboard_bp = Blueprint("admin_dashboard", __name__)
 
 # Collections
 orders_col = db["orders"]
 users_col = db["users"]
+balance_logs_col = db["balance_logs"]  # NEW: use audit logs to compute deposits/deductions
 
 # ----------------------------
 # Helpers
@@ -28,7 +30,7 @@ def _users_display_map(user_ids: List[ObjectId]) -> Dict[ObjectId, str]:
 
 def top_customers_by_orders(limit: int = 10) -> Tuple[List[str], List[int]]:
     pipeline = [
-        {"$group": {"_id": "$user_id", "order_count": {"$sum": 1}}},  # noqa
+        {"$group": {"_id": "$user_id", "order_count": {"$sum": 1}}},
         {"$sort": {"order_count": -1}},
         {"$limit": int(limit)},
     ]
@@ -136,12 +138,12 @@ def compute_totals() -> Dict[str, float]:
         "sum_profit_amount": float((doc or {}).get("sum_profit_amount", 0) or 0),
     }
 
+
 def compute_customer_counts() -> Dict[str, int]:
     """Return counts for customers by status."""
     try:
         total_customers = users_col.count_documents({"role": "customer"})
         blocked_customers = users_col.count_documents({"role": "customer", "status": "blocked"})
-        # Active = explicitly 'active' OR missing/anything not 'blocked'
         active_customers = users_col.count_documents({
             "role": "customer",
             "$or": [
@@ -158,6 +160,57 @@ def compute_customer_counts() -> Dict[str, int]:
         "active_customers": int(active_customers),
     }
 
+
+def compute_balance_flow_totals() -> Dict[str, float]:
+    """
+    Uses balance_logs:
+      action = 'deposit' (positive delta)
+      action = 'withdraw' (negative delta)
+    Ignores 'set' actions.
+    Returns overall + today's totals (UTC). Ghana is UTC±0, so this matches local.
+    """
+    today = datetime.utcnow().date()
+    start = datetime.combine(today, datetime.min.time())
+    end = start + timedelta(days=1)
+
+    def _sum(pipeline: List[Dict[str, Any]]) -> float:
+        try:
+            doc = next(balance_logs_col.aggregate(pipeline), None)
+            return float((doc or {}).get("total", 0) or 0)
+        except Exception:
+            return 0.0
+
+    # Overall deposits
+    deposits_overall = _sum([
+        {"$match": {"action": "deposit"}},
+        {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$delta", 0]}}}},
+    ])
+
+    # Overall withdrawals (as positive total)
+    withdrawals_overall = _sum([
+        {"$match": {"action": "withdraw"}},
+        {"$group": {"_id": None, "total": {"$sum": {"$abs": {"$ifNull": ["$delta", 0]}}}}},  # abs of negative deltas
+    ])
+
+    # Today's deposits
+    deposits_today = _sum([
+        {"$match": {"action": "deposit", "created_at": {"$gte": start, "$lt": end}}},
+        {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$delta", 0]}}}},
+    ])
+
+    # Today's withdrawals (as positive total)
+    withdrawals_today = _sum([
+        {"$match": {"action": "withdraw", "created_at": {"$gte": start, "$lt": end}}},
+        {"$group": {"_id": None, "total": {"$sum": {"$abs": {"$ifNull": ["$delta", 0]}}}}}
+    ])
+
+    return {
+        "deposits_overall": deposits_overall,
+        "withdrawals_overall": withdrawals_overall,
+        "deposits_today": deposits_today,
+        "withdrawals_today": withdrawals_today,
+    }
+
 # ----------------------------
 # Route
 # ----------------------------
@@ -166,7 +219,6 @@ def compute_customer_counts() -> Dict[str, int]:
 def admin_dashboard():
     # Protect route: only accessible if admin is logged in
     if not session.get("admin_logged_in"):
-        # Use your actual login endpoint name; earlier code used "login.login"
         return redirect(url_for("login.login"))
 
     # Orders totals
@@ -190,6 +242,9 @@ def admin_dashboard():
     # Customer counts
     cust_counts = compute_customer_counts()
 
+    # NEW: balance flow totals (overall + today)
+    flow = compute_balance_flow_totals()
+
     return render_template(
         "admin_dashboard.html",
         # KPIs
@@ -207,8 +262,14 @@ def admin_dashboard():
         # Lists
         top_offers=top_offers,
 
-        # New: customer counters
+        # Customer counters
         total_customers=cust_counts["total_customers"],
         blocked_customers=cust_counts["blocked_customers"],
         active_customers=cust_counts["active_customers"],
+
+        # NEW: flows
+        deposits_overall=flow["deposits_overall"],
+        withdrawals_overall=flow["withdrawals_overall"],
+        deposits_today=flow["deposits_today"],
+        withdrawals_today=flow["withdrawals_today"],
     )
