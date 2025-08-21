@@ -32,7 +32,6 @@ def _service_unit(svc) -> str:
     Returns the unit for a service:
       - 'minutes' for AFA talktime (by name or optional svc['unit']=='minutes')
       - 'data' (MB/GB) for everything else
-    If you later add svc['unit'] for other services, this will auto-honor it.
     """
     unit = (svc.get("unit") or "").strip().lower()
     name = (svc.get("name") or "").strip().lower()
@@ -43,23 +42,15 @@ def _service_unit(svc) -> str:
     return "data"
 
 def _format_volume_unit(value: float | None, unit: str) -> str:
-    """
-    Pretty-print a numeric volume given the unit.
-      - data: interpret as MB and show MB/GB
-      - minutes: show as 'X mins'
-    """
     if value is None:
         return "-"
     try:
         v = float(value)
     except Exception:
         return "-"
-
     if unit == "minutes":
-        # Always whole minutes visually
         return f"{int(round(v))} mins"
-
-    # default: 'data' -> value is MB
+    # default 'data': MB
     if v >= 1000:
         gb = v / 1000.0
         return f"{int(gb)}GB" if abs(gb - int(gb)) < 1e-9 else f"{gb:.2f}GB"
@@ -97,80 +88,53 @@ def _parse_value_field(value):
     return value
 
 def _extract_volume(value, unit: str) -> float | None:
-    """
-    Get a numeric 'volume' suitable for sorting and display, depending on unit:
-      - unit == 'data': return MB (float)
-      - unit == 'minutes': return minutes (float)
-    """
-    # dict case (preferred storage shape: {"id": X, "volume": Y})
+    """Return numeric volume for sorting (MB for data, minutes for talktime)."""
     if isinstance(value, dict):
         vol = value.get("volume")
         if vol is None:
             return None
         if isinstance(vol, (int, float)) or (_NUM.match(str(vol))):
-            # stored numeric; interpret according to unit
             return float(vol)
-        # could be "1GB", "1000MB", "250 mins"
+        # textual volume
         vol_s = str(vol)
         if unit == "minutes":
             m = _MIN.search(vol_s)
-            if m:
-                return float(m.group(1))
-            # if only digits, treat as minutes
-            if _NUM.match(vol_s):
-                return float(vol_s)
+            if m: return float(m.group(1))
+            if _NUM.match(vol_s): return float(vol_s)
             return None
         else:
-            # data
             m = _GB.search(vol_s)
-            if m:
-                return float(m.group(1)) * 1000.0
+            if m: return float(m.group(1)) * 1000.0
             m = _MB.search(vol_s)
-            if m:
-                return float(m.group(1))
-            if _NUM.match(vol_s):
-                # numeric without suffix -> assume MB
-                return float(vol_s)
+            if m: return float(m.group(1))
+            if _NUM.match(vol_s): return float(vol_s)  # assume MB
             return None
 
-    # string case
     if isinstance(value, str):
         s = value
         if unit == "minutes":
             m = _MIN.search(s)
-            if m:
-                return float(m.group(1))
-            if _NUM.match(s):
-                return float(s)
-            # strip adornments and try again
+            if m: return float(m.group(1))
+            if _NUM.match(s): return float(s)
             s2 = _PKG_TAIL.sub("", s)
             m = _MIN.search(s2)
-            if m:
-                return float(m.group(1))
+            if m: return float(m.group(1))
             return None
         else:
-            # data
             m = _GB.search(s)
-            if m:
-                return float(m.group(1)) * 1000.0
+            if m: return float(m.group(1)) * 1000.0
             m = _MB.search(s)
-            if m:
-                return float(m.group(1))
+            if m: return float(m.group(1))
             s2 = _PKG_TAIL.sub("", s)
             m = _GB.search(s2)
-            if m:
-                return float(m.group(1)) * 1000.0
+            if m: return float(m.group(1)) * 1000.0
             m = _MB.search(s2)
-            if m:
-                return float(m.group(1))
-            if _NUM.match(s2):
-                return float(s2)  # assume MB
+            if m: return float(m.group(1))
+            if _NUM.match(s2): return float(s2)  # assume MB
             return None
-
     return None
 
 def _value_text_for_display(value, unit: str):
-    """Return a clean label for UI, based on unit."""
     if isinstance(value, dict):
         vol = _extract_volume(value, unit)
         return _format_volume_unit(vol, unit) if vol is not None else "-"
@@ -260,6 +224,41 @@ def _display_name(user_doc):
         return str(user_doc["email"]).split("@", 1)[0]
     return "Customer"
 
+# ---- new: service-state helper ------------------------------------------------
+
+def _service_state(svc):
+    """
+    Normalize flags + derive if the service can be ordered.
+    """
+    t = (svc.get("type") or "API").upper()
+    status = (svc.get("status") or "OPEN").upper()               # OPEN | CLOSED
+    availability = (svc.get("availability") or "AVAILABLE").upper()  # AVAILABLE | OUT_OF_STOCK
+
+    # optional custom messages stored on the service doc
+    closed_msg = (svc.get("closed_message") or "This service is temporarily closed.")
+    oos_msg = (svc.get("out_of_stock_message") or "This service is currently out of stock.")
+
+    can_order = (t == "API" and status == "OPEN" and availability == "AVAILABLE")
+
+    disabled_reason = None
+    if not can_order:
+        if status != "OPEN":
+            disabled_reason = closed_msg
+        elif availability != "AVAILABLE":
+            disabled_reason = oos_msg
+        elif t != "API":
+            disabled_reason = "This service is currently unavailable."
+
+    return {
+        "type": t,
+        "status": status,
+        "availability": availability,
+        "closed_message": closed_msg,
+        "out_of_stock_message": oos_msg,
+        "can_order": can_order,
+        "disabled_reason": disabled_reason
+    }
+
 # ---------- globals ----------
 @customer_dashboard_bp.app_context_processor
 def inject_customer_globals():
@@ -305,17 +304,17 @@ def customer_dashboard():
         s["_id_str"] = str(s["_id"])
         eff_profit = _effective_profit_percent(s, user_oid)
 
-        unit = _service_unit(s)  # <-- minutes for AFA TALKTIME, data otherwise
+        # attach flags/state for UI
+        st = _service_state(s)
+        s.update(st)  # type, status, availability, can_order, disabled_reason, messages
+
+        unit = _service_unit(s)  # minutes for AFA TALKTIME, data otherwise
         offers = s.get("offers") or []
 
         normalized_offers = []
         for of in offers:
             parsed_value = _parse_value_field(of.get("value"))
-
-            # derive numeric volume for sorting (MB for data, minutes for talktime)
-            vol_num = _extract_volume(parsed_value, unit)
-
-            # user-facing label
+            vol_num = _extract_volume(parsed_value, unit)  # for sorting
             value_text = _value_text_for_display(parsed_value, unit)
 
             amount = _to_float(of.get("amount"))
@@ -334,10 +333,10 @@ def customer_dashboard():
 
         # sort by volume asc, then amount asc
         normalized_offers.sort(key=lambda x: (x["_sort_vol"], x["_sort_amt"]))
-
         s["offers"] = [{k: v for k, v in o.items() if not k.startswith("_sort_")} for o in normalized_offers]
         s["effective_profit_percent"] = eff_profit
-        s["unit"] = unit  # optional: expose to template if you want
+        s["unit"] = unit
+
         services.append(s)
 
     # Balance
