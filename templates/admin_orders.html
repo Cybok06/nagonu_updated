@@ -8,83 +8,54 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <style>
     :root {
-      --primary-blue: #2563eb;
-      --primary-blue-light: #3b82f6;
-      --primary-blue-dark: #1d4ed8;
-      --secondary-blue: #e1f5fe;
-      --accent-blue: #0ea5e9;
-      --background-color: #f8fafc;
-      --card-background: #ffffff;
-      --text-primary: #0b1b2b;
-      --text-secondary: #64748b;
-      --border-color: #e2e8f0;
-      --success-color: #10b981;
-      --warning-color: #f59e0b;
-      --danger-color: #ef4444;
-      --info-color: #0ea5e9;
-      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+      --primary-blue:#2563eb;--primary-blue-light:#3b82f6;--primary-blue-dark:#1d4ed8;
+      --secondary-blue:#e1f5fe;--accent-blue:#0ea5e9;--background-color:#f8fafc;--card-background:#ffffff;
+      --text-primary:#0b1b2b;--text-secondary:#64748b;--border-color:#e2e8f0;--success-color:#10b981;
+      --warning-color:#f59e0b;--danger-color:#ef4444;--info-color:#0ea5e9;
+      --shadow-sm:0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --shadow-md:0 4px 6px -1px rgb(0 0 0 / 0.1),0 2px 4px -2px rgb(0 0 0 / 0.1);
+      --shadow-lg:0 10px 15px -3px rgb(0 0 0 / 0.1),0 4px 6px -4px rgb(0 0 0 / 0.1);
     }
-
-    body {
-      background: linear-gradient(135deg, var(--background-color) 0%, #f1f5f9 100%);
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      color: var(--text-primary);
-      min-height: 100vh;
-    }
-
-    .container { max-width: 1400px; }
-
-    h2 { color: var(--primary-blue); font-weight: 700; text-shadow: 0 1px 2px rgba(37, 99, 235, 0.1); margin-bottom: 1rem !important; }
-    .subhead { color: var(--text-secondary); margin-bottom: 1.5rem; font-size: .95rem; }
-
-    .filter-bar { background: var(--card-background); padding: 1rem 1.25rem; border-radius: 16px; box-shadow: var(--shadow-md); border: 1px solid var(--border-color); margin-bottom: 1.25rem; transition: all .25s ease; }
-    .filter-bar:hover { box-shadow: var(--shadow-lg); transform: translateY(-1px); }
-    .filter-row { row-gap: .75rem; }
-    .chip { display: inline-flex; align-items: center; gap: .5rem; background: #eef2ff; color: #3730a3; padding: .375rem .625rem; border-radius: 999px; font-size: .8rem; border: 1px solid #c7d2fe; }
-
-    .table-responsive { background: var(--card-background); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-md); border: 1px solid var(--border-color); transition: all 0.3s ease; }
-    .table-responsive:hover { box-shadow: var(--shadow-lg); }
-    .table { margin-bottom: 0; border-collapse: separate; border-spacing: 0; }
-    .table td, .table th { vertical-align: middle; border-bottom: 1px solid var(--border-color); padding: 1rem .75rem; }
-    .table thead th { background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-blue-dark) 100%); color: white; font-weight: 600; border: none; text-transform: uppercase; font-size: .85rem; letter-spacing: .5px; }
-    .table tbody tr { transition: all .2s ease; }
-    .table tbody tr:hover { background-color: var(--secondary-blue); transform: translateX(4px); }
-
-    .form-select, .form-control { border: 2px solid var(--border-color); border-radius: 10px; padding: .55rem .8rem; font-size: .9rem; transition: all .2s ease; background-color: var(--card-background); }
-    .form-select:focus, .form-control:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 .2rem rgba(37, 99, 235, .25); }
-    .form-select:hover, .form-control:hover { border-color: var(--primary-blue-light); }
-    .form-label { color: var(--text-primary); font-weight: 600; font-size: .85rem; }
-
-    .pagination { --bs-pagination-bg: var(--card-background); --bs-pagination-border-color: var(--border-color); --bs-pagination-hover-bg: var(--secondary-blue); --bs-pagination-hover-border-color: var(--primary-blue); --bs-pagination-focus-bg: var(--secondary-blue); --bs-pagination-active-bg: var(--primary-blue); --bs-pagination-active-border-color: var(--primary-blue); }
-    .page-link { border-radius: 8px !important; margin: 0 2px; font-weight: 500; transition: all .2s ease; }
-    .page-link:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
-
-    .badge { font-weight: 600; padding: .5rem .75rem; border-radius: 50px; font-size: .75rem; }
-    .bg-info { background: linear-gradient(135deg, var(--accent-blue), #0284c7) !important; color: white !important; }
-
-    /* status chips */
-    .status-chip { display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .6rem; border-radius:999px; font-size:.75rem; font-weight:600; }
-    .st-pending { background: rgba(245,158,11,.12); color: #b45309; border: 1px solid rgba(245,158,11,.35); }
-    .st-processing { background: rgba(14,165,233,.12); color: #0369a1; border: 1px solid rgba(14,165,233,.35); }
-    .st-completed { background: rgba(16,185,129,.12); color: #065f46; border: 1px solid rgba(16,185,129,.35); }
-    .st-delivered { background: rgba(16,185,129,.12); color: #065f46; border: 1px solid rgba(16,185,129,.35); } /* new */
-    .st-failed { background: rgba(239,68,68,.12); color: #7f1d1d; border: 1px solid rgba(239,68,68,.35); }
-
-    .list-unstyled li { background: rgba(37, 99, 235, .05); padding: .5rem; border-radius: 8px; margin-bottom: .5rem !important; border-left: 3px solid var(--primary-blue); transition: all .2s ease; }
-    .list-unstyled li:hover { background: rgba(37, 99, 235, .1); transform: translateX(3px); }
-
-    @media (max-width: 576px) { .container { padding: 1rem; } h2 { font-size: 1.5rem; text-align: center; } }
-    * { transition: color .2s ease, background-color .2s ease, border-color .2s ease; }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: var(--border-color); border-radius: 4px; }
-    ::-webkit-scrollbar-thumb { background: var(--primary-blue); border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--primary-blue-dark); }
-
-    .table tbody tr:nth-child(even) { background-color: rgba(248, 250, 252, .5); }
-    .btn-icon { display: inline-flex; align-items: center; gap: .5rem; }
-    .btn-icon i { font-size: .9rem; }
+    body{background:linear-gradient(135deg,var(--background-color) 0%,#f1f5f9 100%);font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--text-primary);min-height:100vh}
+    .container{max-width:1400px}
+    h2{color:var(--primary-blue);font-weight:700;text-shadow:0 1px 2px rgba(37,99,235,.1);margin-bottom:1rem!important}
+    .subhead{color:var(--text-secondary);margin-bottom:1.5rem;font-size:.95rem}
+    .filter-bar{background:var(--card-background);padding:1rem 1.25rem;border-radius:16px;box-shadow:var(--shadow-md);border:1px solid var(--border-color);margin-bottom:1.25rem;transition:all .25s ease}
+    .filter-bar:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px)}
+    .filter-row{row-gap:.75rem}
+    .chip{display:inline-flex;align-items:center;gap:.5rem;background:#eef2ff;color:#3730a3;padding:.375rem .625rem;border-radius:999px;font-size:.8rem;border:1px solid #c7d2fe}
+    .table-responsive{background:var(--card-background);border-radius:16px;overflow:visible;box-shadow:var(--shadow-md);border:1px solid var(--border-color);transition:all .3s ease}
+    .table-responsive:hover{box-shadow:var(--shadow-lg)}
+    .table{margin-bottom:0;border-collapse:separate;border-spacing:0}
+    .table td,.table th{vertical-align:middle;border-bottom:1px solid var(--border-color);padding:1rem .75rem}
+    .table thead th{background:linear-gradient(135deg,var(--primary-blue) 0%,var(--primary-blue-dark) 100%);color:#fff;font-weight:600;border:none;text-transform:uppercase;font-size:.85rem;letter-spacing:.5px}
+    .table tbody tr{transition:all .2s ease}
+    .table tbody tr:hover{background-color:var(--secondary-blue);transform:translateX(4px)}
+    .form-select,.form-control{border:2px solid var(--border-color);border-radius:10px;padding:.55rem .8rem;font-size:.9rem;transition:all .2s ease;background-color:var(--card-background)}
+    .form-select:focus,.form-control:focus{border-color:var(--primary-blue);box-shadow:0 0 0 .2rem rgba(37,99,235,.25)}
+    .form-select:hover,.form-control:hover{border-color:var(--primary-blue-light)}
+    .form-label{color:var(--text-primary);font-weight:600;font-size:.85rem}
+    .pagination{--bs-pagination-bg:var(--card-background);--bs-pagination-border-color:var(--border-color);--bs-pagination-hover-bg:var(--secondary-blue);--bs-pagination-hover-border-color:var(--primary-blue);--bs-pagination-focus-bg:var(--secondary-blue);--bs-pagination-active-bg:var(--primary-blue);--bs-pagination-active-border-color:var(--primary-blue)}
+    .page-link{border-radius:8px!important;margin:0 2px;font-weight:500;transition:all .2s ease}
+    .page-link:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+    .badge{font-weight:600;padding:.5rem .75rem;border-radius:50px;font-size:.75rem}
+    .bg-info{background:linear-gradient(135deg,var(--accent-blue),#0284c7)!important;color:#fff!important}
+    .status-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .6rem;border-radius:999px;font-size:.75rem;font-weight:600}
+    .st-pending{background:rgba(245,158,11,.12);color:#b45309;border:1px solid rgba(245,158,11,.35)}
+    .st-processing{background:rgba(14,165,233,.12);color:#0369a1;border:1px solid rgba(14,165,233,.35)}
+    .st-completed{background:rgba(16,185,129,.12);color:#065f46;border:1px solid rgba(16,185,129,.35)}
+    .st-delivered{background:rgba(16,185,129,.12);color:#065f46;border:1px solid rgba(16,185,129,.35)}
+    .st-failed{background:rgba(239,68,68,.12);color:#7f1d1d;border:1px solid rgba(239,68,68,.35)}
+    .st-refunded{background:rgba(99,102,241,.12);color:#3730a3;border:1px solid rgba(99,102,241,.35)}
+    .list-unstyled li{background:rgba(37,99,235,.05);padding:.5rem;border-radius:8px;margin-bottom:.5rem!important;border-left:3px solid var(--primary-blue);transition:all .2s ease}
+    .list-unstyled li:hover{background:rgba(37,99,235,.1);transform:translateX(3px)}
+    .table tbody tr:nth-child(even){background-color:rgba(248,250,252,.5)}
+    .btn-icon{display:inline-flex;align-items:center;gap:.5rem}
+    .btn-icon i{font-size:.9rem}
+    /* Inline actions tray */
+    .status-actions{display:inline-flex;gap:.35rem;flex-wrap:wrap;align-items:center;margin-left:.25rem}
+    .status-actions .btn{padding:.2rem .5rem;font-size:.75rem;border-radius:999px}
+    .d-none{display:none!important}
   </style>
 </head>
 <body>
@@ -100,17 +71,13 @@
         </div>
       </div>
 
-      <!-- NEW: Bulk deliver button -->
-      <form method="POST"
-            action="{{ url_for('admin_orders.bulk_deliver_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}">
-        <button class="btn btn-success btn-icon"
-                onclick="return confirm('Mark ALL processing orders in the current filters as DELIVERED?');">
+      <form method="POST" action="{{ url_for('admin_orders.bulk_deliver_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+        <button class="btn btn-success btn-icon" data-confirm="Mark ALL processing orders in the current filters as DELIVERED?">
           <i class="fa-solid fa-truck-fast"></i> Mark All Processing as Delivered
         </button>
       </form>
     </div>
 
-    <!-- Flash Messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         {% for category, message in messages %}
@@ -122,7 +89,6 @@
       {% endif %}
     {% endwith %}
 
-    <!-- Advanced Filters -->
     <form method="get" class="filter-bar">
       <div class="row filter-row">
         <div class="col-12 col-md-3">
@@ -139,7 +105,7 @@
           <label class="form-label"><i class="fa-solid fa-clipboard-check me-1"></i>Status</label>
           <select name="status" class="form-select">
             <option value="">All</option>
-            {% for s in ['pending','processing','delivered','failed','completed'] %}
+            {% for s in ['processing','delivered','failed','refunded','pending','completed'] %}
               <option value="{{ s }}" {% if s == status_filter %}selected{% endif %}>{{ s|capitalize }}</option>
             {% endfor %}
           </select>
@@ -175,7 +141,6 @@
           <input type="date" name="date_to" value="{{ date_to or '' }}" class="form-control">
         </div>
 
-        <!-- Similar item filters -->
         <div class="col-12 col-md-3">
           <label class="form-label"><i class="fa-solid fa-boxes-stacked me-1"></i>Item Service</label>
           <input type="text" name="item_service" value="{{ item_service or '' }}" class="form-control" placeholder="e.g., Bigtime Data">
@@ -219,7 +184,6 @@
       </div>
     </form>
 
-    <!-- Orders Table -->
     <div class="table-responsive">
       <table class="table table-hover table-bordered align-middle">
         <thead class="table-dark text-center">
@@ -246,10 +210,7 @@
                 </div>
                 <div class="small">
                   <span class="d-block"><i class="fas fa-envelope me-1 text-muted"></i>{{ (order["user"] or {}).get("email","") }}</span>
-                  <span class="d-block">
-                    <i class="fas fa-phone-alt me-1 text-muted"></i>
-                    <strong>{{ (order["user"] or {}).get("phone","") }}</strong>
-                  </span>
+                  <span class="d-block"><i class="fas fa-phone-alt me-1 text-muted"></i><strong>{{ (order["user"] or {}).get("phone","") }}</strong></span>
                 </div>
               </div>
             </td>
@@ -258,13 +219,8 @@
                 {% for item in order["items"] %}
                 <li class="mb-1 border-bottom pb-1">
                   <strong>{{ item["serviceName"] }}</strong> – {{ item.get("value","") }}<br>
-                  <span class="d-block">
-                    <i class="fas fa-mobile-alt me-1 text-muted"></i>
-                    <strong>{{ item.get("phone","") }}</strong>
-                  </span>
-                  <span class="text-success d-block mt-1">
-                    <i class="fas fa-tag me-1"></i>₵{{ item.get("amount") }}
-                  </span>
+                  <span class="d-block"><i class="fas fa-mobile-alt me-1 text-muted"></i><strong>{{ item.get("phone","") }}</strong></span>
+                  <span class="text-success d-block mt-1"><i class="fas fa-tag me-1"></i>₵{{ item.get("amount") }}</span>
                 </li>
                 {% endfor %}
               </ul>
@@ -273,7 +229,7 @@
               <i class="fas fa-coins me-1"></i>₵{{ "%.2f"|format(order.get("total_amount", 0) or 0) }}
             </td>
 
-            <!-- Colored status + inline changer -->
+            <!-- Status + inline buttons -->
             <td class="text-center">
               {% set st = (order.get('status') or '').lower() %}
               <div class="d-inline-flex align-items-center gap-2">
@@ -283,27 +239,54 @@
                   {% elif st=='pending' %}st-pending
                   {% elif st=='processing' %}st-processing
                   {% elif st=='failed' %}st-failed
+                  {% elif st=='refunded' %}st-refunded
                   {% else %}st-processing{% endif %}">
                   <i class="fa-solid fa-circle"></i> {{ st|capitalize }}
                 </span>
 
-                <!-- small dropdown to change -->
-                <div class="dropdown">
-                  <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                    Change
-                  </button>
-                  <ul class="dropdown-menu dropdown-menu-end">
-                    {% for s in ['pending','processing','delivered','failed','completed'] %}
-                      <li>
-                        <form method="POST" action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
-                          <input type="hidden" name="status" value="{{ s }}">
-                          <button class="dropdown-item {% if s==st %}active{% endif %}" type="submit">
-                            {{ s|capitalize }}
-                          </button>
-                        </form>
-                      </li>
-                    {% endfor %}
-                  </ul>
+                <!-- Toggle button -->
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-actions="actions-{{ order['_id'] }}">
+                  Change
+                </button>
+
+                <!-- Actions tray (buttons) -->
+                <div id="actions-{{ order['_id'] }}" class="status-actions d-none">
+                  <!-- Failed -->
+                  <form method="POST" class="m-0"
+                        action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+                    <input type="hidden" name="status" value="failed">
+                    <button type="submit" class="btn btn-outline-danger" data-confirm="Mark this order as Failed?">
+                      Failed
+                    </button>
+                  </form>
+
+                  <!-- Refunded -->
+                  <form method="POST" class="m-0"
+                        action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+                    <input type="hidden" name="status" value="refunded">
+                    <button type="submit" class="btn btn-outline-primary"
+                            data-confirm="Mark this order as Refunded? This will credit the customer's wallet if not already.">
+                     Failed and  Refunded
+                    </button>
+                  </form>
+
+                  <!-- Processing -->
+                  <form method="POST" class="m-0"
+                        action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+                    <input type="hidden" name="status" value="processing">
+                    <button type="submit" class="btn btn-outline-info">
+                      Processing
+                    </button>
+                  </form>
+
+                  <!-- Delivered -->
+                  <form method="POST" class="m-0"
+                        action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+                    <input type="hidden" name="status" value="delivered">
+                    <button type="submit" class="btn btn-outline-success">
+                      Delivered
+                    </button>
+                  </form>
                 </div>
               </div>
             </td>
@@ -314,8 +297,7 @@
               </span>
             </td>
             <td class="text-center">
-              <small>
-                <i class="fas fa-clock me-1"></i>
+              <small><i class="fas fa-clock me-1"></i>
                 {{ order.get("created_at").strftime('%Y-%m-%d %H:%M') if order.get("created_at") else 'N/A' }}
               </small>
             </td>
@@ -333,7 +315,6 @@
       </table>
     </div>
 
-    <!-- Pagination -->
     {% if total_pages > 1 %}
     <div class="d-flex justify-content-between align-items-center mt-3">
       <div class="text-muted small">Page {{ page }} of {{ total_pages }}</div>
@@ -370,5 +351,35 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- No inline onclick: one clean handler for toggles + confirms -->
+  <script>
+    // Toggle inline actions
+    document.addEventListener('click', function (e) {
+      const btn = e.target.closest('[data-toggle-actions]');
+      if (btn) {
+        const id = btn.getAttribute('data-toggle-actions');
+        const target = document.getElementById(id);
+        if (target) {
+          const container = btn.closest('td') || document;
+          container.querySelectorAll('.status-actions').forEach(function (el) {
+            if (el.id !== id) el.classList.add('d-none');
+          });
+          target.classList.toggle('d-none');
+        }
+      }
+    });
+
+    // Centralized confirmation (avoids quote-escape issues)
+    document.addEventListener('click', function (e) {
+      const submitBtn = e.target.closest('button[type="submit"][data-confirm], .btn[data-confirm]');
+      if (!submitBtn) return;
+      const msg = submitBtn.getAttribute('data-confirm') || 'Are you sure?';
+      if (!window.confirm(msg)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+  </script>
 </body>
 </html>
