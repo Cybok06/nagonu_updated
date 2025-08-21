@@ -69,6 +69,7 @@
     .st-pending { background: rgba(245,158,11,.12); color: #b45309; border: 1px solid rgba(245,158,11,.35); }
     .st-processing { background: rgba(14,165,233,.12); color: #0369a1; border: 1px solid rgba(14,165,233,.35); }
     .st-completed { background: rgba(16,185,129,.12); color: #065f46; border: 1px solid rgba(16,185,129,.35); }
+    .st-delivered { background: rgba(16,185,129,.12); color: #065f46; border: 1px solid rgba(16,185,129,.35); } /* new */
     .st-failed { background: rgba(239,68,68,.12); color: #7f1d1d; border: 1px solid rgba(239,68,68,.35); }
 
     .list-unstyled li { background: rgba(37, 99, 235, .05); padding: .5rem; border-radius: 8px; margin-bottom: .5rem !important; border-left: 3px solid var(--primary-blue); transition: all .2s ease; }
@@ -99,12 +100,12 @@
         </div>
       </div>
 
-      <!-- NEW: Bulk complete button -->
+      <!-- NEW: Bulk deliver button -->
       <form method="POST"
-            action="{{ url_for('admin_orders.bulk_complete_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+            action="{{ url_for('admin_orders.bulk_deliver_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}">
         <button class="btn btn-success btn-icon"
-                onclick="return confirm('Mark ALL pending orders in the current filters as COMPLETED?');">
-          <i class="fa-solid fa-check-double"></i> Mark All Pending as Completed
+                onclick="return confirm('Mark ALL processing orders in the current filters as DELIVERED?');">
+          <i class="fa-solid fa-truck-fast"></i> Mark All Processing as Delivered
         </button>
       </form>
     </div>
@@ -138,7 +139,7 @@
           <label class="form-label"><i class="fa-solid fa-clipboard-check me-1"></i>Status</label>
           <select name="status" class="form-select">
             <option value="">All</option>
-            {% for s in ['pending','processing','completed','failed'] %}
+            {% for s in ['pending','processing','delivered','failed','completed'] %}
               <option value="{{ s }}" {% if s == status_filter %}selected{% endif %}>{{ s|capitalize }}</option>
             {% endfor %}
           </select>
@@ -174,7 +175,7 @@
           <input type="date" name="date_to" value="{{ date_to or '' }}" class="form-control">
         </div>
 
-        <!-- NEW: Similar item filters -->
+        <!-- Similar item filters -->
         <div class="col-12 col-md-3">
           <label class="form-label"><i class="fa-solid fa-boxes-stacked me-1"></i>Item Service</label>
           <input type="text" name="item_service" value="{{ item_service or '' }}" class="form-control" placeholder="e.g., Bigtime Data">
@@ -277,7 +278,8 @@
               {% set st = (order.get('status') or '').lower() %}
               <div class="d-inline-flex align-items-center gap-2">
                 <span class="status-chip
-                  {% if st=='completed' %}st-completed
+                  {% if st=='delivered' %}st-delivered
+                  {% elif st=='completed' %}st-completed
                   {% elif st=='pending' %}st-pending
                   {% elif st=='processing' %}st-processing
                   {% elif st=='failed' %}st-failed
@@ -291,7 +293,7 @@
                     Change
                   </button>
                   <ul class="dropdown-menu dropdown-menu-end">
-                    {% for s in ['pending','processing','completed','failed'] %}
+                    {% for s in ['pending','processing','delivered','failed','completed'] %}
                       <li>
                         <form method="POST" action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
                           <input type="hidden" name="status" value="{{ s }}">
