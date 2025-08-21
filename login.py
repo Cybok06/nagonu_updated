@@ -1,8 +1,8 @@
 # login.py
-from flask import Blueprint, render_template, request, redirect, url_for, session, flash, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, session, flash
 from db import db
 from werkzeug.security import check_password_hash
-from datetime import datetime, timedelta
+from datetime import datetime
 import re
 import requests
 import urllib3
@@ -17,37 +17,6 @@ login_logs_col = db["login_logs"]
 ENABLE_IP_LOOKUP = True
 IP_LOOKUP_TIMEOUT = 4.0  # seconds
 VERIFY_SSL = False       # avoids custom CA issues in your environment
-
-
-# ---------------------------
-# Session persistence config
-# ---------------------------
-
-@login_bp.before_app_first_request
-def _configure_session_persistence():
-    """
-    Ensure the app has a long-lived permanent session lifetime and safe cookie flags.
-    (If these are already set elsewhere, this won't harm anything.)
-    """
-    # Keep users logged in for 90 days unless they explicitly hit /logout
-    current_app.permanent_session_lifetime = timedelta(days=90)
-
-    # Sensible cookie defaults (only set if missing)
-    current_app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
-    # Lax is usually best for session cookies; change to "Strict" if desired
-    current_app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
-    # Flip to True if you serve over HTTPS in production
-    current_app.config.setdefault("SESSION_COOKIE_SECURE", False)
-
-
-@login_bp.before_app_request
-def _keep_logged_in_sessions_permanent():
-    """
-    If a user is logged in, keep the session marked as permanent on every request.
-    This prevents some servers from dropping permanence on edge cases.
-    """
-    if session.get("user_id"):
-        session.permanent = True
 
 
 # ---------------------------
@@ -209,6 +178,21 @@ def log_login_event(user: dict, success: bool, reason: str = "") -> None:
 
 
 # ---------------------------
+# Keep sessions permanent while logged in
+# ---------------------------
+
+@login_bp.before_app_request
+def _keep_permanent_session():
+    """
+    Runs before every request (any blueprint).
+    If a user is logged in, ensure the session remains 'permanent'
+    so the cookie keeps its expiration (set by PERMANENT_SESSION_LIFETIME).
+    """
+    if session.get("user_id"):
+        session.permanent = True
+
+
+# ---------------------------
 # Routes
 # ---------------------------
 
@@ -237,10 +221,10 @@ def login():
 
         # Successful auth (active or missing status treated as active)
         session.clear()
-        session.permanent = True  # <-- persist across browser restarts
         session["user_id"] = str(user["_id"])
         session["username"] = user["username"]
         session["role"] = user.get("role", "customer")
+        session.permanent = True  # <- critical: sets cookie expiration
 
         # Log success before redirect
         log_login_event(user, success=True)
