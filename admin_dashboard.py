@@ -11,6 +11,7 @@ admin_dashboard_bp = Blueprint("admin_dashboard", __name__)
 orders_col = db["orders"]
 users_col = db["users"]
 balance_logs_col = db["balance_logs"]  # NEW: use audit logs to compute deposits/deductions
+afa_col = db["afa_registrations"]
 
 # ----------------------------
 # Helpers
@@ -245,6 +246,17 @@ def admin_dashboard():
     # NEW: balance flow totals (overall + today)
     flow = compute_balance_flow_totals()
 
+    # NEW: AFA registration KPIs (moved INSIDE the route)
+    today = datetime.utcnow().date()
+    start = datetime.combine(today, datetime.min.time())
+    end = start + timedelta(days=1)
+    try:
+        afa_total  = afa_col.count_documents({})
+        afa_pending = afa_col.count_documents({"status": "pending"})
+        afa_today   = afa_col.count_documents({"created_at": {"$gte": start, "$lt": end}})
+    except Exception:
+        afa_total = afa_pending = afa_today = 0
+
     return render_template(
         "admin_dashboard.html",
         # KPIs
@@ -267,9 +279,14 @@ def admin_dashboard():
         blocked_customers=cust_counts["blocked_customers"],
         active_customers=cust_counts["active_customers"],
 
-        # NEW: flows
+        # Balance flows
         deposits_overall=flow["deposits_overall"],
         withdrawals_overall=flow["withdrawals_overall"],
         deposits_today=flow["deposits_today"],
         withdrawals_today=flow["withdrawals_today"],
+
+        # AFA stats
+        afa_total=afa_total,
+        afa_pending=afa_pending,
+        afa_today=afa_today,
     )
