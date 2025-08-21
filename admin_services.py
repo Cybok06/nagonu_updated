@@ -670,3 +670,132 @@ def set_service_type(service_id):
         return jsonify({"success": False, "error": "Service not found"}), 404
 
     return jsonify({"success": True, "service_id": str(_id), "type": desired})
+
+
+# --- Normalizers -------------------------------------------------
+def _norm_status_flag(v: str | None) -> str | None:
+    """Map many inputs to 'OPEN' or 'CLOSED'."""
+    if v is None:
+        return None
+    s = str(v).strip().lower()
+    if s in {"open", "1", "true", "on", "yes"}:
+        return "OPEN"
+    if s in {"closed", "0", "false", "off", "no"}:
+        return "CLOSED"
+    return None
+
+def _norm_availability_flag(v: str | None) -> str | None:
+    """Map many inputs to 'AVAILABLE' or 'OUT_OF_STOCK'."""
+    if v is None:
+        return None
+    s = str(v).strip().lower()
+    if s in {"available", "in_stock", "instock", "1", "true", "on", "yes"}:
+        return "AVAILABLE"
+    if s in {"out_of_stock", "outofstock", "oos", "unavailable", "0", "false", "off", "no"}:
+        return "OUT_OF_STOCK"
+    return None
+
+# --- Routes ------------------------------------------------------
+
+@admin_services_bp.route("/admin/services/<service_id>/status", methods=["POST"])
+def set_service_status(service_id):
+    """Set OPEN/CLOSED operational status for a service."""
+    if not _require_admin():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    try:
+        _id = ObjectId(service_id)
+    except Exception:
+        return jsonify({"success": False, "error": "Invalid service id"}), 400
+
+    raw = request.form.get("status")
+    if raw is None and request.is_json:
+        payload = request.get_json(silent=True) or {}
+        raw = payload.get("status")
+
+    status_val = _norm_status_flag(raw)
+    if not status_val:
+        return jsonify({"success": False, "error": "status must be 'OPEN' or 'CLOSED'"}), 400
+
+    res = services_col.update_one(
+        {"_id": _id},
+        {"$set": {"status": status_val, "updated_at": datetime.utcnow()}}
+    )
+    if not res.matched_count:
+        return jsonify({"success": False, "error": "Service not found"}), 404
+
+    return jsonify({"success": True, "service_id": str(_id), "status": status_val})
+
+
+@admin_services_bp.route("/admin/services/<service_id>/availability", methods=["POST"])
+def set_service_availability(service_id):
+    """Set AVAILABLE / OUT_OF_STOCK inventory flag for a service."""
+    if not _require_admin():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    try:
+        _id = ObjectId(service_id)
+    except Exception:
+        return jsonify({"success": False, "error": "Invalid service id"}), 400
+
+    raw = request.form.get("availability")
+    if raw is None and request.is_json:
+        payload = request.get_json(silent=True) or {}
+        raw = payload.get("availability")
+
+    avail_val = _norm_availability_flag(raw)
+    if not avail_val:
+        return jsonify({"success": False, "error": "availability must be 'AVAILABLE' or 'OUT_OF_STOCK'"}), 400
+
+    res = services_col.update_one(
+        {"_id": _id},
+        {"$set": {"availability": avail_val, "updated_at": datetime.utcnow()}}
+    )
+    if not res.matched_count:
+        return jsonify({"success": False, "error": "Service not found"}), 404
+
+    return jsonify({"success": True, "service_id": str(_id), "availability": avail_val})
+
+
+# (Optional) One-shot endpoint to update BOTH in a single request
+@admin_services_bp.route("/admin/services/<service_id>/flags", methods=["POST"])
+def set_service_flags(service_id):
+    """Set status and/or availability in one call."""
+    if not _require_admin():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    try:
+        _id = ObjectId(service_id)
+    except Exception:
+        return jsonify({"success": False, "error": "Invalid service id"}), 400
+
+    # Accept form or JSON
+    data = {}
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+    status_raw = request.form.get("status", data.get("status"))
+    avail_raw  = request.form.get("availability", data.get("availability"))
+
+    update_doc = {"updated_at": datetime.utcnow()}
+    out = {"success": True, "service_id": str(_id)}
+
+    if status_raw is not None:
+        status_val = _norm_status_flag(status_raw)
+        if not status_val:
+            return jsonify({"success": False, "error": "status must be 'OPEN' or 'CLOSED'"}), 400
+        update_doc["status"] = status_val
+        out["status"] = status_val
+
+    if avail_raw is not None:
+        avail_val = _norm_availability_flag(avail_raw)
+        if not avail_val:
+            return jsonify({"success": False, "error": "availability must be 'AVAILABLE' or 'OUT_OF_STOCK'"}), 400
+        update_doc["availability"] = avail_val
+        out["availability"] = avail_val
+
+    if len(update_doc) == 1:  # only updated_at present
+        return jsonify({"success": False, "error": "Nothing to update"}), 400
+
+    res = services_col.update_one({"_id": _id}, {"$set": update_doc})
+    if not res.matched_count:
+        return jsonify({"success": False, "error": "Service not found"}), 404
+
+    return jsonify(out)
+
