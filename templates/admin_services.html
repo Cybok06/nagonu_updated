@@ -8,7 +8,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
 
   <style>
-    :root { --sea-blue:#0ea5e9; --dark-bg:#053047; }
+    :root { --sea-blue:#0ea5e9; }
 
     /* Layout */
     @media (min-width: 992px) { .admin-content { margin-left: 260px; padding: 2rem; } }
@@ -20,10 +20,19 @@
 
     /* Service cards grid */
     .svc-card-img { width:100%; height:140px; object-fit:cover; border-radius:12px; background:#f3f6f9; }
-    .svc-type-badge { font-size:.75rem; padding:.35rem .5rem; border-radius:999px; }
-    .svc-type-API { background:rgba(25,135,84,.12); color:#198754; border:1px solid rgba(25,135,84,.3); }
-    .svc-type-OFF { background:rgba(220,53,69,.12); color:#dc3545; border:1px solid rgba(220,53,69,.3); }
     .svc-chip { background:#f8fafc; border:1px solid #e9ecef; border-radius:999px; padding:.2rem .55rem; font-size:.8rem; }
+
+    /* Badges (Type/Status/Availability) */
+    .svc-badge { font-size:.75rem; padding:.35rem .5rem; border-radius:999px; border:1px solid transparent; display:inline-block; }
+    /* Type */
+    .svc-type-API { background:rgba(25,135,84,.12); color:#198754; border-color:rgba(25,135,84,.3); }
+    .svc-type-OFF { background:rgba(220,53,69,.12); color:#dc3545; border-color:rgba(220,53,69,.3); }
+    /* Status (OPEN/CLOSED) */
+    .svc-status-OPEN { background:rgba(25,135,84,.12); color:#198754; border-color:rgba(25,135,84,.3); }
+    .svc-status-CLOSED { background:rgba(220,53,69,.12); color:#dc3545; border-color:rgba(220,53,69,.3); }
+    /* Availability (AVAILABLE/OUT_OF_STOCK) */
+    .svc-avail-AVAILABLE { background:rgba(13,110,253,.12); color:#0d6efd; border-color:rgba(13,110,253,.3); }
+    .svc-avail-OUT_OF_STOCK { background:rgba(255,193,7,.15); color:#9a6e00; border-color:rgba(255,193,7,.35); }
 
     /* Modal: long-friendly with sticky header + footer */
     .modal-header { position: sticky; top: 0; background: #fff; z-index: 3; border-bottom: 1px solid rgba(0,0,0,.125); }
@@ -67,7 +76,13 @@
         {% set sid = svc._id_str %}
         {% set count = svc.offers|length if svc.offers else 0 %}
         {% set t = (svc.type or 'API') %}
-        <div class="col-12 col-sm-6 col-lg-4 col-xxl-3 svc-card" data-name="{{ (svc.name or '')|lower }}" data-type="{{ t }}">
+        {% set s = (svc.status or 'OPEN') %}
+        {% set a = (svc.availability or 'AVAILABLE') %}
+        <div class="col-12 col-sm-6 col-lg-4 col-xxl-3 svc-card"
+             data-name="{{ (svc.name or '')|lower }}"
+             data-type="{{ t }}"
+             data-status="{{ s }}"
+             data-availability="{{ a }}">
           <div class="card shadow-sm h-100">
             <div class="card-body d-flex flex-column">
               <img src="{{ svc.image_url or '' }}" alt="" class="svc-card-img mb-3">
@@ -80,7 +95,15 @@
                   </div>
                 </div>
                 <div class="text-end">
-                  <span class="svc-type-badge {{ 'svc-type-API' if t=='API' else 'svc-type-OFF' }}">{{ t }}</span>
+                  <div class="mb-1">
+                    <span class="svc-badge {{ 'svc-type-API' if t=='API' else 'svc-type-OFF' }}" data-role="type-badge">{{ t }}</span>
+                  </div>
+                  <div class="mb-1">
+                    <span class="svc-badge {{ 'svc-status-OPEN' if s=='OPEN' else 'svc-status-CLOSED' }}" data-role="status-badge">{{ s }}</span>
+                  </div>
+                  <div>
+                    <span class="svc-badge {{ 'svc-avail-AVAILABLE' if a=='AVAILABLE' else 'svc-avail-OUT_OF_STOCK' }}" data-role="availability-badge">{{ a }}</span>
+                  </div>
                 </div>
               </div>
 
@@ -94,13 +117,31 @@
                   <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#offersModal-{{ sid }}">Offers</button>
                   <button class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#setCustomerProfitModal-{{ sid }}">Customer Profit</button>
                 </div>
-                <div class="d-flex gap-2">
-                  <button class="btn btn-sm {{ 'btn-success' if t=='OFF' else 'btn-outline-secondary' }} flex-grow-1"
-                          onclick="toggleType('{{ sid }}', '{{ t }}', this)">
+
+                <div class="d-flex flex-wrap gap-2">
+                  <!-- Type toggle -->
+                  <button
+                    class="btn btn-sm {{ 'btn-success' if t=='OFF' else 'btn-outline-secondary' }}"
+                    onclick="toggleType('{{ sid }}', '{{ t }}', this)">
                     {{ 'Turn ON (API)' if t=='OFF' else 'Turn OFF' }}
                   </button>
+
+                  <!-- Status toggle -->
+                  <button
+                    class="btn btn-sm {{ 'btn-outline-warning' if s=='OPEN' else 'btn-success' }}"
+                    onclick="toggleStatus('{{ sid }}', '{{ s }}', this)">
+                    {{ 'Close' if s=='OPEN' else 'Reopen' }}
+                  </button>
+
+                  <!-- Availability toggle -->
+                  <button
+                    class="btn btn-sm {{ 'btn-outline-warning' if a=='AVAILABLE' else 'btn-success' }}"
+                    onclick="toggleAvailability('{{ sid }}', '{{ a }}', this)">
+                    {{ 'Mark Out of Stock' if a=='AVAILABLE' else 'Mark Available' }}
+                  </button>
+
                   <form method="post" action="{{ url_for('admin_services.delete_service', service_id=sid) }}"
-                        onsubmit="return confirm('Delete this service?');">
+                        onsubmit="return confirm('Delete this service?');" class="ms-auto">
                     <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
                   </form>
                 </div>
@@ -145,7 +186,7 @@
                   <div class="col-sm-6">
                     <label class="form-label">Default Profit (%)</label>
                     <input type="number" step="0.01" min="0" name="default_profit_percent" class="form-control" placeholder="e.g., 50">
-                    <small class="small-muted">Used when a customer‑specific profit is not set.</small>
+                    <small class="small-muted">Used when a customer-specific profit is not set.</small>
                   </div>
                 </div>
               </div>
@@ -191,7 +232,7 @@
     {% set sid = svc._id_str %}
     {% set count = svc.offers|length if svc.offers else 0 %}
 
-    <!-- Offers viewer (scrolls long) -->
+    <!-- Offers viewer -->
     <div class="modal fade" id="offersModal-{{ sid }}" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down modal-dialog-centered modal-dialog-xxl">
         <div class="modal-content">
@@ -233,7 +274,7 @@
       </div>
     </div>
 
-    <!-- Edit Service (roomy + long offers editor) -->
+    <!-- Edit Service -->
     <div class="modal fade" id="editServiceModal-{{ sid }}" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-md-down modal-dialog-centered modal-dialog-xxl">
         <div class="modal-content">
@@ -264,7 +305,7 @@
                       <label class="form-label">Default Profit (%)</label>
                       <input type="number" step="0.01" min="0" name="default_profit_percent" class="form-control"
                              value="{{ (svc.default_profit_percent if svc.default_profit_percent is not none else 0) | round(2) }}">
-                      <small class="small-muted">Used when a customer‑specific profit is not set.</small>
+                      <small class="small-muted">Used when a customer-specific profit is not set.</small>
                     </div>
                   </div>
                 </div>
@@ -436,6 +477,14 @@
     svcSearch?.addEventListener('input', applyFilter);
     typeFilter?.addEventListener('change', applyFilter);
 
+    /* ---------------- Badge helpers ---------------- */
+    function setBadge(el, classesRemove, classAdd, text) {
+      if (!el) return;
+      classesRemove.forEach(c => el.classList.remove(c));
+      if (classAdd) el.classList.add(classAdd);
+      if (text) el.textContent = text;
+    }
+
     /* ---------------- Toggle Type (API <-> OFF) ---------------- */
     async function toggleType(id, current, btn) {
       try {
@@ -448,26 +497,88 @@
         });
         const data = await res.json();
         if (data.success) {
-          // update UI without full reload
           const card = btn.closest('.svc-card');
           if (card) {
             card.setAttribute('data-type', data.type);
-            const badge = card.querySelector('.svc-type-badge');
-            if (badge) {
-              badge.textContent = data.type;
-              badge.classList.toggle('svc-type-API', data.type === 'API');
-              badge.classList.toggle('svc-type-OFF', data.type === 'OFF');
-            }
+            const typeBadge = card.querySelector('[data-role="type-badge"]');
+            setBadge(typeBadge, ['svc-type-API','svc-type-OFF'], data.type === 'API' ? 'svc-type-API' : 'svc-type-OFF', data.type);
             // flip button label/style
             btn.classList.toggle('btn-success', data.type === 'OFF');
             btn.classList.toggle('btn-outline-secondary', data.type !== 'OFF');
             btn.textContent = (data.type === 'OFF') ? 'Turn ON (API)' : 'Turn OFF';
-            // also update "current" for next click
             btn.setAttribute('onclick', `toggleType('${id}', '${data.type}', this)`);
           }
-          applyFilter(); // in case filter should hide/show after change
+          applyFilter();
         } else {
           alert(data.error || 'Failed to update type.');
+        }
+      } catch (e) {
+        alert('Network error.');
+      } finally {
+        btn?.removeAttribute('disabled');
+      }
+    }
+
+    /* ---------------- Toggle Status (OPEN <-> CLOSED) ---------------- */
+    async function toggleStatus(id, current, btn) {
+      try {
+        const desired = current === 'CLOSED' ? 'OPEN' : 'CLOSED';
+        btn?.setAttribute('disabled', 'disabled');
+        const res = await fetch(`/admin/services/${id}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ status: desired })
+        });
+        const data = await res.json();
+        if (data.success) {
+          const card = btn.closest('.svc-card');
+          if (card) {
+            card.setAttribute('data-status', data.status);
+            const badge = card.querySelector('[data-role="status-badge"]');
+            setBadge(badge, ['svc-status-OPEN','svc-status-CLOSED'], data.status === 'OPEN' ? 'svc-status-OPEN' : 'svc-status-CLOSED', data.status);
+            // button visuals + next label
+            const isOpen = data.status === 'OPEN';
+            btn.classList.toggle('btn-outline-warning', isOpen);
+            btn.classList.toggle('btn-success', !isOpen);
+            btn.textContent = isOpen ? 'Close' : 'Reopen';
+            btn.setAttribute('onclick', `toggleStatus('${id}', '${data.status}', this)`);
+          }
+        } else {
+          alert(data.error || 'Failed to update status.');
+        }
+      } catch (e) {
+        alert('Network error.');
+      } finally {
+        btn?.removeAttribute('disabled');
+      }
+    }
+
+    /* -------- Toggle Availability (AVAILABLE <-> OUT_OF_STOCK) --- */
+    async function toggleAvailability(id, current, btn) {
+      try {
+        const desired = current === 'OUT_OF_STOCK' ? 'AVAILABLE' : 'OUT_OF_STOCK';
+        btn?.setAttribute('disabled', 'disabled');
+        const res = await fetch(`/admin/services/${id}/availability`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ availability: desired })
+        });
+        const data = await res.json();
+        if (data.success) {
+          const card = btn.closest('.svc-card');
+          if (card) {
+            card.setAttribute('data-availability', data.availability);
+            const badge = card.querySelector('[data-role="availability-badge"]');
+            setBadge(badge, ['svc-avail-AVAILABLE','svc-avail-OUT_OF_STOCK'], data.availability === 'AVAILABLE' ? 'svc-avail-AVAILABLE' : 'svc-avail-OUT_OF_STOCK', data.availability);
+            // button visuals + next label
+            const isAvail = data.availability === 'AVAILABLE';
+            btn.classList.toggle('btn-outline-warning', isAvail);
+            btn.classList.toggle('btn-success', !isAvail);
+            btn.textContent = isAvail ? 'Mark Out of Stock' : 'Mark Available';
+            btn.setAttribute('onclick', `toggleAvailability('${id}', '${data.availability}', this)`);
+          }
+        } else {
+          alert(data.error || 'Failed to update availability.');
         }
       } catch (e) {
         alert('Network error.');
@@ -547,7 +658,6 @@
     }
 
     /* ---------------- Filters for selects & tables ---------------- */
-    // Filter <select> options for customer picker
     document.addEventListener('input', function(e) {
       const inp = e.target.closest('[data-filter-select]');
       if (!inp) return;
@@ -565,7 +675,6 @@
       }
     });
 
-    // Filter rows in overrides table
     document.addEventListener('input', function(e) {
       const box = e.target.closest('[data-filter-table]');
       if (!box) return;
