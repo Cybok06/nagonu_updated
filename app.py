@@ -41,7 +41,6 @@ from login_logs import login_logs_bp
 from reset import reset_bp
 from afa_routes import afa_bp
 from admin_afa import admin_afa_bp
-from admin_afa import admin_afa_bp
 
 
 
@@ -87,7 +86,6 @@ def create_app():
     app.register_blueprint(login_logs_bp)
     app.register_blueprint(reset_bp)
     app.register_blueprint(afa_bp)
-    app.register_blueprint(admin_afa_bp)
     app.register_blueprint(admin_afa_bp)
 
 
