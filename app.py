@@ -39,6 +39,8 @@ from settings import settings_bp
 from admin_sidebar import admin_sidebar_bp
 from login_logs import login_logs_bp
 from reset import reset_bp
+from afa_routes import afa_bp
+
 
 # === NEW: visits collection ===
 visits_col = db["visits"]
@@ -81,6 +83,8 @@ def create_app():
     app.register_blueprint(admin_sidebar_bp)
     app.register_blueprint(login_logs_bp)
     app.register_blueprint(reset_bp)
+    app.register_blueprint(afa_bp)
+
 
     # Make env values available in templates (Jinja)
     @app.context_processor
