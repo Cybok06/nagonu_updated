@@ -119,6 +119,10 @@
     .footer-credits{ border-top:1px solid rgba(255,255,255,.18); margin-top:1.25rem; padding-top:1rem; font-size:.95rem; }
     .footer-reveal{ opacity:0; transform:translateY(16px); transition:opacity .6s, transform .6s; }
     .footer-reveal.in{ opacity:1; transform:none; }
+
+    /* Modal tweaks */
+    .modal-body{ max-height: 65vh; overflow:auto; }
+    .modal-header .modal-title{ font-weight:800; letter-spacing:.2px; }
   </style>
 </head>
 <body data-auth="{{ '1' if session and session.get('user_id') else '0' }}">
@@ -136,7 +140,10 @@
       <ul class="navbar-nav ms-auto align-items-lg-center">
         <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
         <li class="nav-item"><a class="nav-link" href="#services">Services</a></li>
-        <li class="nav-item"><a class="nav-link" href="/about">About</a></li>
+        <!-- About now opens modal -->
+        <li class="nav-item">
+          <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#aboutModal">About</a>
+        </li>
         <li class="nav-item ms-lg-3 my-2 my-lg-0">
           <a href="/login" class="btn btn-outline-light btn-cta">Login</a>
         </li>
@@ -190,7 +197,7 @@
   </div>
 
   <!-- Services -->
-  <section id="Services" class="services-section py-5">
+  <section id="services" class="services-section py-5">
     <div class="container">
       <h2 class="section-title text-center mb-4">Services</h2>
       <p class="text-center text-muted mb-5">Pick a service to get started. More coming soon.</p>
@@ -333,29 +340,140 @@
     <div class="container footer-reveal" id="footerBlock">
       <div class="row g-4">
         <div class="col-12 col-md-6">
-          <h5 class="footer-title mb-3">Nagonu </h5>
+          <h5 class="footer-title mb-3">Nagonu</h5>
           <p class="mb-2">Email: <a href="mailto:nagosenu4@gmail.com">nagosenu4@gmail.com</a></p>
-          <p class="mb-2">Phone: <a href="tel:+233553226196">+233 55 322 6196</a></p>
+          <p class="mb-2">Phone: <a href="tel:+233553226196"><strong>+233 55 322 6196</strong></a></p>
           <p class="mb-0">WhatsApp: <a href="http://wa.me/233553226196" target="_blank" rel="noopener">Chat Now</a></p>
         </div>
 
         <div class="col-12 col-md-6">
           <h5 class="footer-title mb-3">Follow Us</h5>
-          <div class="footer-social d-flex align-items-center">
+          <div class="footer-social d-flex align-items-center mb-3">
             <a href="#" aria-label="Facebook"><i class="bi bi-facebook fs-5"></i></a>
             <a href="#" aria-label="YouTube"><i class="bi bi-youtube fs-5"></i></a>
             <a href="#" aria-label="TikTok"><i class="bi bi-tiktok fs-5"></i></a>
             <a href="#" aria-label="Instagram"><i class="bi bi-instagram fs-5"></i></a>
           </div>
+          <!-- Policy links open modals -->
+          <div class="small">
+            <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms of Service</a> ·
+            <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Policy</a> ·
+            <a href="#" data-bs-toggle="modal" data-bs-target="#aboutModal">About</a>
+          </div>
         </div>
       </div>
 
       <div class="footer-credits d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center">
-        <div>© <span id="yearNow"></span> Nagonu . All rights reserved.</div>
+        <div>© <span id="yearNow"></span> Nagonu. All rights reserved.</div>
         <div class="mt-2 mt-md-0">Developed by <strong>CYTECH</strong> — <a href="mailto:cytech76@gmail.com">cytech76@gmail.com</a></div>
       </div>
     </div>
   </footer>
+
+  <!-- ===== Modals ===== -->
+
+  <!-- About Modal -->
+  <div class="modal fade" id="aboutModal" tabindex="-1" aria-hidden="true" aria-labelledby="aboutModalLabel">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 id="aboutModalLabel" class="modal-title">About Us</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p><strong>Team Nagonu</strong> is a group of dedicated personnel committed to reshaping the digital landscape. <em>“Grounded in grit”</em> is our hallmark, driving us to deliver exceptional services and impactful solutions across telecommunications and education.</p>
+          <p>In <strong>telecommunications</strong>, we bridge the digital divide with affordable, reliable data solutions for individuals and businesses.</p>
+          <p>In <strong>education</strong>, we leverage technology to create engaging tools and resources that empower students and educators.</p>
+          <p>We’re driven by innovation, quality, and customer satisfaction, building lasting relationships and delivering comprehensive solutions.</p>
+          <ul>
+            <li>Reliable and Affordable Services</li>
+            <li>Innovative and Engaging Experiences</li>
+            <li>Exceptional Customer Support</li>
+            <li>A Commitment to Community</li>
+          </ul>
+          <p>Contact us to learn more about how Team Nagonu can help you evolve in both educational and digital sectors.</p>
+        </div>
+        <div class="modal-footer">
+          <a href="mailto:nagosenu4@gmail.com" class="btn btn-primary">Contact Us</a>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Terms of Service Modal -->
+  <div class="modal fade" id="termsModal" tabindex="-1" aria-hidden="true" aria-labelledby="termsModalLabel">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 id="termsModalLabel" class="modal-title">Terms of Service</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <ol>
+            <li>By placing an order on our website, you acknowledge that you have read and agree to these Terms of Service.</li>
+            <li>We may change these Terms without notice. Please check this page regularly for updates.</li>
+            <li>You agree to use our website in compliance with the qualifications and agreements outlined in sections 7 and 8.</li>
+            <li>Our rates may change at any time per Telcos Policy or Supplier Agreement. We will notify you via our website or other means.</li>
+            <li>We strive to deliver promptly, but delivery times are estimates only (0–24 hours) and not guaranteed. After 24 hours, you may be eligible for a refund, excluding network difficulties.</li>
+            <li>No refunds for orders that do not meet our qualification requirements.</li>
+            <li>To avoid issues:
+              <ul>
+                <li>Place orders in the correct category (e.g., MTN in MTN column, not AirtelTigo, and vice versa).</li>
+                <li>Ensure the phone number is correct and complete.</li>
+              </ul>
+            </li>
+            <li>Meet the 3 core qualifications for AFA minutes orders as outlined on our WhatsApp page before placing; refunds for unqualified orders will be handled on merit.</li>
+          </ol>
+          <p class="mb-0"><em>Best Regards, Team Nagonu.</em></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+          <a class="btn btn-primary" href="http://wa.me/233553226196" target="_blank" rel="noopener">Chat on WhatsApp</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Privacy Policy Modal -->
+  <div class="modal fade" id="privacyModal" tabindex="-1" aria-hidden="true" aria-labelledby="privacyModalLabel">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 id="privacyModalLabel" class="modal-title">Privacy Policy</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p>Welcome to our website. This Privacy Policy describes how we collect, use, disclose, and protect your personal information. By using our services, you agree to these terms.</p>
+          <h6>Information We Collect</h6>
+          <ul>
+            <li><strong>Personal Information:</strong> Name, email address, payment details (when you use our services).</li>
+            <li><strong>Usage Data:</strong> IP address, browser type, pages visited, and interactions with our website.</li>
+          </ul>
+          <h6>How We Use Your Information</h6>
+          <ul>
+            <li><strong>Service Delivery:</strong> To process orders and provide customer support.</li>
+            <li><strong>Communications:</strong> Service announcements, newsletters, and promotional offers based on your preferences.</li>
+          </ul>
+          <h6>Data Security</h6>
+          <p>We implement industry‑standard security measures to protect your personal information from unauthorized access, disclosure, alteration, and destruction.</p>
+          <h6>Information Sharing</h6>
+          <p>We do not sell or trade your personal information. We may share data as required by law.</p>
+          <h6>Cookies & Tracking</h6>
+          <p>We use cookies and similar technologies to enhance your experience and improve our services.</p>
+          <h6>Updates</h6>
+          <p>We may update this policy at any time. We’ll notify you of significant changes through your provided contact information.</p>
+          <h6>Contact Us</h6>
+          <p>If you have questions or concerns, please contact <a href="mailto:nagosenu4@gmail.com">panel support</a>.</p>
+          <p class="mb-0"><em>Team Nagonu.</em></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+          <a class="btn btn-primary" href="mailto:nagosenu4@gmail.com">Email Support</a>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -365,7 +483,7 @@
     (function(){
       const y=document.getElementById('yearNow'); if(y) y.textContent=new Date().getFullYear();
 
-      const container=document.querySelector('#Services'); if(!container) return;
+      const container=document.querySelector('#services'); if(!container) return;
       const els=container.querySelectorAll('.reveal-up');
 
       if(!('IntersectionObserver' in window) || !els.length){ els.forEach(el=>el.classList.add('reveal-in')); return; }
@@ -411,5 +529,3 @@
   </script>
 </body>
 </html>
-
-
