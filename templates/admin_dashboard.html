@@ -19,7 +19,28 @@
     .card-icon.success { background: rgba(25,135,84,.12); }
     .card-icon.warning { background: rgba(255,193,7,.15); }
     .card-icon.info    { background: rgba(13,202,240,.12); }
+    
   </style>
+  <style>
+  /* Blink / glow for the KPI count */
+  .blink {
+    animation: kpi-blink 1.2s steps(2, start) infinite;
+  }
+  @keyframes kpi-blink { 50% { opacity: .35; } }
+
+  /* Subtle bump when the number updates */
+  .bump {
+    animation: kpi-bump .6s ease-out;
+  }
+  @keyframes kpi-bump {
+    0% { transform: scale(1); }
+    35% { transform: scale(1.08); }
+    100% { transform: scale(1); }
+  }
+
+  .card-icon.afa { background: rgba(13,110,253,.12); }
+</style>
+
 </head>
 <body>
   {% include 'admin_sidebar.html' %}
@@ -34,6 +55,35 @@
      
         <!-- KPI: Total Customers (clickable with sub-links for blocked/active) -->
 <div class="row g-3 mb-3">
+  <!-- KPI: AFA Registrations (blinking) -->
+<div class="col-12 col-sm-6 col-xl-3">
+  <a href="{{ url_for('admin_afa.admin_afa_page') }}" class="text-decoration-none text-reset">
+    <div class="card h-100 border-0 shadow-lg" style="background: linear-gradient(135deg, #e0f2ff, #f5fbff);">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h6 class="text-muted mb-0">AFA Registrations</h6>
+          <span class="card-icon afa">
+            <i class="bi bi-card-checklist text-primary fs-4"></i>
+          </span>
+        </div>
+        <div class="display-6 kpi mt-2 fw-bold text-dark">
+          <!-- The number blinks, and will "bump" when auto-refresh updates it -->
+          <span id="afa-total" class="blink" data-val="{{ (afa_total or 0) if afa_total is defined else 0 }}">
+            {{ afa_total if afa_total is defined else 0 }}
+          </span>
+        </div>
+        <div class="small mt-2 text-muted">
+          Pending:
+          <span id="afa-pending">{{ afa_pending if afa_pending is defined else 0 }}</span>
+          · Today:
+          <span id="afa-today">{{ afa_today if afa_today is defined else 0 }}</span>
+        </div>
+      </div>
+    </div>
+  </a>
+</div>
+
+
   <div class="col-12 col-sm-6 col-xl-3">
     <a href="{{ url_for('admin_customers.view_customers') }}" class="text-decoration-none text-reset">
       <div class="card shadow-sm h-100">
@@ -72,6 +122,35 @@
       </div>
     </div>
   </div>
+<!-- KPI: Transactions -->
+<div class="col-12 col-sm-6 col-xl-3">
+  <a href="{{ url_for('admin_transactions.admin_view_transactions') }}" class="text-decoration-none text-reset">
+    <div class="card h-100 border-0 shadow-lg" style="background: linear-gradient(135deg, #e8f4ff, #f6fbff);">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h6 class="text-muted mb-0">Transactions</h6>
+          <span class="card-icon" style="background: rgba(13,110,253,.12);">
+            <i class="bi bi-cash-coin text-primary fs-4"></i>
+          </span>
+        </div>
+
+        <!-- Big number: all-time successful transactions -->
+        <div class="display-6 kpi mt-2 fw-bold text-dark">
+          {{ txn_total_count if txn_total_count is defined else 0 }}
+        </div>
+
+        <!-- Small line: today's count + sums for quick context -->
+        <div class="small mt-2 text-muted">
+          Today: <strong>{{ txn_today_count if txn_today_count is defined else 0 }}</strong>
+          <span class="d-block d-sm-inline ms-sm-2">
+            · Sum: <span class="ghs" data-amt="{{ (txn_total_amount or 0)|float }}">GHS 0.00</span>
+            (Today <span class="ghs" data-amt="{{ (txn_today_amount or 0)|float }}">GHS 0.00</span>)
+          </span>
+        </div>
+      </div>
+    </div>
+  </a>
+</div>
 
   <!-- Total Amount -->
   <div class="col-12 col-sm-6 col-xl-3">
