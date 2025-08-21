@@ -1,14 +1,20 @@
 # admin_customers.py
-from flask import Blueprint, render_template, session, redirect, url_for, request, flash, jsonify
+from flask import Blueprint, render_template, session, redirect, url_for, request, jsonify
 from db import db
 from urllib.parse import urlencode
 from bson import ObjectId
 import math
 import re
 from werkzeug.security import generate_password_hash
+from datetime import datetime
 
 admin_customers_bp = Blueprint("admin_customers", __name__)
 users_col = db["users"]
+
+def _require_admin_json():
+    if session.get("role") != "admin":
+        return False, (jsonify({"status": "error", "message": "Unauthorized"}), 403)
+    return True, None
 
 # View Customers Page
 @admin_customers_bp.route("/admin/customers")
@@ -21,6 +27,8 @@ def view_customers():
     referral = (request.args.get("referral") or "").strip()
     has_whatsapp = request.args.get("has_whatsapp")
     has_email = request.args.get("has_email")
+    status = (request.args.get("status") or "").strip().lower()  # 'active' | 'blocked' | ''
+
     page = max(int(request.args.get("page", 1) or 1), 1)
     per_page = 15
 
@@ -63,6 +71,9 @@ def view_customers():
             {"email": None},
         ]})
 
+    if status in ("active", "blocked"):
+        conditions.append({"status": status})
+
     query = {"$and": conditions} if len(conditions) > 1 else conditions[0]
 
     total = users_col.count_documents(query)
@@ -91,6 +102,7 @@ def view_customers():
         referral=referral,
         has_whatsapp=has_whatsapp,
         has_email=has_email,
+        status=status,
         page=page,
         per_page=per_page,
         total=total,
@@ -115,5 +127,33 @@ def update_customer(customer_id):
     data.pop("role", None)
 
     users_col.update_one({"_id": ObjectId(customer_id)}, {"$set": data})
-
     return jsonify({"status": "success", "message": "Customer updated successfully"})
+
+# === Block / Unblock ===
+@admin_customers_bp.route("/admin/customers/toggle_block/<customer_id>", methods=["POST"])
+def toggle_block(customer_id):
+    ok, resp = _require_admin_json()
+    if not ok:
+        return resp
+
+    payload = request.get_json(silent=True) or {}
+    block = bool(payload.get("block", False))
+
+    new_status = "blocked" if block else "active"
+    now = datetime.utcnow()
+
+    # Ensure the user exists and is a customer
+    user = users_col.find_one({"_id": ObjectId(customer_id), "role": "customer"})
+    if not user:
+        return jsonify({"status": "error", "message": "Customer not found"}), 404
+
+    users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {
+            "status": new_status,
+            "status_updated_at": now
+        }}
+    )
+
+    msg = "Customer blocked" if block else "Customer unblocked"
+    return jsonify({"status": "success", "message": msg, "new_status": new_status})
