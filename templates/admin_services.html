@@ -14,48 +14,29 @@
     @media (min-width: 992px) { .admin-content { margin-left: 260px; padding: 2rem; } }
     @media (max-width: 991px) { .admin-content { margin-top: 1rem; padding: 1rem; } }
 
-    /* Table wrapper */
-    .services-table-wrapper { overflow-x: auto; }
-    .services-table-wrapper .table { min-width: 820px; margin-bottom: 0; }
-
-    table thead tr th { background-color: var(--sea-blue) !important; color:#fff !important; }
-    .img-preview { width:64px; height:64px; border-radius:8px; object-fit:cover; background:#f3f6f9; }
-    .img-preview-lg { width:100%; height:180px; object-fit:cover; border-radius:10px; background:#f3f6f9; }
-
     .btn-seablue { background-color: var(--sea-blue); border-color: var(--sea-blue); color:#fff; }
     .btn-seablue:hover { filter:brightness(0.95); color:#fff; }
     .small-muted { font-size:.9rem; color:#6c757d; }
 
-    /* Mobile cards */
-    @media (max-width: 576px) {
-      .service-card { border:1px solid #e9ecef; border-radius:12px; padding:12px; margin-bottom:12px; }
-      .service-card .title { font-weight:600; }
-      .service-card .actions .btn { margin-right:6px; margin-top:6px; }
-      .services-table-wrapper { display:none; }
-    }
-    @media (min-width: 577px) { .services-cards-wrapper { display:none; } }
+    /* Service cards grid */
+    .svc-card-img { width:100%; height:140px; object-fit:cover; border-radius:12px; background:#f3f6f9; }
+    .svc-type-badge { font-size:.75rem; padding:.35rem .5rem; border-radius:999px; }
+    .svc-type-API { background:rgba(25,135,84,.12); color:#198754; border:1px solid rgba(25,135,84,.3); }
+    .svc-type-OFF { background:rgba(220,53,69,.12); color:#dc3545; border:1px solid rgba(220,53,69,.3); }
+    .svc-chip { background:#f8fafc; border:1px solid #e9ecef; border-radius:999px; padding:.2rem .55rem; font-size:.8rem; }
 
-    /* Modal: keep footer visible while scrolling */
-    .modal .modal-footer {
-      position: sticky;
-      bottom: 0;
-      background: #fff;
-      z-index: 2;
-      border-top: 1px solid rgba(0,0,0,.125);
-    }
-    .modal-dialog-scrollable .modal-body { padding-bottom: 1rem; }
+    /* Modal: long-friendly with sticky header + footer */
+    .modal-header { position: sticky; top: 0; background: #fff; z-index: 3; border-bottom: 1px solid rgba(0,0,0,.125); }
+    .modal-footer { position: sticky; bottom: 0; background: #fff; z-index: 3; border-top: 1px solid rgba(0,0,0,.125); }
+    .modal-dialog-xxl { max-width: min(1200px, 96vw); } /* roomy */
+    .img-preview-lg { width:100%; height:220px; object-fit:cover; border-radius:10px; background:#f3f6f9; }
 
-    /* Offers grid in edit modal */
-    .offers-grid thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
-    .offers-grid input { min-width: 100px; }
+    /* Offers grid inside modals */
+    .offers-grid thead th { position: sticky; top: 0; background: #fff; z-index: 2; }
+    .offers-grid input { min-width: 110px; }
     .offers-grid .row-actions { width: 48px; }
     .paste-hint { font-size: .85rem; color:#6c757d; }
 
-    /* Customer profit modal */
-    .cp-search { position: sticky; top: 0; z-index: 1; background: #fff; padding-top: .25rem; }
-    .table-sm td, .table-sm th { vertical-align: middle; }
-
-    /* Very small phones */
     @media (max-width: 380px) {
       .btn-sm { padding: .25rem .5rem; font-size: .8rem; }
       .badge { font-size: .7rem; }
@@ -69,124 +50,75 @@
   <div class="admin-content">
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
       <h2 class="mb-0">Services</h2>
-      <button class="btn btn-seablue" data-bs-toggle="modal" data-bs-target="#addServiceModal">+ Add Service</button>
+      <div class="d-flex gap-2">
+        <input id="svcSearch" type="text" class="form-control" placeholder="Search services...">
+        <select id="typeFilter" class="form-select" style="max-width:180px">
+          <option value="">All Types</option>
+          <option value="API">API (On)</option>
+          <option value="OFF">OFF</option>
+        </select>
+        <button class="btn btn-seablue" data-bs-toggle="modal" data-bs-target="#addServiceModal">+ Add Service</button>
+      </div>
     </div>
 
-    <!-- Desktop / Tablet Table -->
-    <div class="services-table-wrapper">
-      <table class="table table-bordered table-hover align-middle">
-        <thead>
-          <tr>
-            <th style="width:60px;">#</th>
-            <th style="width:90px;">Image</th>
-            <th>Service</th>
-            <th style="width:220px;">Offers</th>
-            <th style="width:140px;">Default Profit %</th>
-            <th style="width:180px;">Created</th>
-            <th style="width:260px;">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for svc in services %}
-          {% set sid = svc._id_str %}
-          <tr>
-            <td>{{ loop.index }}</td>
-            <td>
-              {% if svc.image_url %}
-                <img src="{{ svc.image_url }}" class="img-preview" alt="img">
-              {% else %}-{% endif %}
-            </td>
-            <td class="fw-semibold text-break">{{ svc.name }}</td>
-
-            <!-- OFFERS: modal -->
-            <td>
-              {% set count = svc.offers|length if svc.offers else 0 %}
-              {% if count > 0 %}
-                <button class="btn btn-outline-secondary w-100 text-start"
-                        data-bs-toggle="modal"
-                        data-bs-target="#offersModal-{{ sid }}">
-                  View {{ count }} offer{{ '' if count == 1 else 's' }}
-                </button>
-              {% else %}
-                <span class="text-muted">No offers</span>
-              {% endif %}
-            </td>
-
-            <td>
-              <span class="badge bg-light text-dark border">
-                {{ (svc.default_profit_percent if svc.default_profit_percent is not none else 0) | round(2) }}%
-              </span>
-            </td>
-
-            <td class="text-nowrap">
-              {{ svc.created_at.strftime('%Y-%m-%d %H:%M') if svc.created_at else '-' }}
-            </td>
-
-            <td>
-              <div class="d-flex flex-wrap gap-2">
-                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editServiceModal-{{ sid }}">Edit</button>
-                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#setCustomerProfitModal-{{ sid }}">Customer Profit</button>
-                <form method="post" action="{{ url_for('admin_services.delete_service', service_id=sid) }}" onsubmit="return confirm('Delete this service?');">
-                  <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
-                </form>
-              </div>
-            </td>
-          </tr>
-        {% endfor %}
-        {% if services|length == 0 %}
-          <tr><td colspan="7" class="text-center">No services found.</td></tr>
-        {% endif %}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Mobile Cards -->
-    <div class="services-cards-wrapper">
+    <!-- Cards grid -->
+    <div id="servicesGrid" class="row g-3">
       {% for svc in services %}
         {% set sid = svc._id_str %}
         {% set count = svc.offers|length if svc.offers else 0 %}
-        <div class="service-card">
-          <div class="d-flex align-items-center">
-            {% if svc.image_url %}
-              <img src="{{ svc.image_url }}" class="img-preview me-2" alt="img">
-            {% endif %}
-            <div class="flex-grow-1">
-              <div class="title text-break">{{ svc.name }}</div>
-              <div class="d-flex gap-2 flex-wrap mt-1">
-                <span class="badge bg-light text-dark border">Default: {{ (svc.default_profit_percent if svc.default_profit_percent is not none else 0) | round(2) }}%</span>
-                <small class="text-muted">{{ svc.created_at.strftime('%Y-%m-%d %H:%M') if svc.created_at else '-' }}</small>
+        {% set t = (svc.type or 'API') %}
+        <div class="col-12 col-sm-6 col-lg-4 col-xxl-3 svc-card" data-name="{{ (svc.name or '')|lower }}" data-type="{{ t }}">
+          <div class="card shadow-sm h-100">
+            <div class="card-body d-flex flex-column">
+              <img src="{{ svc.image_url or '' }}" alt="" class="svc-card-img mb-3">
+              <div class="d-flex align-items-start justify-content-between">
+                <div class="me-2">
+                  <div class="h6 mb-1 text-break">{{ svc.name }}</div>
+                  <div class="d-flex flex-wrap gap-2">
+                    <span class="svc-chip">Default: {{ (svc.default_profit_percent if svc.default_profit_percent is not none else 0) | round(2) }}%</span>
+                    <span class="svc-chip">{{ count }} offer{{ '' if count == 1 else 's' }}</span>
+                  </div>
+                </div>
+                <div class="text-end">
+                  <span class="svc-type-badge {{ 'svc-type-API' if t=='API' else 'svc-type-OFF' }}">{{ t }}</span>
+                </div>
+              </div>
+
+              <div class="small text-muted mt-2">
+                Created: {{ svc.created_at.strftime('%Y-%m-%d %H:%M') if svc.created_at else '-' }}
+              </div>
+
+              <div class="mt-3 d-grid gap-2">
+                <div class="btn-group" role="group">
+                  <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editServiceModal-{{ sid }}">Edit</button>
+                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#offersModal-{{ sid }}">Offers</button>
+                  <button class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#setCustomerProfitModal-{{ sid }}">Customer Profit</button>
+                </div>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-sm {{ 'btn-success' if t=='OFF' else 'btn-outline-secondary' }} flex-grow-1"
+                          onclick="toggleType('{{ sid }}', '{{ t }}', this)">
+                    {{ 'Turn ON (API)' if t=='OFF' else 'Turn OFF' }}
+                  </button>
+                  <form method="post" action="{{ url_for('admin_services.delete_service', service_id=sid) }}"
+                        onsubmit="return confirm('Delete this service?');">
+                    <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                  </form>
+                </div>
               </div>
             </div>
           </div>
-
-          <div class="mt-2">
-            {% if count > 0 %}
-              <button class="btn btn-outline-secondary w-100"
-                      data-bs-toggle="modal"
-                      data-bs-target="#offersModal-{{ sid }}">
-                View {{ count }} offer{{ '' if count == 1 else 's' }}
-              </button>
-            {% else %}
-              <span class="text-muted">No offers</span>
-            {% endif %}
-          </div>
-
-          <div class="actions mt-2 d-flex flex-wrap">
-            <button class="btn btn-sm btn-outline-primary me-2" data-bs-toggle="modal" data-bs-target="#editServiceModal-{{ sid }}">Edit</button>
-            <button class="btn btn-sm btn-outline-secondary me-2" data-bs-toggle="modal" data-bs-target="#setCustomerProfitModal-{{ sid }}">Customer Profit</button>
-            <form class="d-inline" method="post" action="{{ url_for('admin_services.delete_service', service_id=sid) }}" onsubmit="return confirm('Delete this service?');">
-              <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
-            </form>
-          </div>
         </div>
       {% endfor %}
-      {% if services|length == 0 %}<div class="text-center text-muted">No services found.</div>{% endif %}
+
+      {% if services|length == 0 %}
+        <div class="col-12 text-center text-muted">No services found.</div>
+      {% endif %}
     </div>
   </div>
 
-  <!-- Add Service -->
+  <!-- Add Service (roomy & long-friendly) -->
   <div class="modal fade" id="addServiceModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
+    <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down modal-dialog-centered modal-dialog-xxl">
       <div class="modal-content">
         <form method="post" action="{{ url_for('admin_services.create_service') }}">
           <div class="modal-header">
@@ -209,10 +141,12 @@
                 <label class="form-label">Service Name</label>
                 <input type="text" name="service_name" class="form-control" placeholder="e.g., MTN" required>
 
-                <div class="mt-3">
-                  <label class="form-label">Default Profit (%)</label>
-                  <input type="number" step="0.01" min="0" name="default_profit_percent" class="form-control" placeholder="e.g., 50">
-                  <small class="small-muted">Used when a customer‑specific profit is not set.</small>
+                <div class="row g-3 mt-1">
+                  <div class="col-sm-6">
+                    <label class="form-label">Default Profit (%)</label>
+                    <input type="number" step="0.01" min="0" name="default_profit_percent" class="form-control" placeholder="e.g., 50">
+                    <small class="small-muted">Used when a customer‑specific profit is not set.</small>
+                  </div>
                 </div>
               </div>
             </div>
@@ -221,12 +155,28 @@
 
             <div class="d-flex justify-content-between align-items-center mb-2">
               <h6 class="mb-0">Offers</h6>
-              <button type="button" class="btn btn-sm btn-secondary add-offer-btn" data-target-container="#create_offers_container">+ Add Offer</button>
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-secondary add-offer-btn" data-target-container="#create_offers_tbody">+ Add</button>
+                <button type="button" class="btn btn-sm btn-outline-dark" data-paste-target="#create_offers_tbody">Paste CSV</button>
+              </div>
             </div>
 
-            <div id="create_offers_container" class="vstack gap-2">
-              <!-- first row added/reset by JS on modal open -->
+            <div class="table-responsive" style="max-height: 60vh;">
+              <table class="table table-sm offers-grid align-middle">
+                <thead>
+                  <tr>
+                    <th style="width: 220px;">Amount</th>
+                    <th>Value (e.g., 1GB or {'id':1,'volume':1000})</th>
+                    <th class="row-actions"></th>
+                  </tr>
+                </thead>
+                <tbody id="create_offers_tbody">
+                  <!-- seeded by JS -->
+                </tbody>
+              </table>
             </div>
+
+            <div class="paste-hint">Tip: Paste rows like <code>20,1GB</code> (Amount,Value).</div>
           </div>
 
           <div class="modal-footer">
@@ -241,15 +191,14 @@
     {% set sid = svc._id_str %}
     {% set count = svc.offers|length if svc.offers else 0 %}
 
-    <!-- OFFERS VIEW MODAL (per service) -->
+    <!-- Offers viewer (scrolls long) -->
     <div class="modal fade" id="offersModal-{{ sid }}" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
+      <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down modal-dialog-centered modal-dialog-xxl">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">Offers — {{ svc.name }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
-
           <div class="modal-body">
             {% if count > 0 %}
               <div class="table-responsive">
@@ -262,10 +211,10 @@
                   </thead>
                   <tbody>
                     {% for of in svc.offers %}
-                    <tr>
-                      <td>{{ of.amount if of.amount is not none else "-" }}</td>
-                      <td class="text-break">{{ of.value_text | default(of.value) | default("-") }}</td>
-                    </tr>
+                      <tr>
+                        <td>{{ of.amount if of.amount is not none else "-" }}</td>
+                        <td class="text-break">{{ of.value_text | default(of.value) | default("-") }}</td>
+                      </tr>
                     {% endfor %}
                   </tbody>
                 </table>
@@ -274,7 +223,6 @@
               <div class="text-muted">No offers for this service.</div>
             {% endif %}
           </div>
-
           <div class="modal-footer">
             <button class="btn btn-outline-primary" data-bs-target="#editServiceModal-{{ sid }}" data-bs-toggle="modal" data-bs-dismiss="modal">
               Edit Offers
@@ -285,9 +233,9 @@
       </div>
     </div>
 
-    <!-- EDIT SERVICE -->
+    <!-- Edit Service (roomy + long offers editor) -->
     <div class="modal fade" id="editServiceModal-{{ sid }}" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-md-down">
+      <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-md-down modal-dialog-centered modal-dialog-xxl">
         <div class="modal-content">
           <form method="post" action="{{ url_for('admin_services.update_service', service_id=sid) }}">
             <div class="modal-header">
@@ -311,11 +259,13 @@
                   <label class="form-label">Service Name</label>
                   <input type="text" name="service_name" value="{{ svc.name }}" class="form-control" required>
 
-                  <div class="mt-3">
-                    <label class="form-label">Default Profit (%)</label>
-                    <input type="number" step="0.01" min="0" name="default_profit_percent" class="form-control"
-                           value="{{ (svc.default_profit_percent if svc.default_profit_percent is not none else 0) | round(2) }}">
-                    <small class="small-muted">Used when a customer‑specific profit is not set.</small>
+                  <div class="row g-3 mt-1">
+                    <div class="col-sm-6">
+                      <label class="form-label">Default Profit (%)</label>
+                      <input type="number" step="0.01" min="0" name="default_profit_percent" class="form-control"
+                             value="{{ (svc.default_profit_percent if svc.default_profit_percent is not none else 0) | round(2) }}">
+                      <small class="small-muted">Used when a customer‑specific profit is not set.</small>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -330,23 +280,23 @@
                 </div>
               </div>
 
-              <div class="table-responsive" style="max-height: 50vh;">
+              <div class="table-responsive" style="max-height: 60vh;">
                 <table class="table table-sm offers-grid align-middle">
                   <thead>
                     <tr>
                       <th style="width: 220px;">Amount</th>
-                      <th>Value (e.g., 1GB or JSON)</th>
+                      <th>Value (e.g., 1GB or {'id':1,'volume':1000})</th>
                       <th class="row-actions"></th>
                     </tr>
                   </thead>
                   <tbody id="offers_container_{{ sid }}">
                     {% if svc.offers and svc.offers|length > 0 %}
                       {% for of in svc.offers %}
-                      <tr class="offer-row">
-                        <td><input type="number" step="0.01" min="0" class="form-control" name="offers_amount[]" value="{{ of.amount if of.amount is not none else '' }}" placeholder="Amount"></td>
-                        <td><input type="text" class="form-control" name="offers_value[]" value="{{ of.value or of.value_text or '' }}" placeholder="Value"></td>
-                        <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm remove-offer-btn">&times;</button></td>
-                      </tr>
+                        <tr class="offer-row">
+                          <td><input type="number" step="0.01" min="0" class="form-control" name="offers_amount[]" value="{{ of.amount if of.amount is not none else '' }}" placeholder="Amount"></td>
+                          <td><input type="text" class="form-control" name="offers_value[]" value="{{ of.value or of.value_text or '' }}" placeholder="Value"></td>
+                          <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm remove-offer-btn">&times;</button></td>
+                        </tr>
                       {% endfor %}
                     {% else %}
                       <tr class="offer-row">
@@ -369,9 +319,9 @@
       </div>
     </div>
 
-    <!-- Set Customer Profit (with listing + inline edit + delete + search) -->
+    <!-- Customer Profit -->
     <div class="modal fade" id="setCustomerProfitModal-{{ sid }}" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
+      <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down modal-dialog-centered modal-dialog-xxl">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">Customer Profit — {{ svc.name }}</h5>
@@ -379,7 +329,7 @@
           </div>
 
           <div class="modal-body">
-            <!-- Add / Update (upsert) -->
+            <!-- Add / Update -->
             <div class="border rounded p-3 mb-3">
               <h6 class="mb-3">Add / Update Customer Profit</h6>
               <form class="row g-2 align-items-end" method="post" action="{{ url_for('admin_services.set_customer_profit_for_service', service_id=sid) }}">
@@ -411,7 +361,7 @@
             <!-- Existing overrides -->
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
               <h6 class="mb-0">Existing Customer Overrides</h6>
-              <input type="text" class="form-control form-control-sm cp-search" style="max-width:280px"
+              <input type="text" class="form-control form-control-sm" style="max-width:280px"
                      placeholder="Filter overrides..." data-filter-table="#cp_table_{{ sid }}">
             </div>
 
@@ -469,13 +419,69 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
+    /* ---------------- Search & Filter ---------------- */
+    const svcSearch = document.getElementById('svcSearch');
+    const typeFilter = document.getElementById('typeFilter');
+    function applyFilter() {
+      const q = (svcSearch?.value || '').toLowerCase();
+      const t = (typeFilter?.value || '');
+      document.querySelectorAll('.svc-card').forEach(card => {
+        const name = card.getAttribute('data-name') || '';
+        const type = card.getAttribute('data-type') || '';
+        const okName = !q || name.includes(q);
+        const okType = !t || t === type;
+        card.style.display = (okName && okType) ? '' : 'none';
+      });
+    }
+    svcSearch?.addEventListener('input', applyFilter);
+    typeFilter?.addEventListener('change', applyFilter);
+
+    /* ---------------- Toggle Type (API <-> OFF) ---------------- */
+    async function toggleType(id, current, btn) {
+      try {
+        const desired = current === 'OFF' ? 'API' : 'OFF';
+        btn?.setAttribute('disabled', 'disabled');
+        const res = await fetch(`/admin/services/${id}/type`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ type: desired })
+        });
+        const data = await res.json();
+        if (data.success) {
+          // update UI without full reload
+          const card = btn.closest('.svc-card');
+          if (card) {
+            card.setAttribute('data-type', data.type);
+            const badge = card.querySelector('.svc-type-badge');
+            if (badge) {
+              badge.textContent = data.type;
+              badge.classList.toggle('svc-type-API', data.type === 'API');
+              badge.classList.toggle('svc-type-OFF', data.type === 'OFF');
+            }
+            // flip button label/style
+            btn.classList.toggle('btn-success', data.type === 'OFF');
+            btn.classList.toggle('btn-outline-secondary', data.type !== 'OFF');
+            btn.textContent = (data.type === 'OFF') ? 'Turn ON (API)' : 'Turn OFF';
+            // also update "current" for next click
+            btn.setAttribute('onclick', `toggleType('${id}', '${data.type}', this)`);
+          }
+          applyFilter(); // in case filter should hide/show after change
+        } else {
+          alert(data.error || 'Failed to update type.');
+        }
+      } catch (e) {
+        alert('Network error.');
+      } finally {
+        btn?.removeAttribute('disabled');
+      }
+    }
+
     /* ---------------- Image upload (create + edit) ---------------- */
     async function uploadToServer(file, { statusEl, previewEl, hiddenInputEl }) {
       if (!file) return;
       const formData = new FormData();
       formData.append("image", file);
       if (statusEl) statusEl.textContent = "Uploading...";
-
       try {
         const res = await fetch("/upload_service_image", { method: "POST", body: formData });
         const data = await res.json();
@@ -493,7 +499,7 @@
       }
     }
 
-    /* ---------------- Dynamic rows + CSV paste ---------------- */
+    /* ---------------- Offers grid helpers ---------------- */
     function addOfferRow(container) {
       const tr = document.createElement("tr");
       tr.className = "offer-row";
@@ -505,24 +511,11 @@
       container.appendChild(tr);
     }
 
-    function resetCreateOffers() {
-      const cont = document.getElementById("create_offers_container");
-      if (!cont) return;
-      cont.innerHTML = "";
-      const row = document.createElement("div");
-      row.className = "offer-row row g-2";
-      row.innerHTML = `
-        <div class="col-12 col-md-4">
-          <input type="number" step="0.01" min="0" class="form-control" name="offers_amount[]" placeholder="Amount (e.g., 20)">
-        </div>
-        <div class="col-10 col-md-7">
-          <input type="text" class="form-control" name="offers_value[]" placeholder="Value (e.g., 1GB or {'id':1,'volume':1000})">
-        </div>
-        <div class="col-2 col-md-1 d-grid">
-          <button type="button" class="btn btn-outline-danger remove-offer-btn">&times;</button>
-        </div>
-      `;
-      cont.appendChild(row);
+    function seedCreateOffers() {
+      const tbody = document.getElementById("create_offers_tbody");
+      if (!tbody) return;
+      tbody.innerHTML = "";
+      addOfferRow(tbody);
     }
 
     // CSV paste helper: “Amt,Value” per line
@@ -553,7 +546,7 @@
       });
     }
 
-    /* ---------------- Filters (search) ---------------- */
+    /* ---------------- Filters for selects & tables ---------------- */
     // Filter <select> options for customer picker
     document.addEventListener('input', function(e) {
       const inp = e.target.closest('[data-filter-select]');
@@ -588,7 +581,7 @@
 
     /* ---------------- Page wiring ---------------- */
     document.addEventListener("DOMContentLoaded", function () {
-      // Add modal: reset fields every open
+      // Seed create modal offers each time it's opened
       const addModal = document.getElementById("addServiceModal");
       if (addModal) {
         addModal.addEventListener("show.bs.modal", () => {
@@ -598,7 +591,7 @@
           if (hidden) hidden.value = "";
           if (prev) prev.src = "";
           if (stat) stat.textContent = "";
-          resetCreateOffers();
+          seedCreateOffers();
         });
       }
 
@@ -632,22 +625,7 @@
         addBtn.addEventListener("click", function () {
           const cont = document.querySelector(containerSel);
           if (!cont) return;
-          if (cont.tagName === "TBODY") addOfferRow(cont);
-          else {
-            const row = document.createElement("div");
-            row.className = "offer-row row g-2";
-            row.innerHTML = `
-              <div class="col-12 col-md-4">
-                <input type="number" step="0.01" min="0" class="form-control" name="offers_amount[]" placeholder="Amount">
-              </div>
-              <div class="col-10 col-md-7">
-                <input type="text" class="form-control" name="offers_value[]" placeholder="Value (e.g., 1GB or {'id':1,'volume':1000})">
-              </div>
-              <div class="col-2 col-md-1 d-grid">
-                <button type="button" class="btn btn-outline-danger remove-offer-btn">&times;</button>
-              </div>`;
-            cont.appendChild(row);
-          }
+          addOfferRow(cont);
         });
       });
 
