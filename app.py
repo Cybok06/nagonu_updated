@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import os
-from flask import Flask, render_template, send_from_directory
-from datetime import datetime
+from datetime import datetime, timedelta
+from flask import Flask, render_template, send_from_directory, session
 
-# Load .env (PAYSTACK keys, SECRET_KEY, etc.)
+# Load .env for non-secret things (e.g., Paystack keys)
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except Exception:
     pass
 
-from db import db  # ⬅️ add this import if not already present
+from db import db  # required
 
 from customer_dashboard import customer_dashboard_bp
 from admin_dashboard import admin_dashboard_bp
@@ -42,23 +42,43 @@ from reset import reset_bp
 from afa_routes import afa_bp
 from admin_afa import admin_afa_bp
 
-
-
-# === NEW: visits collection ===
+# === Collections ===
 visits_col = db["visits"]
+
+# === Hard-coded config ===
+SECRET_KEY = "m2k4vTq3Jp9Qf7A1R6xZ0Hc8Uy4Nd5LbX3gE2sW7iK0tP9qL5rV8wC6Bn1Dz0Ya"  # 64+ chars; keep private
+SESSION_DAYS = 90
+SESSION_COOKIE_NAME = "nanogu_session"
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"   # change to "Strict" if you don't embed cross-site
+SESSION_COOKIE_SECURE = False     # set True if your site is HTTPS-only in production
 
 # Read upload folder from env (fallback to ./uploads)
 UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", os.path.join(os.getcwd(), "uploads"))
 
+
 def create_app():
     app = Flask(__name__)
-    # SECRET_KEY from env (fallback only for local dev)
-    app.secret_key = os.getenv("SECRET_KEY", "change-me")
 
-    # Ensure uploads dir exists
+    # --- Session / cookies (all hard-coded) ---
+    app.secret_key = SECRET_KEY
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=SESSION_DAYS)
+    app.config["SESSION_COOKIE_NAME"] = SESSION_COOKIE_NAME
+    app.config["SESSION_COOKIE_HTTPONLY"] = SESSION_COOKIE_HTTPONLY
+    app.config["SESSION_COOKIE_SAMESITE"] = SESSION_COOKIE_SAMESITE
+    app.config["SESSION_COOKIE_SECURE"] = SESSION_COOKIE_SECURE
+
+    # Keep sessions permanent whenever user is logged in
+    @app.before_request
+    def _keep_permanent_sessions():
+        if session.get("user_id"):
+            session.permanent = True
+
+    # --- File uploads ---
+    app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-    # Register Blueprints (unchanged)
+    # --- Blueprints ---
     app.register_blueprint(customer_dashboard_bp)
     app.register_blueprint(admin_dashboard_bp)
     app.register_blueprint(login_bp)
@@ -88,56 +108,51 @@ def create_app():
     app.register_blueprint(afa_bp)
     app.register_blueprint(admin_afa_bp)
 
-
-
-
-    # Make env values available in templates (Jinja)
+    # --- Jinja env injection ---
     @app.context_processor
     def inject_env():
         return {
-            "PAYSTACK_PUBLIC_KEY": os.getenv("PAYSTACK_PUBLIC_KEY", ""),  # e.g. pk_live_...
+            "PAYSTACK_PUBLIC_KEY": os.getenv("PAYSTACK_PUBLIC_KEY", ""),
             "COMPANY_NAME": os.getenv("COMPANY_NAME", "Nagonu Data Services"),
             "SUPPORT_EMAIL": os.getenv("SUPPORT_EMAIL", "nagosenu4@gmail.com"),
             "SUPPORT_WHATSAPP": os.getenv("SUPPORT_WHATSAPP", "http://wa.me/233553226196"),
             "COMMUNITY_WHATSAPP": os.getenv(
                 "COMMUNITY_WHATSAPP",
-                "https://chat.whatsapp.com/ELrcPhAcUNGJGgxncgvbXW?mode=ac_t"
+                "https://chat.whatsapp.com/ELrcPhAcUNGJGgxncgvbXW?mode=ac_t",
             ),
         }
 
+    # --- Routes ---
     @app.route("/")
     def home():
-        # === NEW: increment a global visit counter safely ===
+        # increment a global visit counter safely
         try:
             visits_col.update_one(
-                {"_id": "global"},                       # single doc to hold totals
+                {"_id": "global"},
                 {
                     "$inc": {"total": 1},
                     "$set": {"updated_at": datetime.utcnow()},
-                    "$setOnInsert": {"created_at": datetime.utcnow()}
+                    "$setOnInsert": {"created_at": datetime.utcnow()},
                 },
-                upsert=True
+                upsert=True,
             )
         except Exception as e:
-            # Non-fatal: don't block the homepage if DB hiccups
             print(f"[visits] increment failed: {e}")
-
         return render_template("index.html")
 
     @app.route("/uploads/<path:filename>")
     def uploaded_file(filename):
-        return send_from_directory(UPLOAD_FOLDER, filename)
+        return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
-    # Simple health check for Render
     @app.route("/healthz")
     def healthz():
         return "ok", 200
 
     return app
 
-# ✅ Expose a module-level app for Gunicorn (`gunicorn app:app`)
+
+# Gunicorn entrypoint: `gunicorn app:app`
 app = create_app()
 
 if __name__ == "__main__":
-    # Local dev only; Render uses Gunicorn
     app.run(debug=True)
