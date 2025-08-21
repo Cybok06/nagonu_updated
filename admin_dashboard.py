@@ -10,8 +10,9 @@ admin_dashboard_bp = Blueprint("admin_dashboard", __name__)
 # Collections
 orders_col = db["orders"]
 users_col = db["users"]
-balance_logs_col = db["balance_logs"]  # NEW: use audit logs to compute deposits/deductions
+balance_logs_col = db["balance_logs"]          # audit logs to compute deposits/deductions
 afa_col = db["afa_registrations"]
+transactions_col = db["transactions"]          # NEW: for transaction KPIs
 
 # ----------------------------
 # Helpers
@@ -212,6 +213,60 @@ def compute_balance_flow_totals() -> Dict[str, float]:
         "withdrawals_today": withdrawals_today,
     }
 
+
+def compute_transaction_kpis() -> Dict[str, float]:
+    """
+    Returns:
+      - txn_total_count:   all-time successful transactions
+      - txn_today_count:   today's successful transactions
+      - txn_total_amount:  sum(amount) all-time (success only)
+      - txn_today_amount:  sum(amount) today (success only)
+    Uses verified_at as the transaction timestamp.
+    """
+    today = datetime.utcnow().date()
+    start = datetime.combine(today, datetime.min.time())
+    end = start + timedelta(days=1)
+
+    # All-time count & sum
+    try:
+        txn_total_count = transactions_col.count_documents({"status": "success"})
+    except Exception:
+        txn_total_count = 0
+
+    try:
+        total_sum_doc = next(transactions_col.aggregate([
+            {"$match": {"status": "success"}},
+            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$amount", 0]}}}}
+        ]), None)
+        txn_total_amount = float((total_sum_doc or {}).get("total", 0) or 0)
+    except Exception:
+        txn_total_amount = 0.0
+
+    # Today's count & sum
+    try:
+        txn_today_count = transactions_col.count_documents({
+            "status": "success",
+            "verified_at": {"$gte": start, "$lt": end}
+        })
+    except Exception:
+        txn_today_count = 0
+
+    try:
+        today_sum_doc = next(transactions_col.aggregate([
+            {"$match": {"status": "success", "verified_at": {"$gte": start, "$lt": end}}},
+            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$amount", 0]}}}}
+        ]), None)
+        txn_today_amount = float((today_sum_doc or {}).get("total", 0) or 0)
+    except Exception:
+        txn_today_amount = 0.0
+
+    return {
+        "txn_total_count": int(txn_total_count),
+        "txn_today_count": int(txn_today_count),
+        "txn_total_amount": txn_total_amount,
+        "txn_today_amount": txn_today_amount,
+    }
+
 # ----------------------------
 # Route
 # ----------------------------
@@ -243,10 +298,10 @@ def admin_dashboard():
     # Customer counts
     cust_counts = compute_customer_counts()
 
-    # NEW: balance flow totals (overall + today)
+    # Wallet flows (overall + today)
     flow = compute_balance_flow_totals()
 
-    # NEW: AFA registration KPIs (moved INSIDE the route)
+    # AFA registration KPIs
     today = datetime.utcnow().date()
     start = datetime.combine(today, datetime.min.time())
     end = start + timedelta(days=1)
@@ -256,6 +311,9 @@ def admin_dashboard():
         afa_today   = afa_col.count_documents({"created_at": {"$gte": start, "$lt": end}})
     except Exception:
         afa_total = afa_pending = afa_today = 0
+
+    # Transactions KPIs
+    tx = compute_transaction_kpis()
 
     return render_template(
         "admin_dashboard.html",
@@ -289,4 +347,10 @@ def admin_dashboard():
         afa_total=afa_total,
         afa_pending=afa_pending,
         afa_today=afa_today,
+
+        # Transactions KPIs (counts + sums)
+        txn_total_count=tx["txn_total_count"],
+        txn_today_count=tx["txn_today_count"],
+        txn_total_amount=tx["txn_total_amount"],
+        txn_today_amount=tx["txn_today_amount"],
     )
