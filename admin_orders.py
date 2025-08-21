@@ -1,3 +1,4 @@
+# admin_orders.py (updated)
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash
 from bson import ObjectId, Regex
 from db import db
@@ -5,11 +6,14 @@ from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 admin_orders_bp = Blueprint("admin_orders", __name__)
+
 orders_col = db["orders"]
 users_col = db["users"]
+balances_col = db["balances"]         # NEW: for refunds
+transactions_col = db["transactions"]  # NEW: for refund ledger
 
-# Keep 'completed' for legacy records, but prefer 'delivered'
-ALLOWED_STATUSES = {"pending", "processing", "delivered", "failed", "completed"}
+# Keep 'pending'/'completed' for legacy reads; main live options include 'refunded'
+ALLOWED_STATUSES = {"pending", "processing", "delivered", "failed", "completed", "refunded"}
 ALLOWED_SORTS = {"newest", "oldest", "amount_desc", "amount_asc"}
 DEFAULT_PER_PAGE = 10
 
@@ -29,7 +33,7 @@ def _build_preserved_query(args, exclude=("page",)):
 
 
 def _build_query_from_params(args):
-    """Central place to build the Mongo query so view + bulk share same filters."""
+    """Central builder so list + bulk share identical filters."""
     status_filter = (args.get("status") or "").strip().lower()
     order_id_q = (args.get("order_id") or "").strip()
     customer_q = (args.get("customer") or "").strip()
@@ -38,9 +42,7 @@ def _build_query_from_params(args):
     max_total = (args.get("max_total") or "").strip()
     date_from = _parse_date((args.get("date_from") or "").strip())
     date_to_raw = _parse_date((args.get("date_to") or "").strip())
-    date_to = None
-    if date_to_raw:
-        date_to = datetime(date_to_raw.year, date_to_raw.month, date_to_raw.day) + timedelta(days=1)
+    date_to = datetime(date_to_raw.year, date_to_raw.month, date_to_raw.day) + timedelta(days=1) if date_to_raw else None
 
     # similar item filters
     item_service = (args.get("item_service") or "").strip()
@@ -90,12 +92,9 @@ def _build_query_from_params(args):
             ]},
             {"_id": 1},
         )]
-        if not user_ids:
-            query["user_id"] = {"$in": []}
-        else:
-            query["user_id"] = {"$in": user_ids}
+        query["user_id"] = {"$in": user_ids or []}
 
-    # similar item filters (any item in items[] that matches)
+    # similar item filters (any match in items[])
     item_and = []
     if item_service:
         item_and.append({"items.serviceName": Regex(item_service, "i")})
@@ -114,7 +113,7 @@ def admin_view_orders():
     if session.get("role") != "admin":
         return redirect(url_for("login.login"))
 
-    # read list controls
+    # list controls
     sort = (request.args.get("sort") or "newest").strip().lower()
     if sort not in ALLOWED_SORTS:
         sort = "newest"
@@ -136,7 +135,7 @@ def admin_view_orders():
     # Build query from filters
     query = _build_query_from_params(request.args)
 
-    # Sorting spec
+    # Sorting
     sort_spec = [("created_at", -1)]
     if sort == "oldest":
         sort_spec = [("created_at", 1)]
@@ -156,7 +155,7 @@ def admin_view_orders():
             .limit(per_page)
         )
 
-        # attach user
+        # attach user profile to each order
         for o in orders:
             uid = o.get("user_id")
             if isinstance(uid, str):
@@ -176,7 +175,7 @@ def admin_view_orders():
         page=page, total_pages=total_pages,
         total_orders=total_orders,
 
-        # expose all filters back to template
+        # echo filters
         status_filter=(request.args.get("status") or "").strip().lower(),
         order_id_q=(request.args.get("order_id") or "").strip(),
         customer_q=(request.args.get("customer") or "").strip(),
@@ -206,17 +205,71 @@ def update_order_status(order_id):
         flash("Invalid status.", "danger")
         return redirect(url_for("admin_orders.admin_view_orders"))
 
+    # fetch order
     try:
-        update_doc = {"status": new_status, "updated_at": datetime.utcnow()}
-        if new_status == "delivered":
-            update_doc["delivered_at"] = datetime.utcnow()
+        oid = ObjectId(order_id)
+    except Exception:
+        flash("Invalid order id.", "danger")
+        return redirect(url_for("admin_orders.admin_view_orders"))
 
-        res = orders_col.update_one(
-            {"_id": ObjectId(order_id)},
-            {"$set": update_doc},
-        )
+    order = orders_col.find_one({"_id": oid})
+    if not order:
+        flash("Order not found.", "warning")
+        return redirect(url_for("admin_orders.admin_view_orders"))
+
+    old_status = (order.get("status") or "").lower()
+    now = datetime.utcnow()
+    update_doc = {"status": new_status, "updated_at": now}
+
+    # status-specific side effects
+    if new_status == "delivered":
+        if not order.get("delivered_at"):
+            update_doc["delivered_at"] = now
+
+    elif new_status == "refunded":
+        # idempotent full refund based on what was charged for this order
+        charged_amount = float(order.get("charged_amount") or 0.0)
+        user_id = order.get("user_id")
+        already_refunded = bool(order.get("refunded_at")) or (old_status == "refunded")
+
+        if charged_amount > 0 and user_id and not already_refunded:
+            try:
+                balances_col.update_one(
+                    {"user_id": user_id},
+                    {"$inc": {"amount": charged_amount}, "$set": {"updated_at": now}},
+                    upsert=True
+                )
+                transactions_col.insert_one({
+                    "user_id": user_id,
+                    "amount": charged_amount,
+                    "reference": order.get("order_id"),
+                    "status": "success",
+                    "type": "refund",
+                    "gateway": "Wallet",
+                    "currency": "GHS",
+                    "created_at": now,
+                    "verified_at": now,
+                    "meta": {"note": "Admin refund", "order_db_id": oid}
+                })
+            except Exception:
+                # We still mark status, but inform admin
+                flash("Refund ledger update encountered an error.", "warning")
+
+        update_doc["refunded_at"] = now
+
+    # failed/processing/pending/completed: no wallet movement
+    try:
+        res = orders_col.update_one({"_id": oid}, {"$set": update_doc})
         if res.modified_count:
-            flash("✅ Order status updated.", "success")
+            msg = {
+                "processing": "✅ Order marked as Processing.",
+                "delivered": "✅ Order marked as Delivered.",
+                "failed": "✅ Order marked as Failed.",
+                "refunded": "✅ Order marked as Refunded (wallet credited if not already).",
+                "pending": "✅ Order marked as Pending.",
+                "completed": "✅ Order marked as Completed.",
+            }.get(new_status, "✅ Order updated.")
+            flash(msg, "success")
         else:
             flash("⚠️ No change to order.", "warning")
     except Exception:
@@ -227,27 +280,25 @@ def update_order_status(order_id):
     return redirect(f"{back_to}?{qs}" if qs else back_to)
 
 
-# NEW: BULK deliver all processing in current filter set
 @admin_orders_bp.route("/admin/orders/bulk-deliver", methods=["POST"])
 def bulk_deliver_orders():
     if session.get("role") != "admin":
         return redirect(url_for("login.login"))
 
-    # Build the same query as the list view, but enforce status=processing
+    # Reuse the page filters but force status=processing
     args = request.args.to_dict(flat=True)
     args["status"] = "processing"
     query = _build_query_from_params(args)
 
     try:
-        # 1) Set the order status fields
+        now = datetime.utcnow()
         res = orders_col.update_many(
             query,
-            {"$set": {"status": "delivered", "delivered_at": datetime.utcnow(), "updated_at": datetime.utcnow()}}
+            {"$set": {"status": "delivered", "delivered_at": now, "updated_at": now}}
         )
         modified = getattr(res, "modified_count", 0)
 
-        # 2) (Optional) Flip any processing line items to delivered too.
-        #    Requires MongoDB 3.6+ with arrayFilters support. If not supported, it's safe to ignore failures.
+        # Optional: flip any line items flagged as processing to delivered
         try:
             orders_col.update_many(
                 {"_id": {"$in": [o["_id"] for o in orders_col.find(query, {"_id": 1})]}},
@@ -255,10 +306,9 @@ def bulk_deliver_orders():
                 array_filters=[{"it.line_status": "processing"}]
             )
         except Exception:
-            # silently ignore if not supported
             pass
 
-        flash(f"✅ Marked {modified} processing order(s) as delivered.", "success")
+        flash(f"✅ Marked {modified} processing order(s) as Delivered.", "success")
     except Exception:
         flash("❌ Bulk update failed.", "danger")
 
