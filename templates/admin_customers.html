@@ -24,9 +24,7 @@
     .table-responsive { border-radius: 8px; overflow-x: auto; }
 
     /* Reset modal */
-    #resetLinkModal .helper {
-      font-size: .9rem; color: #6b7280;
-    }
+    #resetLinkModal .helper { font-size: .9rem; color: #6b7280; }
     .copy-input {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
@@ -61,8 +59,15 @@
         </select>
       </div>
       <div class="col-md-2">
-        <button class="btn btn-primary w-100" type="submit">
-          <i class="bi bi-search"></i> Search
+        <select name="status" class="form-select">
+          <option value="">Any status</option>
+          <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
+          <option value="blocked" {% if status == 'blocked' %}selected{% endif %}>Blocked</option>
+        </select>
+      </div>
+      <div class="col-md-1 d-grid">
+        <button class="btn btn-primary" type="submit">
+          <i class="bi bi-search"></i>
         </button>
       </div>
     </form>
@@ -79,6 +84,7 @@
             <th>Business</th>
             <th>WhatsApp</th>
             <th>Referral</th>
+            <th>Status</th>
             <th class="text-center">Action</th>
           </tr>
         </thead>
@@ -92,6 +98,14 @@
             <td>{{ customer.business_name or '-' }}</td>
             <td>{{ customer.whatsapp or '-' }}</td>
             <td>{{ customer.referral or '-' }}</td>
+            <td>
+              {% set st = (customer.status or 'active') %}
+              {% if st == 'blocked' %}
+                <span class="badge text-bg-danger">Blocked</span>
+              {% else %}
+                <span class="badge text-bg-success">Active</span>
+              {% endif %}
+            </td>
             <td class="text-center">
               <div class="d-flex gap-2 justify-content-center">
                 <!-- Edit -->
@@ -111,6 +125,21 @@
                   <i class="bi bi-pencil-square"></i>
                 </button>
 
+                <!-- Block / Unblock -->
+                {% if st == 'blocked' %}
+                <button class="btn btn-outline-success"
+                        title="Unblock customer"
+                        onclick="toggleBlock('{{ customer._id }}', false)">
+                  <i class="bi bi-unlock"></i>
+                </button>
+                {% else %}
+                <button class="btn btn-outline-danger"
+                        title="Block customer"
+                        onclick="toggleBlock('{{ customer._id }}', true)">
+                  <i class="bi bi-lock"></i>
+                </button>
+                {% endif %}
+
                 <!-- Generate Reset Link -->
                 <button class="btn btn-outline-secondary"
                         onclick="openResetModal('{{ customer._id }}')"
@@ -121,7 +150,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="8" class="text-center">No customers found.</td></tr>
+          <tr><td colspan="9" class="text-center">No customers found.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -259,6 +288,22 @@
       .catch(() => showToast('Network error', true));
     });
 
+    // ===== Block/Unblock =====
+    async function toggleBlock(id, block) {
+      try {
+        const res = await fetch(`/admin/customers/toggle_block/${id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ block: !!block })
+        });
+        const data = await res.json();
+        showToast(data.message || 'Done');
+        if (data.status === 'success') location.reload();
+      } catch (e) {
+        showToast('Network error while updating status', true);
+      }
+    }
+
     // ===== Reset Link Flow =====
     const resetLinkModal = document.getElementById('resetLinkModal');
     const generateBtn = document.getElementById('generateBtn');
@@ -310,7 +355,6 @@
         await navigator.clipboard.writeText(resetUrlInput.value);
         showToast('Link copied to clipboard');
       } catch {
-        // Fallback
         resetUrlInput.select();
         document.execCommand('copy');
         showToast('Link copied');
