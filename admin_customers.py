@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, session, redirect, url_for, reques
 from db import db
 from urllib.parse import urlencode
 from bson import ObjectId
+import bson
 import math
 import re
 from werkzeug.security import generate_password_hash
@@ -15,6 +16,12 @@ def _require_admin_json():
     if session.get("role") != "admin":
         return False, (jsonify({"status": "error", "message": "Unauthorized"}), 403)
     return True, None
+
+def _to_object_id(hex_id: str):
+    try:
+        return ObjectId(hex_id)
+    except Exception:
+        return None
 
 # View Customers Page
 @admin_customers_bp.route("/admin/customers")
@@ -71,8 +78,14 @@ def view_customers():
             {"email": None},
         ]})
 
-    if status in ("active", "blocked"):
-        conditions.append({"status": status})
+    # IMPORTANT: treat missing status as "active" for filtering
+    if status == "blocked":
+        conditions.append({"status": "blocked"})
+    elif status == "active":
+        conditions.append({"$or": [
+            {"status": "active"},
+            {"status": {"$exists": False}}
+        ]})
 
     query = {"$and": conditions} if len(conditions) > 1 else conditions[0]
 
@@ -116,44 +129,70 @@ def update_customer(customer_id):
     if session.get("role") != "admin":
         return jsonify({"status": "error", "message": "Unauthorized"}), 403
 
-    data = {k: v.strip() for k, v in request.form.items() if v.strip()}
+    oid = _to_object_id(customer_id)
+    if not oid:
+        return jsonify({"status": "error", "message": "Invalid customer id"}), 400
+
+    data = {k: v.strip() for k, v in request.form.items() if isinstance(v, str) and v.strip()}
 
     # Handle password hashing if provided
     if "password" in data and data["password"]:
         data["password"] = generate_password_hash(data["password"])
+    else:
+        data.pop("password", None)
 
-    # Prevent changing Mongo _id or role accidentally
-    data.pop("_id", None)
-    data.pop("role", None)
+    # Protect fields
+    for key in ("_id", "role"):
+        data.pop(key, None)
 
-    users_col.update_one({"_id": ObjectId(customer_id)}, {"$set": data})
-    return jsonify({"status": "success", "message": "Customer updated successfully"})
+    res = users_col.update_one({"_id": oid}, {"$set": data})
+    return jsonify({
+        "status": "success" if res.modified_count else "noop",
+        "message": "Customer updated successfully" if res.modified_count else "No changes detected"
+    })
 
-# === Block / Unblock ===
+# === Block / Unblock with audit & boolean flag ===
 @admin_customers_bp.route("/admin/customers/toggle_block/<customer_id>", methods=["POST"])
 def toggle_block(customer_id):
     ok, resp = _require_admin_json()
     if not ok:
         return resp
 
+    oid = _to_object_id(customer_id)
+    if not oid:
+        return jsonify({"status": "error", "message": "Invalid customer id"}), 400
+
     payload = request.get_json(silent=True) or {}
     block = bool(payload.get("block", False))
 
-    new_status = "blocked" if block else "active"
-    now = datetime.utcnow()
-
-    # Ensure the user exists and is a customer
-    user = users_col.find_one({"_id": ObjectId(customer_id), "role": "customer"})
+    user = users_col.find_one({"_id": oid, "role": "customer"})
     if not user:
         return jsonify({"status": "error", "message": "Customer not found"}), 404
 
-    users_col.update_one(
-        {"_id": user["_id"]},
-        {"$set": {
-            "status": new_status,
-            "status_updated_at": now
-        }}
-    )
+    now = datetime.utcnow()
+    new_status = "blocked" if block else "active"
 
-    msg = "Customer blocked" if block else "Customer unblocked"
-    return jsonify({"status": "success", "message": msg, "new_status": new_status})
+    update_doc = {
+        "$set": {
+            "status": new_status,
+            "is_blocked": bool(block),            # <-- add boolean for easy checks
+            "status_updated_at": now
+        },
+        "$push": {
+            "status_history": {                   # <-- add audit trail
+                "at": now,
+                "by": session.get("admin_id") or session.get("user_id"),
+                "action": "toggle_block",
+                "to": new_status
+            }
+        }
+    }
+
+    res = users_col.update_one({"_id": oid}, update_doc)
+
+    return jsonify({
+        "status": "success",
+        "message": "Customer blocked" if block else "Customer unblocked",
+        "new_status": new_status,
+        "modified": int(bool(res.modified_count))
+    })
