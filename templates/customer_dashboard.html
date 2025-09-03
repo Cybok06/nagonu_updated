@@ -116,7 +116,7 @@
     <!-- Express Services (uses the exact same card markup for CSS/JS parity) -->
 {% if express_services is defined and express_services|length > 0 %}
 <div class="mb-4" id="express-services">
-  <label class="form-label fw-semibold">Express Services</label>
+  <label class="form-label fw-semibold"><u>MTN NORMAL</u></label>
   <div class="row g-3">
     {% for svc in express_services %}
     {% set status = (svc.status or 'OPEN')|upper %}
@@ -182,7 +182,7 @@
 
 <!-- Regular Services (unchanged classes/behavior) -->
 <div class="mb-4">
-  <label class="form-label fw-semibold">Service</label>
+  <label class="form-label fw-semibold"><u>MTN EXPRESS</u></label>
   <div class="row g-3">
     {% for svc in services %}
     {% set status = (svc.status or 'OPEN')|upper %}
