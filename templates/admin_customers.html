@@ -8,158 +8,201 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <style>
-    :root { --sea-blue: #0ea5e9; }
-    @media (min-width: 992px) { .admin-content { margin-left: 260px; padding: 2rem; } }
-    @media (max-width: 991px) { .admin-content { margin-top: 1rem; padding: 1rem; } }
-    .edit-btn {
-      background-color: var(--sea-blue);
-      border: none;
-      color: #fff;
-      padding: 0.35rem 0.75rem;
-      border-radius: 5px;
+    :root{
+      --sea-blue:#0ea5e9;
+      --ok:#16a34a; --ok-soft:#ecfdf5;
+      --bad:#ef4444; --bad-soft:#fef2f2;
+      --muted:#64748b;
+      --border:#e2e8f0;
+      --chip:#0ea5e91a;
     }
-    .edit-btn:hover { background-color: #0284c7; }
-    .modal-header { background-color: var(--sea-blue); color: white; }
-    .table th { background-color: #f1f5f9; }
-    .table-responsive { border-radius: 8px; overflow-x: auto; }
+    @media (min-width: 992px){ .admin-content{ margin-left:260px; padding:2rem; } }
+    @media (max-width: 991px){ .admin-content{ margin-top:1rem; padding:1rem; } }
 
-    /* Reset modal */
-    #resetLinkModal .helper { font-size: .9rem; color: #6b7280; }
-    .copy-input {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    .page-title{ display:flex; align-items:center; gap:.6rem; }
+    .page-title i{ color:var(--sea-blue); }
+
+    .filter-card{ border:1px solid var(--border); border-radius:14px; }
+    .filter-card .form-control, .filter-card .form-select{ border-radius:10px; }
+
+    /* Card Grid */
+    .cards{ display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:16px; }
+    .cust-card{ border:1px solid var(--border); border-radius:16px; overflow:hidden; transition:transform .15s ease, box-shadow .15s ease; background:#fff; }
+    .cust-card:hover{ transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.08); }
+
+    .card-top{ display:flex; gap:12px; align-items:center; padding:14px 14px 0 14px; }
+    .avatar{
+      width:56px; height:56px; border-radius:999px; display:grid; place-items:center;
+      font-size:28px; user-select:none; flex:0 0 auto;
+      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.8), transparent 60%),
+                  linear-gradient(135deg, #e0f2fe, #c7d2fe);
+      border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.06);
     }
+
+    .name-wrap{ flex:1 1 auto; min-width:0; }
+    .name{ font-weight:700; font-size:1.05rem; }
+    .uname{ color:var(--muted); font-size:.9rem; word-break:break-all; }
+
+    .status-badge{
+      padding:.25rem .55rem; border-radius:999px; font-weight:700; font-size:.75rem;
+      border:1px solid transparent; white-space:nowrap;
+    }
+    .st-active{ background:var(--ok-soft); color:var(--ok); border-color:#a7f3d0; }
+    .st-blocked{ background:var(--bad-soft); color:var(--bad); border-color:#fecaca; }
+
+    .card-body{ padding:12px 14px 0 14px; }
+    .kv{ display:flex; gap:.5rem; align-items:center; color:#0f172a; font-size:.92rem; }
+    .kv i{ color:var(--muted); }
+
+    .chips{ display:flex; gap:6px; flex-wrap:wrap; margin-top:.35rem; }
+    .chip{ background:var(--chip); color:#075985; border:1px dashed #7dd3fc; padding:.15rem .5rem; border-radius:999px; font-size:.73rem; font-weight:600; }
+
+    .card-foot{ display:flex; gap:8px; padding:12px 14px 14px 14px; border-top:1px solid var(--border); }
+    .btn-ghost{ border:1px solid var(--border); background:#fff; }
+    .btn-ghost:hover{ border-color:#cbd5e1; background:#f8fafc; }
+
+    /* Modal header color */
+    .modal-header{ background-color: var(--sea-blue); color:#fff; }
+
+    /* Toast z-index */
+    .toast{ z-index:1080; }
   </style>
 </head>
 <body>
   {% include 'admin_sidebar.html' %}
 
   <div class="admin-content">
-    <h2 class="mb-4"><i class="bi bi-people-fill"></i> All Registered Customers</h2>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h2 class="page-title mb-0"><i class="bi bi-people-fill fs-4"></i> All Registered Customers</h2>
+    </div>
 
-    <!-- Search and Filters -->
-    <form method="get" class="row g-3 mb-4">
-      <div class="col-md-3">
-        <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Search name, phone, etc.">
-      </div>
-      <div class="col-md-2">
-        <input type="text" name="referral" value="{{ referral }}" class="form-control" placeholder="Referral code">
-      </div>
-      <div class="col-md-2">
-        <select name="has_whatsapp" class="form-select">
-          <option value="">WhatsApp?</option>
-          <option value="1" {% if has_whatsapp == '1' %}selected{% endif %}>Yes</option>
-          <option value="0" {% if has_whatsapp == '0' %}selected{% endif %}>No</option>
-        </select>
-      </div>
-      <div class="col-md-2">
-        <select name="has_email" class="form-select">
-          <option value="">Email?</option>
-          <option value="1" {% if has_email == '1' %}selected{% endif %}>Yes</option>
-          <option value="0" {% if has_email == '0' %}selected{% endif %}>No</option>
-        </select>
-      </div>
-      <div class="col-md-2">
-        <select name="status" class="form-select">
-          <option value="">Any status</option>
-          <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
-          <option value="blocked" {% if status == 'blocked' %}selected{% endif %}>Blocked</option>
-        </select>
-      </div>
-      <div class="col-md-1 d-grid">
-        <button class="btn btn-primary" type="submit">
-          <i class="bi bi-search"></i>
-        </button>
+    <!-- Search & Filters -->
+    <form method="get" class="filter-card p-3 mb-4">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label">Search</label>
+          <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Name, phone, username, etc.">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Referral</label>
+          <input type="text" name="referral" value="{{ referral }}" class="form-control" placeholder="Referral code">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">WhatsApp?</label>
+          <select name="has_whatsapp" class="form-select">
+            <option value="">Any</option>
+            <option value="1" {% if has_whatsapp == '1' %}selected{% endif %}>Yes</option>
+            <option value="0" {% if has_whatsapp == '0' %}selected{% endif %}>No</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Email?</label>
+          <select name="has_email" class="form-select">
+            <option value="">Any</option>
+            <option value="1" {% if has_email == '1' %}selected{% endif %}>Yes</option>
+            <option value="0" {% if has_email == '0' %}selected{% endif %}>No</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Status</label>
+          <select name="status" class="form-select">
+            <option value="">Any</option>
+            <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
+            <option value="blocked" {% if status == 'blocked' %}selected{% endif %}>Blocked</option>
+          </select>
+        </div>
+        <div class="col-md-1 d-grid">
+          <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i></button>
+        </div>
       </div>
     </form>
 
-    <!-- Customer Table -->
-    <div class="table-responsive">
-      <table class="table table-bordered align-middle">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Username</th>
-            <th>Email</th>
-            <th>Phone</th>
-            <th>Business</th>
-            <th>WhatsApp</th>
-            <th>Referral</th>
-            <th>Status</th>
-            <th class="text-center">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for customer in customers %}
-          <tr>
-            <td>{{ customer.first_name }} {{ customer.last_name }}</td>
-            <td>@{{ customer.username }}</td>
-            <td>{{ customer.email or '-' }}</td>
-            <td>{{ customer.phone }}</td>
-            <td>{{ customer.business_name or '-' }}</td>
-            <td>{{ customer.whatsapp or '-' }}</td>
-            <td>{{ customer.referral or '-' }}</td>
-            <td>
-              {% set st = (customer.status or 'active') %}
-              {% if st == 'blocked' %}
-                <span class="badge text-bg-danger">Blocked</span>
-              {% else %}
-                <span class="badge text-bg-success">Active</span>
-              {% endif %}
-            </td>
-            <td class="text-center">
-              <div class="d-flex gap-2 justify-content-center">
-                <!-- Edit -->
-                <button 
-                  class="edit-btn"
-                  data-bs-toggle="modal" 
-                  data-bs-target="#editModal"
-                  data-id="{{ customer._id }}"
-                  data-first_name="{{ customer.first_name }}"
-                  data-last_name="{{ customer.last_name }}"
-                  data-username="{{ customer.username }}"
-                  data-email="{{ customer.email }}"
-                  data-phone="{{ customer.phone }}"
-                  data-business_name="{{ customer.business_name }}"
-                  data-whatsapp="{{ customer.whatsapp }}"
-                  data-referral="{{ customer.referral }}">
-                  <i class="bi bi-pencil-square"></i>
-                </button>
+    <!-- Card Grid -->
+    <div class="cards">
+      {% for c in customers %}
+      {% set st = (c.status or 'active') %}
+      <div class="cust-card">
+        <div class="card-top">
+          <div class="avatar" data-avatar-idx="{{ loop.index0 }}">
+            <!-- animal emoji injected by JS -->
+            🐾
+          </div>
+          <div class="name-wrap">
+            <div class="name text-truncate">
+              {{ (c.first_name or '') ~ ' ' ~ (c.last_name or '') }}
+            </div>
+            <div class="uname text-truncate">@{{ c.username }}</div>
+          </div>
+          <div class="ms-auto">
+            {% if st == 'blocked' %}
+              <span class="status-badge st-blocked"><i class="bi bi-shield-exclamation me-1"></i>Blocked</span>
+            {% else %}
+              <span class="status-badge st-active"><i class="bi bi-shield-check me-1"></i>Active</span>
+            {% endif %}
+          </div>
+        </div>
 
-                <!-- Block / Unblock -->
-                {% if st == 'blocked' %}
-                <button class="btn btn-outline-success"
-                        title="Unblock customer"
-                        onclick="toggleBlock('{{ customer._id }}', false)">
-                  <i class="bi bi-unlock"></i>
-                </button>
-                {% else %}
-                <button class="btn btn-outline-danger"
-                        title="Block customer"
-                        onclick="toggleBlock('{{ customer._id }}', true)">
-                  <i class="bi bi-lock"></i>
-                </button>
-                {% endif %}
+        <div class="card-body">
+          <div class="kv mb-1"><i class="bi bi-envelope"></i><span>{{ c.email or '—' }}</span></div>
+          <div class="kv mb-1"><i class="bi bi-telephone"></i><span>{{ c.phone or '—' }}</span></div>
+          <div class="kv mb-1"><i class="bi bi-building"></i><span>{{ c.business_name or '—' }}</span></div>
+          <div class="kv mb-1"><i class="bi bi-whatsapp"></i><span>{{ c.whatsapp or '—' }}</span></div>
+          <div class="chips">
+            {% if c.referral %}<span class="chip"><i class="bi bi-people"></i> Referral: {{ c.referral }}</span>{% endif %}
+            {% if c.status_updated_at %}<span class="chip"><i class="bi bi-clock-history"></i> {{ c.status_updated_at.strftime('%Y-%m-%d %H:%M') }}</span>{% endif %}
+          </div>
+        </div>
 
-                <!-- Generate Reset Link -->
-                <button class="btn btn-outline-secondary"
-                        onclick="openResetModal('{{ customer._id }}')"
-                        title="Generate one-time password reset link">
-                  <i class="bi bi-link-45deg"></i>
-                </button>
-              </div>
-            </td>
-          </tr>
+        <div class="card-foot">
+          <!-- Edit -->
+          <button
+            class="btn btn-ghost edit-btn flex-grow-1"
+            data-bs-toggle="modal"
+            data-bs-target="#editModal"
+            data-id="{{ c._id|string }}"
+            data-first_name="{{ c.first_name }}"
+            data-last_name="{{ c.last_name }}"
+            data-username="{{ c.username }}"
+            data-email="{{ c.email }}"
+            data-phone="{{ c.phone }}"
+            data-business_name="{{ c.business_name }}"
+            data-whatsapp="{{ c.whatsapp }}"
+            data-referral="{{ c.referral }}">
+            <i class="bi bi-pencil-square me-1"></i> Edit
+          </button>
+
+          <!-- Block / Unblock -->
+          {% if st == 'blocked' %}
+          <button class="btn btn-success flex-grow-1"
+                  title="Unblock customer"
+                  onclick="toggleBlock('{{ c._id|string }}', false)">
+            <i class="bi bi-unlock me-1"></i> Unblock
+          </button>
           {% else %}
-          <tr><td colspan="9" class="text-center">No customers found.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          <button class="btn btn-outline-danger flex-grow-1"
+                  title="Block customer"
+                  onclick="toggleBlock('{{ c._id|string }}', true)">
+            <i class="bi bi-lock me-1"></i> Block
+          </button>
+          {% endif %}
+
+          <!-- Reset Link -->
+          <button class="btn btn-outline-secondary flex-grow-1"
+                  onclick="openResetModal('{{ c._id|string }}')"
+                  title="Generate one-time password reset link">
+            <i class="bi bi-link-45deg me-1"></i> Reset
+          </button>
+        </div>
+      </div>
+      {% else %}
+        <div class="alert alert-info">No customers found.</div>
+      {% endfor %}
     </div>
 
     <!-- Pagination -->
     {% if total_pages > 1 %}
-    <nav>
-      <ul class="pagination justify-content-center mt-4">
+    <nav class="mt-4">
+      <ul class="pagination justify-content-center">
         {% for p in range(1, total_pages + 1) %}
           <li class="page-item {% if p == page %}active{% endif %}">
             <a class="page-link" href="?{{ base_qs }}&page={{ p }}">{{ p }}</a>
@@ -217,12 +260,12 @@
           <div class="mb-3">
             <label class="form-label">Expires In (hours)</label>
             <input type="number" class="form-control" id="ttl_hours" min="1" value="24">
-            <div class="helper mt-1">Default is 24 hours. Link is single‑use.</div>
+            <div class="helper mt-1 text-muted">Default is 24 hours. Link is single-use.</div>
           </div>
           <div id="resetResult" class="d-none">
             <label class="form-label">Reset URL</label>
             <div class="input-group">
-              <input id="resetUrl" type="text" class="form-control copy-input" readonly>
+              <input id="resetUrl" type="text" class="form-control" readonly>
               <button class="btn btn-outline-secondary" type="button" id="copyBtn">
                 <i class="bi bi-clipboard"></i>
               </button>
@@ -244,7 +287,7 @@
   </div>
 
   <!-- Toasts -->
-  <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1080">
+  <div class="position-fixed bottom-0 end-0 p-3">
     <div id="mainToast" class="toast align-items-center text-bg-primary border-0" role="alert" aria-live="assertive" aria-atomic="true">
       <div class="d-flex">
         <div class="toast-body" id="toastBody">Action completed.</div>
@@ -255,20 +298,27 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
+    // ========== Animal avatar assignment (deterministic by card index) ==========
+    const animals = ["🦊","🐼","🦁","🐯","🐨","🐵","🦉","🐸","🐶","🐱","🐰","🦄","🐢","🐧","🐙","🦖","🦕","🦓","🦒","🐘","🦬","🐺","🦔","🦭"];
+    document.querySelectorAll('.avatar').forEach(el=>{
+      const idx = parseInt(el.getAttribute('data-avatar-idx')||'0',10);
+      el.textContent = animals[idx % animals.length];
+    });
+
     // ===== Edit Modal Prefill =====
     const editModal = document.getElementById('editModal');
     editModal.addEventListener('show.bs.modal', event => {
       const button = event.relatedTarget;
       document.getElementById('customer_id').value = button.getAttribute('data-id');
-      document.querySelector('#editForm [name="first_name"]').value = button.getAttribute('data-first_name') || '';
-      document.querySelector('#editForm [name="last_name"]').value = button.getAttribute('data-last_name') || '';
-      document.querySelector('#editForm [name="username"]').value = button.getAttribute('data-username') || '';
-      document.querySelector('#editForm [name="email"]').value = button.getAttribute('data-email') || '';
-      document.querySelector('#editForm [name="phone"]').value = button.getAttribute('data-phone') || '';
+      document.querySelector('#editForm [name="first_name"]').value    = button.getAttribute('data-first_name') || '';
+      document.querySelector('#editForm [name="last_name"]').value     = button.getAttribute('data-last_name') || '';
+      document.querySelector('#editForm [name="username"]').value      = button.getAttribute('data-username') || '';
+      document.querySelector('#editForm [name="email"]').value         = button.getAttribute('data-email') || '';
+      document.querySelector('#editForm [name="phone"]').value         = button.getAttribute('data-phone') || '';
       document.querySelector('#editForm [name="business_name"]').value = button.getAttribute('data-business_name') || '';
-      document.querySelector('#editForm [name="whatsapp"]').value = button.getAttribute('data-whatsapp') || '';
-      document.querySelector('#editForm [name="referral"]').value = button.getAttribute('data-referral') || '';
-      document.querySelector('#editForm [name="password"]').value = '';
+      document.querySelector('#editForm [name="whatsapp"]').value      = button.getAttribute('data-whatsapp') || '';
+      document.querySelector('#editForm [name="referral"]').value      = button.getAttribute('data-referral') || '';
+      document.querySelector('#editForm [name="password"]').value      = '';
     });
 
     // ===== Save Edits =====
@@ -276,19 +326,16 @@
       e.preventDefault();
       const id = document.getElementById('customer_id').value;
       const formData = new FormData(this);
-      fetch(`/admin/customers/update/${id}`, {
-        method: 'POST',
-        body: formData
-      })
-      .then(res => res.json())
-      .then(data => {
-        showToast(data.message || 'Updated.');
-        if (data.status === 'success') location.reload();
-      })
-      .catch(() => showToast('Network error', true));
+      fetch(`/admin/customers/update/${id}`, { method:'POST', body:formData })
+        .then(res => res.json())
+        .then(data => {
+          showToast(data.message || 'Updated.');
+          if (data.status === 'success') location.reload();
+        })
+        .catch(() => showToast('Network error', true));
     });
 
-    // ===== Block/Unblock =====
+    // ===== Block / Unblock =====
     async function toggleBlock(id, block) {
       try {
         const res = await fetch(`/admin/customers/toggle_block/${id}`, {
@@ -306,11 +353,11 @@
 
     // ===== Reset Link Flow =====
     const resetLinkModal = document.getElementById('resetLinkModal');
-    const generateBtn = document.getElementById('generateBtn');
-    const resetResult = document.getElementById('resetResult');
-    const resetUrlInput = document.getElementById('resetUrl');
-    const copyBtn = document.getElementById('copyBtn');
-    const expiresText = document.getElementById('expiresText');
+    const generateBtn    = document.getElementById('generateBtn');
+    const resetResult    = document.getElementById('resetResult');
+    const resetUrlInput  = document.getElementById('resetUrl');
+    const copyBtn        = document.getElementById('copyBtn');
+    const expiresText    = document.getElementById('expiresText');
 
     function openResetModal(userId) {
       document.getElementById('reset_user_id').value = userId;
@@ -318,8 +365,7 @@
       resetResult.classList.add('d-none');
       resetUrlInput.value = '';
       expiresText.textContent = '';
-      const modal = new bootstrap.Modal(resetLinkModal);
-      modal.show();
+      new bootstrap.Modal(resetLinkModal).show();
     }
 
     generateBtn.addEventListener('click', async () => {
@@ -332,7 +378,7 @@
         form.append('user_id', userId);
         form.append('ttl_hours', ttl);
 
-        const res = await fetch('/admin/reset/generate', { method: 'POST', body: form });
+        const res = await fetch('/admin/reset/generate', { method:'POST', body:form });
         const data = await res.json();
 
         if (data.status === 'success') {
