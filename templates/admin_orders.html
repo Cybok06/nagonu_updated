@@ -3,85 +3,128 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Admin - Orders</title>
+  <title>Admin — Orders</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+
   <style>
-    :root {
-      --primary-blue:#2563eb;--primary-blue-light:#3b82f6;--primary-blue-dark:#1d4ed8;
-      --secondary-blue:#e1f5fe;--accent-blue:#0ea5e9;--background-color:#f8fafc;--card-background:#ffffff;
-      --text-primary:#0b1b2b;--text-secondary:#64748b;--border-color:#e2e8f0;--success-color:#10b981;
-      --warning-color:#f59e0b;--danger-color:#ef4444;--info-color:#0ea5e9;
-      --shadow-sm:0 1px 2px 0 rgb(0 0 0 / 0.05);
-      --shadow-md:0 4px 6px -1px rgb(0 0 0 / 0.1),0 2px 4px -2px rgb(0 0 0 / 0.1);
-      --shadow-lg:0 10px 15px -3px rgb(0 0 0 / 0.1),0 4px 6px -4px rgb(0 0 0 / 0.1);
+    :root{
+      --primary:#2563eb;--primary-2:#1d4ed8;--primary-3:#3b82f6;
+      --bg:#f8fafc;--bg-2:#f1f5f9;--card:#ffffff;--border:#e2e8f0;
+      --text:#0b1b2b;--muted:#64748b;
+      --ok:#16a34a;--ok-soft:#ecfdf5;          /* delivered */
+      --warn:#f59e0b;--warn-soft:#fffbeb;      /* pending  */
+      --info:#0ea5e9;--info-soft:#e6f6fe;      /* processing */
+      --bad:#ef4444;--bad-soft:#fef2f2;        /* failed */
+      --violet:#6366f1;--violet-soft:#eef2ff;  /* refunded */
+      --teal:#14b8a6;--teal-soft:#e6fffb;      /* completed */
+      --shadow-md:0 4px 12px rgba(2,10,28,.08);
+      --shadow-lg:0 12px 28px rgba(2,10,28,.12);
+      --radius:16px;
     }
-    body{background:linear-gradient(135deg,var(--background-color) 0%,#f1f5f9 100%);font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--text-primary);min-height:100vh}
+
+    body{background:linear-gradient(135deg,var(--bg) 0%,var(--bg-2) 100%);color:var(--text);font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
     .container{max-width:1400px}
-    h2{color:var(--primary-blue);font-weight:700;text-shadow:0 1px 2px rgba(37,99,235,.1);margin-bottom:1rem!important}
-    .subhead{color:var(--text-secondary);margin-bottom:1.5rem;font-size:.95rem}
-    .filter-bar{background:var(--card-background);padding:1rem 1.25rem;border-radius:16px;box-shadow:var(--shadow-md);border:1px solid var(--border-color);margin-bottom:1.25rem;transition:all .25s ease}
-    .filter-bar:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px)}
+    h2{color:var(--primary);font-weight:800;letter-spacing:.2px}
+    .subhead{color:var(--muted)}
+    .chip{display:inline-flex;align-items:center;gap:.5rem;background:#eef2ff;color:#3730a3;padding:.4rem .7rem;border-radius:999px;border:1px solid #c7d2fe;font-size:.82rem}
+
+    .filter-bar{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:1rem 1.25rem;position:sticky;top:.5rem;z-index:10}
     .filter-row{row-gap:.75rem}
-    .chip{display:inline-flex;align-items:center;gap:.5rem;background:#eef2ff;color:#3730a3;padding:.375rem .625rem;border-radius:999px;font-size:.8rem;border:1px solid #c7d2fe}
-    .table-responsive{background:var(--card-background);border-radius:16px;overflow:visible;box-shadow:var(--shadow-md);border:1px solid var(--border-color);transition:all .3s ease}
-    .table-responsive:hover{box-shadow:var(--shadow-lg)}
-    .table{margin-bottom:0;border-collapse:separate;border-spacing:0}
-    .table td,.table th{vertical-align:middle;border-bottom:1px solid var(--border-color);padding:1rem .75rem}
-    .table thead th{background:linear-gradient(135deg,var(--primary-blue) 0%,var(--primary-blue-dark) 100%);color:#fff;font-weight:600;border:none;text-transform:uppercase;font-size:.85rem;letter-spacing:.5px}
-    .table tbody tr{transition:all .2s ease}
-    .table tbody tr:hover{background-color:var(--secondary-blue);transform:translateX(4px)}
-    .form-select,.form-control{border:2px solid var(--border-color);border-radius:10px;padding:.55rem .8rem;font-size:.9rem;transition:all .2s ease;background-color:var(--card-background)}
-    .form-select:focus,.form-control:focus{border-color:var(--primary-blue);box-shadow:0 0 0 .2rem rgba(37,99,235,.25)}
-    .form-select:hover,.form-control:hover{border-color:var(--primary-blue-light)}
-    .form-label{color:var(--text-primary);font-weight:600;font-size:.85rem}
-    .pagination{--bs-pagination-bg:var(--card-background);--bs-pagination-border-color:var(--border-color);--bs-pagination-hover-bg:var(--secondary-blue);--bs-pagination-hover-border-color:var(--primary-blue);--bs-pagination-focus-bg:var(--secondary-blue);--bs-pagination-active-bg:var(--primary-blue);--bs-pagination-active-border-color:var(--primary-blue)}
-    .page-link{border-radius:8px!important;margin:0 2px;font-weight:500;transition:all .2s ease}
-    .page-link:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
-    .badge{font-weight:600;padding:.5rem .75rem;border-radius:50px;font-size:.75rem}
-    .bg-info{background:linear-gradient(135deg,var(--accent-blue),#0284c7)!important;color:#fff!important}
-    .status-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .6rem;border-radius:999px;font-size:.75rem;font-weight:600}
-    .st-pending{background:rgba(245,158,11,.12);color:#b45309;border:1px solid rgba(245,158,11,.35)}
-    .st-processing{background:rgba(14,165,233,.12);color:#0369a1;border:1px solid rgba(14,165,233,.35)}
-    .st-completed{background:rgba(16,185,129,.12);color:#065f46;border:1px solid rgba(16,185,129,.35)}
-    .st-delivered{background:rgba(16,185,129,.12);color:#065f46;border:1px solid rgba(16,185,129,.35)}
-    .st-failed{background:rgba(239,68,68,.12);color:#7f1d1d;border:1px solid rgba(239,68,68,.35)}
-    .st-refunded{background:rgba(99,102,241,.12);color:#3730a3;border:1px solid rgba(99,102,241,.35)}
-    .list-unstyled li{background:rgba(37,99,235,.05);padding:.5rem;border-radius:8px;margin-bottom:.5rem!important;border-left:3px solid var(--primary-blue);transition:all .2s ease}
-    .list-unstyled li:hover{background:rgba(37,99,235,.1);transform:translateX(3px)}
-    .table tbody tr:nth-child(even){background-color:rgba(248,250,252,.5)}
+    .form-select,.form-control{border:2px solid var(--border);border-radius:10px;padding:.55rem .8rem}
+    .form-select:focus,.form-control:focus{border-color:var(--primary);box-shadow:0 0 0 .2rem rgba(37,99,235,.25)}
+
+    .actions-bar{display:flex;flex-wrap:wrap;gap:.5rem}
     .btn-icon{display:inline-flex;align-items:center;gap:.5rem}
-    .btn-icon i{font-size:.9rem}
+
+    .table-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);overflow:hidden}
+    table.table{margin:0}
+    thead th{background:linear-gradient(135deg,var(--primary) 0%,var(--primary-2) 100%);color:#fff;border:none;text-transform:uppercase;font-size:.8rem;letter-spacing:.6px}
+    tbody tr:hover{background:#f0f7ff}
+    td,th{vertical-align:middle}
+
+    /* Status chips (unique colors each) */
+    .status-chip{display:inline-flex;align-items:center;gap:.45rem;padding:.35rem .65rem;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid transparent}
+    .st-delivered{color:var(--ok);background:var(--ok-soft);border-color:#a7f3d0}
+    .st-failed{color:var(--bad);background:var(--bad-soft);border-color:#fecaca}
+    .st-processing{color:var(--info);background:var(--info-soft);border-color:#bae6fd}
+    .st-refunded{color:var(--violet);background:var(--violet-soft);border-color:#c7d2fe}
+    .st-pending{color:var(--warn);background:var(--warn-soft);border-color:#fde68a}
+    .st-completed{color:var(--teal);background:var(--teal-soft);border-color:#99f6e4}
+
+    /* Paid-from badge styles */
+    .pf-badge{border-radius:999px;padding:.45rem .65rem;font-weight:700}
+    .pf-wallet{background:#ecfeff;color:#155e75;border:1px solid #a5f3fc}
+    .pf-card{background:#f0f9ff;color:#1e3a8a;border:1px solid #bfdbfe}
+    .pf-momo{background:#fefce8;color:#713f12;border:1px solid #fde68a}
+    .pf-paystack{background:#eef2ff;color:#1e1b4b;border:1px solid #c7d2fe}
+    .pf-flutterwave{background:#fff7ed;color:#7c2d12;border:1px solid #fed7aa}
+    .pf-bank{background:#f5f3ff;color:#4c1d95;border:1px solid #ddd6fe}
+
     /* Inline actions tray */
     .status-actions{display:inline-flex;gap:.35rem;flex-wrap:wrap;align-items:center;margin-left:.25rem}
     .status-actions .btn{padding:.2rem .5rem;font-size:.75rem;border-radius:999px}
-    .d-none{display:none!important}
+
+    /* Card view for small screens */
+    @media (max-width: 767.98px){
+      .table-wrap{display:none}
+      .cards{display:grid;gap:1rem}
+      .order-card{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-md);padding:1rem}
+      .order-card .header{display:flex;justify-content:space-between;gap:.5rem;align-items:center}
+      .order-card .meta{color:var(--muted);font-size:.85rem}
+      .order-card .items{margin:.5rem 0 0}
+      .order-card .it{display:flex;justify-content:space-between;border-top:1px dashed var(--border);padding-top:.5rem;margin-top:.5rem}
+    }
+    @media (min-width: 768px){
+      .cards{display:none}
+    }
+
+    .offcanvas{border-left:1px solid var(--border)}
+    .schedule-row{display:flex;align-items:center;justify-content:space-between;border-bottom:1px dashed var(--border);padding:.6rem 0}
+    .muted{color:var(--muted)}
+
+    .sticky-header{position:sticky;top:0;background:linear-gradient(135deg,var(--bg) 0%,var(--bg-2) 100%);z-index:20;padding:.5rem 0;margin-bottom:.25rem}
   </style>
 </head>
 <body>
   {% include 'admin_sidebar.html' %}
 
   <div class="container py-4">
-    <div class="d-flex flex-wrap justify-content-between align-items-center">
-      <div>
+    <!-- Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-start sticky-header">
+      <div class="mb-2">
         <h2 class="mb-1"><i class="fas fa-box me-2"></i>Customer Orders</h2>
-        <div class="subhead">
+        <div class="subhead d-flex flex-wrap gap-2">
           <span class="chip"><i class="fa-solid fa-database"></i> Total: {{ total_orders or 0 }}</span>
           {% if status_filter %}<span class="chip"><i class="fa-solid fa-filter"></i> Status: {{ status_filter|capitalize }}</span>{% endif %}
         </div>
       </div>
 
-      <form method="POST" action="{{ url_for('admin_orders.bulk_deliver_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}">
-        <button class="btn btn-success btn-icon" data-confirm="Mark ALL processing orders in the current filters as DELIVERED?">
-          <i class="fa-solid fa-truck-fast"></i> Mark All Processing as Delivered
+      <div class="actions-bar">
+        <!-- View Schedules -->
+        <button class="btn btn-outline-primary btn-icon" data-bs-toggle="offcanvas" data-bs-target="#jobsOffcanvas">
+          <i class="fa-solid fa-clock-rotate-left"></i> Scheduled Orders
         </button>
-      </form>
+
+        <!-- Bulk Deliver within current filters -->
+        <form method="POST" action="{{ url_for('admin_orders.bulk_deliver_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+          <button class="btn btn-success btn-icon" data-confirm="Mark ALL processing orders in the current filters as DELIVERED?">
+            <i class="fa-solid fa-truck-fast"></i> Mark All Processing as Delivered
+          </button>
+        </form>
+
+        <!-- Schedule for selected -->
+        <button class="btn btn-dark btn-icon" id="openScheduleSelected" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+          <i class="fa-solid fa-calendar-plus"></i> Schedule Status (Selected)
+        </button>
+      </div>
     </div>
 
+    <!-- Flash messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         {% for category, message in messages %}
-          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+          <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
             <i class="fas fa-info-circle me-2"></i>{{ message }}
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
           </div>
@@ -89,18 +132,17 @@
       {% endif %}
     {% endwith %}
 
-    <form method="get" class="filter-bar">
+    <!-- Filters -->
+    <form method="get" class="filter-bar mb-3">
       <div class="row filter-row">
         <div class="col-12 col-md-3">
           <label class="form-label"><i class="fa-solid fa-hashtag me-1"></i>Order ID</label>
           <input type="text" name="order_id" value="{{ order_id_q or '' }}" class="form-control" placeholder="Paste or type order id">
         </div>
-
         <div class="col-12 col-md-3">
           <label class="form-label"><i class="fa-solid fa-user me-1"></i>Customer</label>
           <input type="text" name="customer" value="{{ customer_q or '' }}" class="form-control" placeholder="Name / email / phone / username">
         </div>
-
         <div class="col-6 col-md-2">
           <label class="form-label"><i class="fa-solid fa-clipboard-check me-1"></i>Status</label>
           <select name="status" class="form-select">
@@ -110,7 +152,6 @@
             {% endfor %}
           </select>
         </div>
-
         <div class="col-6 col-md-2">
           <label class="form-label"><i class="fa-solid fa-wallet me-1"></i>Paid From</label>
           <select name="paid_from" class="form-select">
@@ -120,27 +161,22 @@
             {% endfor %}
           </select>
         </div>
-
         <div class="col-6 col-md-2">
           <label class="form-label"><i class="fa-solid fa-arrow-down-1-9 me-1"></i>Min Total (₵)</label>
           <input type="number" step="0.01" name="min_total" value="{{ min_total or '' }}" class="form-control" placeholder="0.00">
         </div>
-
         <div class="col-6 col-md-2">
           <label class="form-label"><i class="fa-solid fa-arrow-up-9-1 me-1"></i>Max Total (₵)</label>
           <input type="number" step="0.01" name="max_total" value="{{ max_total or '' }}" class="form-control" placeholder="1000.00">
         </div>
-
         <div class="col-6 col-md-2">
           <label class="form-label"><i class="fa-solid fa-calendar-day me-1"></i>From</label>
           <input type="date" name="date_from" value="{{ date_from or '' }}" class="form-control">
         </div>
-
         <div class="col-6 col-md-2">
           <label class="form-label"><i class="fa-solid fa-calendar-check me-1"></i>To</label>
           <input type="date" name="date_to" value="{{ date_to or '' }}" class="form-control">
         </div>
-
         <div class="col-12 col-md-3">
           <label class="form-label"><i class="fa-solid fa-boxes-stacked me-1"></i>Item Service</label>
           <input type="text" name="item_service" value="{{ item_service or '' }}" class="form-control" placeholder="e.g., Bigtime Data">
@@ -153,7 +189,6 @@
           <label class="form-label"><i class="fa-solid fa-mobile-screen-button me-1"></i>Item Phone</label>
           <input type="text" name="item_phone" value="{{ item_phone or '' }}" class="form-control" placeholder="e.g., 055xxxxxxx">
         </div>
-
         <div class="col-6 col-md-2">
           <label class="form-label"><i class="fa-solid fa-sort me-1"></i>Sort</label>
           <select name="sort" class="form-select">
@@ -163,7 +198,6 @@
             <option value="amount_asc" {% if (sort or '')=='amount_asc' %}selected{% endif %}>Amount: Low → High</option>
           </select>
         </div>
-
         <div class="col-6 col-md-2">
           <label class="form-label"><i class="fa-solid fa-list-ol me-1"></i>Per Page</label>
           <select name="per_page" class="form-select">
@@ -172,7 +206,6 @@
             {% endfor %}
           </select>
         </div>
-
         <div class="col-12 col-md-3 d-flex align-items-end gap-2">
           <button type="submit" class="btn btn-primary btn-icon">
             <i class="fa-solid fa-magnifying-glass"></i> Apply Filters
@@ -184,137 +217,186 @@
       </div>
     </form>
 
-    <div class="table-responsive">
-      <table class="table table-hover table-bordered align-middle">
-        <thead class="table-dark text-center">
-          <tr>
-            <th><i class="fas fa-hashtag"></i></th>
-            <th><i class="fas fa-receipt me-1"></i>Order ID</th>
-            <th><i class="fas fa-user me-1"></i>Customer</th>
-            <th><i class="fas fa-shopping-cart me-1"></i>Items</th>
-            <th><i class="fas fa-money-bill-wave me-1"></i>Total (₵)</th>
-            <th><i class="fas fa-tasks me-1"></i>Status</th>
-            <th><i class="fas fa-credit-card me-1"></i>Paid From</th>
-            <th><i class="fas fa-calendar me-1"></i>Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for order in orders %}
-          <tr>
-            <td class="text-center">{{ loop.index + ((page - 1) * (per_page or 10)) }}</td>
-            <td class="fw-semibold">{{ order["order_id"] }}</td>
-            <td>
-              <div>
-                <div class="mb-1">
-                  <strong>{{ (order["user"] or {}).get("first_name","") }} {{ (order["user"] or {}).get("last_name","") }}</strong>
+    <!-- TABLE (md+) -->
+    <div class="table-wrap mb-3">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead class="text-center">
+            <tr>
+              <th style="width:42px">
+                <input class="form-check-input" type="checkbox" id="checkAll">
+              </th>
+              <th><i class="fas fa-receipt me-1"></i>Order ID</th>
+              <th><i class="fas fa-user me-1"></i>Customer</th>
+              <th><i class="fas fa-shopping-cart me-1"></i>Items</th>
+              <th><i class="fas fa-money-bill-wave me-1"></i>Total (₵)</th>
+              <th><i class="fas fa-tasks me-1"></i>Status</th>
+              <th><i class="fas fa-credit-card me-1"></i>Paid From</th>
+              <th><i class="fas fa-calendar me-1"></i>Date</th>
+              <th style="width:100px">Quick</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for order in orders %}
+            {% set st = (order.get('status') or '').lower() %}
+            <tr>
+              <td class="text-center">
+                <input class="form-check-input row-check" type="checkbox" value="{{ order['_id'] }}">
+              </td>
+              <td class="fw-semibold">{{ order["order_id"] }}</td>
+              <td>
+                <div class="fw-semibold">{{ (order["user"] or {}).get("first_name","") }} {{ (order["user"] or {}).get("last_name","") }}</div>
+                <div class="small text-muted">
+                  <i class="fas fa-envelope me-1"></i>{{ (order["user"] or {}).get("email","") }}<br>
+                  <i class="fas fa-phone-alt me-1"></i><strong>{{ (order["user"] or {}).get("phone","") }}</strong>
                 </div>
-                <div class="small">
-                  <span class="d-block"><i class="fas fa-envelope me-1 text-muted"></i>{{ (order["user"] or {}).get("email","") }}</span>
-                  <span class="d-block"><i class="fas fa-phone-alt me-1 text-muted"></i><strong>{{ (order["user"] or {}).get("phone","") }}</strong></span>
-                </div>
-              </div>
-            </td>
-            <td>
-              <ul class="list-unstyled small mb-0">
-                {% for item in order["items"] %}
-                <li class="mb-1 border-bottom pb-1">
-                  <strong>{{ item["serviceName"] }}</strong> – {{ item.get("value","") }}<br>
-                  <span class="d-block"><i class="fas fa-mobile-alt me-1 text-muted"></i><strong>{{ item.get("phone","") }}</strong></span>
-                  <span class="text-success d-block mt-1"><i class="fas fa-tag me-1"></i>₵{{ item.get("amount") }}</span>
-                </li>
-                {% endfor %}
-              </ul>
-            </td>
-            <td class="text-center text-success fw-semibold">
-              <i class="fas fa-coins me-1"></i>₵{{ "%.2f"|format(order.get("total_amount", 0) or 0) }}
-            </td>
-
-            <!-- Status + inline buttons -->
-            <td class="text-center">
-              {% set st = (order.get('status') or '').lower() %}
-              <div class="d-inline-flex align-items-center gap-2">
+              </td>
+              <td>
+                <ul class="list-unstyled small mb-0">
+                  {% for item in order["items"] %}
+                  <li class="mb-1 border-bottom pb-1">
+                    <strong>{{ item["serviceName"] }}</strong> – {{ item.get("value","") }}<br>
+                    <span class="d-block"><i class="fas fa-mobile-alt me-1 text-muted"></i><strong>{{ item.get("phone","") }}</strong></span>
+                    <span class="d-block mt-1"><i class="fas fa-tag me-1 text-muted"></i>₵{{ "%.2f"|format(item.get("amount") or 0) }}</span>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </td>
+              <td class="text-center fw-semibold text-success">
+                <i class="fas fa-coins me-1"></i>₵{{ "%.2f"|format(order.get("total_amount", 0) or 0) }}
+              </td>
+              <td class="text-center">
                 <span class="status-chip
                   {% if st=='delivered' %}st-delivered
-                  {% elif st=='completed' %}st-completed
-                  {% elif st=='pending' %}st-pending
-                  {% elif st=='processing' %}st-processing
                   {% elif st=='failed' %}st-failed
+                  {% elif st=='processing' %}st-processing
                   {% elif st=='refunded' %}st-refunded
+                  {% elif st=='pending' %}st-pending
+                  {% elif st=='completed' %}st-completed
                   {% else %}st-processing{% endif %}">
                   <i class="fa-solid fa-circle"></i> {{ st|capitalize }}
                 </span>
 
-                <!-- Toggle button -->
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-actions="actions-{{ order['_id'] }}">
+                <!-- Inline actions toggle -->
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-toggle-actions="actions-{{ order['_id'] }}">
                   Change
                 </button>
 
-                <!-- Actions tray (buttons) -->
-                <div id="actions-{{ order['_id'] }}" class="status-actions d-none">
+                <div id="actions-{{ order['_id'] }}" class="status-actions d-none mt-2">
                   <!-- Failed -->
                   <form method="POST" class="m-0"
                         action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
                     <input type="hidden" name="status" value="failed">
-                    <button type="submit" class="btn btn-outline-danger" data-confirm="Mark this order as Failed?">
-                      Failed
-                    </button>
+                    <button type="submit" class="btn btn-outline-danger btn-sm" data-confirm="Mark this order as Failed?">Failed</button>
                   </form>
-
                   <!-- Refunded -->
                   <form method="POST" class="m-0"
                         action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
                     <input type="hidden" name="status" value="refunded">
-                    <button type="submit" class="btn btn-outline-primary"
-                            data-confirm="Mark this order as Refunded? This will credit the customer's wallet if not already.">
-                     Failed and  Refunded
-                    </button>
+                    <button type="submit" class="btn btn-outline-primary btn-sm" data-confirm="Mark this order as Refunded? This credits the customer's wallet if not already.">Refunded</button>
                   </form>
-
                   <!-- Processing -->
                   <form method="POST" class="m-0"
                         action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
                     <input type="hidden" name="status" value="processing">
-                    <button type="submit" class="btn btn-outline-info">
-                      Processing
-                    </button>
+                    <button type="submit" class="btn btn-outline-info btn-sm">Processing</button>
                   </form>
-
                   <!-- Delivered -->
                   <form method="POST" class="m-0"
                         action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
                     <input type="hidden" name="status" value="delivered">
-                    <button type="submit" class="btn btn-outline-success">
-                      Delivered
-                    </button>
+                    <button type="submit" class="btn btn-outline-success btn-sm">Delivered</button>
                   </form>
                 </div>
-              </div>
-            </td>
-
-            <td class="text-center">
-              <span class="badge bg-info text-dark">
-                <i class="fas fa-wallet me-1"></i>{{ (order.get("paid_from") or "N/A")|capitalize }}
-              </span>
-            </td>
-            <td class="text-center">
-              <small><i class="fas fa-clock me-1"></i>
-                {{ order.get("created_at").strftime('%Y-%m-%d %H:%M') if order.get("created_at") else 'N/A' }}
-              </small>
-            </td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="8" class="text-center text-muted py-5">
-              <i class="fas fa-inbox fa-3x mb-3 d-block"></i>
-              <h5>No orders found</h5>
-              <p class="mb-0">Try adjusting your filter criteria</p>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+              </td>
+              <td class="text-center">
+                {% set pf = (order.get("paid_from") or "N/A")|lower %}
+                <span class="pf-badge
+                  {% if pf=='wallet' %}pf-wallet
+                  {% elif pf=='card' %}pf-card
+                  {% elif pf=='momo' %}pf-momo
+                  {% elif pf=='paystack' %}pf-paystack
+                  {% elif pf=='flutterwave' %}pf-flutterwave
+                  {% elif pf=='bank' %}pf-bank
+                  {% else %}pf-card{% endif %}">
+                  <i class="fas fa-wallet me-1"></i>{{ pf|capitalize }}
+                </span>
+              </td>
+              <td class="text-center">
+                <small class="muted"><i class="fas fa-clock me-1"></i>
+                  {{ order.get("created_at").strftime('%Y-%m-%d %H:%M') if order.get("created_at") else 'N/A' }}
+                </small>
+              </td>
+              <td class="text-center">
+                <!-- Quick schedule button for this row -->
+                <button class="btn btn-sm btn-dark" data-quick-schedule="{{ order['_id'] }}" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+                  <i class="fa-solid fa-calendar-plus"></i>
+                </button>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="9" class="text-center text-muted py-5">
+                <i class="fas fa-inbox fa-3x mb-3 d-block"></i>
+                <h5>No orders found</h5>
+                <p class="mb-0">Try adjusting your filter criteria</p>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
 
+    <!-- CARD LIST (xs-sm) -->
+    <div class="cards mb-3">
+      {% for order in orders %}
+      {% set st = (order.get('status') or '').lower() %}
+      <div class="order-card">
+        <div class="header">
+          <div>
+            <div class="fw-bold">#{{ order["order_id"] }}</div>
+            <div class="meta">
+              {{ (order["user"] or {}).get("first_name","") }} {{ (order["user"] or {}).get("last_name","") }} •
+              <i class="fa-regular fa-clock"></i>
+              {{ order.get("created_at").strftime('%Y-%m-%d %H:%M') if order.get("created_at") else 'N/A' }}
+            </div>
+          </div>
+          <div>
+            <span class="status-chip
+              {% if st=='delivered' %}st-delivered
+              {% elif st=='failed' %}st-failed
+              {% elif st=='processing' %}st-processing
+              {% elif st=='refunded' %}st-refunded
+              {% elif st=='pending' %}st-pending
+              {% elif st=='completed' %}st-completed
+              {% else %}st-processing{% endif %}">
+              <i class="fa-solid fa-circle"></i> {{ st|capitalize }}
+            </span>
+          </div>
+        </div>
+        <div class="items">
+          {% for item in order["items"] %}
+          <div class="it">
+            <div>
+              <strong>{{ item["serviceName"] }}</strong> – {{ item.get("value","") }}<br>
+              <small class="text-muted"><i class="fas fa-mobile-alt me-1"></i>{{ item.get("phone","") }}</small>
+            </div>
+            <div class="fw-semibold">₵{{ "%.2f"|format(item.get("amount") or 0) }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="d-flex gap-2 mt-3">
+          <input class="form-check-input row-check" type="checkbox" value="{{ order['_id'] }}">
+          <button class="btn btn-sm btn-dark ms-auto" data-quick-schedule="{{ order['_id'] }}" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+            <i class="fa-solid fa-calendar-plus"></i> Schedule
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Pagination -->
     {% if total_pages > 1 %}
     <div class="d-flex justify-content-between align-items-center mt-3">
       <div class="text-muted small">Page {{ page }} of {{ total_pages }}</div>
@@ -322,24 +404,21 @@
         <ul class="pagination pagination-sm mb-0">
           {% if page > 1 %}
             <li class="page-item">
-              <a class="page-link"
-                 href="{{ url_for('admin_orders.admin_view_orders', page=page-1) }}{% if filters_query %}&{{ filters_query }}{% endif %}">
+              <a class="page-link" href="{{ url_for('admin_orders.admin_view_orders', page=page-1) }}{% if filters_query %}&{{ filters_query }}{% endif %}">
                 <i class="fas fa-chevron-left"></i> Prev
               </a>
             </li>
           {% endif %}
           {% for p in range(1, total_pages+1) %}
             <li class="page-item {% if p == page %}active{% endif %}">
-              <a class="page-link"
-                 href="{{ url_for('admin_orders.admin_view_orders', page=p) }}{% if filters_query %}&{{ filters_query }}{% endif %}">
+              <a class="page-link" href="{{ url_for('admin_orders.admin_view_orders', page=p) }}{% if filters_query %}&{{ filters_query }}{% endif %}">
                 {{ p }}
               </a>
             </li>
           {% endfor %}
           {% if page < total_pages %}
             <li class="page-item">
-              <a class="page-link"
-                 href="{{ url_for('admin_orders.admin_view_orders', page=page+1) }}{% if filters_query %}&{{ filters_query }}{% endif %}">
+              <a class="page-link" href="{{ url_for('admin_orders.admin_view_orders', page=page+1) }}{% if filters_query %}&{{ filters_query }}{% endif %}">
                 Next <i class="fas fa-chevron-right"></i>
               </a>
             </li>
@@ -350,36 +429,189 @@
     {% endif %}
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- Schedule Modal -->
+  <div class="modal fade" id="scheduleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="POST" action="{{ url_for('admin_orders.schedule_status') }}">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-calendar-plus me-2"></i>Schedule Status Change</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
 
-  <!-- No inline onclick: one clean handler for toggles + confirms -->
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Orders Selected</label>
+            <div class="small text-muted">You can select multiple orders from the list. This will populate automatically.</div>
+            <div id="selectedOrdersPreview" class="mt-2"></div>
+          </div>
+
+          <input type="hidden" name="order_ids" id="scheduleOrderIds">
+
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">New Status</label>
+              <select name="status" class="form-select" required>
+                {% for s in ['processing','delivered','failed','refunded','pending','completed'] %}
+                  <option value="{{ s }}">{{ s|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Delay (minutes)</label>
+              <input type="number" min="0" step="1" class="form-control" name="delay_minutes" id="delayMinutes" placeholder="e.g., 10">
+              <div class="form-text">Set a delay OR specify an exact time below.</div>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Run At (UTC)</label>
+              <input type="datetime-local" class="form-control" id="runAtLocal" placeholder="YYYY-MM-DD HH:MM">
+              <input type="hidden" name="run_at" id="runAtUtc">
+            </div>
+
+            <div class="col-12">
+              <label class="form-label">Note (optional)</label>
+              <input type="text" class="form-control" name="note" placeholder="Reason or extra info for audit">
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" type="submit">
+            <i class="fa-solid fa-calendar-check me-1"></i> Schedule
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Offcanvas: Scheduled Jobs -->
+  <div class="offcanvas offcanvas-end" tabindex="-1" id="jobsOffcanvas" aria-labelledby="jobsLabel">
+    <div class="offcanvas-header">
+      <h5 id="jobsLabel" class="mb-0"><i class="fa-solid fa-clock-rotate-left me-2"></i>Scheduled Jobs</h5>
+      <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+      <div id="jobsList" class="small"></div>
+      <div class="text-center mt-3">
+        <button class="btn btn-outline-primary btn-sm" id="refreshJobs"><i class="fa-solid fa-rotate"></i> Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    // Toggle inline actions
-    document.addEventListener('click', function (e) {
+    // ---------- helpers ----------
+    const $$ = (sel, root=document)=>Array.from(root.querySelectorAll(sel));
+    const $  = (sel, root=document)=>root.querySelector(sel);
+
+    // Toggle inline actions tray
+    document.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-toggle-actions]');
-      if (btn) {
-        const id = btn.getAttribute('data-toggle-actions');
-        const target = document.getElementById(id);
-        if (target) {
-          const container = btn.closest('td') || document;
-          container.querySelectorAll('.status-actions').forEach(function (el) {
-            if (el.id !== id) el.classList.add('d-none');
-          });
-          target.classList.toggle('d-none');
-        }
-      }
+      if (!btn) return;
+      const id = btn.getAttribute('data-toggle-actions');
+      const target = document.getElementById(id);
+      if (!target) return;
+      const cell = btn.closest('td') || document;
+      $$('.status-actions', cell).forEach(x => { if (x !== target) x.classList.add('d-none'); });
+      target.classList.toggle('d-none');
     });
 
-    // Centralized confirmation (avoids quote-escape issues)
-    document.addEventListener('click', function (e) {
+    // Centralized confirm
+    document.addEventListener('click', (e) => {
       const submitBtn = e.target.closest('button[type="submit"][data-confirm], .btn[data-confirm]');
       if (!submitBtn) return;
       const msg = submitBtn.getAttribute('data-confirm') || 'Are you sure?';
-      if (!window.confirm(msg)) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
+      if (!window.confirm(msg)) { e.preventDefault(); e.stopPropagation(); }
     });
+
+    // Select all / per-row selection
+    const checkAll = document.getElementById('checkAll');
+    if (checkAll){
+      checkAll.addEventListener('change', () => {
+        $$('.row-check').forEach(c => c.checked = checkAll.checked);
+      });
+    }
+
+    function getSelectedIds(){
+      return $$('.row-check').filter(c => c.checked).map(c => c.value);
+    }
+
+    // Open schedule modal for selected
+    const openSelBtn = document.getElementById('openScheduleSelected');
+    const scheduleModal = document.getElementById('scheduleModal');
+    const scheduleOrderIds = document.getElementById('scheduleOrderIds');
+    const selectedOrdersPreview = document.getElementById('selectedOrdersPreview');
+    const runAtLocal = document.getElementById('runAtLocal');
+    const runAtUtc = document.getElementById('runAtUtc');
+
+    if (openSelBtn){
+      openSelBtn.addEventListener('click', () => {
+        const ids = getSelectedIds();
+        scheduleOrderIds.value = ids.join(',');
+        selectedOrdersPreview.innerHTML = ids.length
+          ? `<span class="badge text-bg-dark">${ids.length}</span> selected`
+          : `<span class="text-danger">No orders selected yet — you can still add one from the table’s quick button.</span>`;
+      });
+    }
+
+    // Per-row quick schedule opens modal with a single id
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-quick-schedule]');
+      if (!b) return;
+      const id = b.getAttribute('data-quick-schedule');
+      const current = scheduleOrderIds.value ? scheduleOrderIds.value.split(',').filter(Boolean) : [];
+      if (!current.includes(id)) current.push(id);
+      scheduleOrderIds.value = current.join(',');
+      selectedOrdersPreview.innerHTML = `<span class="badge text-bg-dark">${current.length}</span> selected`;
+    });
+
+    // Convert datetime-local (assumed local) -> UTC string "YYYY-MM-DD HH:MM"
+    function pad2(n){ return String(n).padStart(2,'0'); }
+    runAtLocal?.addEventListener('change', () => {
+      if (!runAtLocal.value){ runAtUtc.value = ''; return; }
+      const dt = new Date(runAtLocal.value);
+      // Convert to UTC parts
+      const y = dt.getUTCFullYear(), m = pad2(dt.getUTCMonth()+1), d = pad2(dt.getUTCDate());
+      const hh = pad2(dt.getUTCHours()), mm = pad2(dt.getUTCMinutes());
+      runAtUtc.value = `${y}-${m}-${d} ${hh}:${mm}`;
+    });
+
+    // Jobs offcanvas loader
+    async function loadJobs(){
+      const list = document.getElementById('jobsList');
+      list.innerHTML = '<div class="text-center text-muted py-2"><i class="fa-solid fa-spinner fa-spin me-2"></i>Loading…</div>';
+      try{
+        const res = await fetch('{{ url_for("admin_orders.list_schedules") }}', {credentials:'same-origin'});
+        if (!res.ok) throw new Error('Network');
+        const data = await res.json();
+        if (!data.jobs || !data.jobs.length){
+          list.innerHTML = '<div class="text-center text-muted">No scheduled jobs.</div>';
+          return;
+        }
+        list.innerHTML = data.jobs.map(j => `
+          <div class="schedule-row">
+            <div>
+              <div><strong>ID:</strong> <code>${j.id}</code></div>
+              <div class="muted"><i class="fa-regular fa-clock me-1"></i>${j.next_run_time ?? '—'}</div>
+              <div class="muted"><small>${Array.isArray(j.args) ? (j.args[1] ? ('Status → <b>'+j.args[1]+'</b>') : '') : ''}</small></div>
+            </div>
+            <form method="POST" action="{{ url_for('admin_orders.cancel_schedule', job_id='__JOB__') }}".replace('__JOB__', '${j.id}')>
+              <button class="btn btn-sm btn-outline-danger" data-confirm="Cancel this schedule?">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </form>
+          </div>
+        `).join('');
+      }catch(e){
+        list.innerHTML = '<div class="text-danger">Failed to load schedules.</div>';
+      }
+    }
+
+    const jobsOffcanvas = document.getElementById('jobsOffcanvas');
+    jobsOffcanvas?.addEventListener('shown.bs.offcanvas', loadJobs);
+    document.getElementById('refreshJobs')?.addEventListener('click', loadJobs);
   </script>
 </body>
 </html>
