@@ -349,11 +349,21 @@ def customer_dashboard():
         .sort("created_at", -1)
         .limit(5)
     )
+# ---- split into categories (Express vs others) ----
+    def _is_express(svc):
+        cat = (svc.get("service_category") or "").strip().lower()
+        cat2 = (svc.get("category") or "").strip().lower()
+        return cat == "express services" or cat2 == "express"
+
+    express_services = [s for s in services if _is_express(s)]
+    regular_services = [s for s in services if not _is_express(s)]
 
     return render_template(
-        "customer_dashboard.html",
-        services=services,
-        balance=balance,
-        recent_orders=recent_orders,
-        customer_name=customer_name,
-    )
+    "customer_dashboard.html",
+    services=regular_services,        # keep old variable working for existing section
+    express_services=express_services,# NEW
+    balance=balance,
+    recent_orders=recent_orders,
+    customer_name=customer_name,
+)
+
