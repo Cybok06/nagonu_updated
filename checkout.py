@@ -1,10 +1,10 @@
-# checkout.py — Toppily shared-bundle flow only (network_id + shared_bundle)
+# checkout.py — Toppily shared-bundle + Express (second API)  [NO SCHEDULER VERSION]
 from flask import Blueprint, request, jsonify, session
 from bson import ObjectId
-from datetime import datetime, timedelta
+from datetime import datetime
 import os, uuid, random, requests, certifi, traceback, json, hashlib, pathlib, shutil, ast
 
-from apscheduler.schedulers.background import BackgroundScheduler  # NEW
+# NOTE: Removed: from apscheduler.schedulers.background import BackgroundScheduler
 
 from db import db
 
@@ -17,11 +17,18 @@ transactions_col = db["transactions"]
 services_col = db["services"]
 service_profits_col = db["service_profits"]  # per-customer overrides
 
-# ===== Toppily config (HARD-CODED) =====
+# ===== Provider Configs =======================================================
+# --- Toppily (existing) ---
 TOPPILY_URL = "https://toppily.com/api/v1/buy-other-package"
 TOPPILY_API_KEY = "0e7434520859996d4b758c7c77e22013690fc9ae"  # keep secret
 
-# TLS + CF toggles
+# --- Express (second API) ---
+EXPRESS_URL_SINGLE = "https://reseller.dakazinabusinessconsult.com/api/v1/buy-data-package"
+EXPRESS_URL_BULK   = "https://reseller.dakazinabusinessconsult.com/api/v1/buy-bulk-data-packages"
+# Prefer environment var; you can hard-code if you want.
+EXPRESS_API_KEY    = "dk_wC8jFCnsbwJJmWcMwNlxXQWNojxX43Gy"
+
+# TLS + CF toggles (used for both providers)
 USE_CUSTOM_CA_BUNDLE = True
 USE_CLOUDSCRAPER_FALLBACK = True
 PRIMARY_VERIFY_SSL = True
@@ -124,7 +131,8 @@ def _resp_debug(resp: requests.Response, body_text: str):
         "body_snippet": (body_text or "")[:140].replace("\n"," "),
     }
 
-def _post_requests(body, verify):
+# ===== Toppily HTTP =====
+def _post_requests_toppily(body, verify):
     headers = {
         "x-api-key": TOPPILY_API_KEY,
         "Accept": "application/json",
@@ -140,7 +148,7 @@ def _post_requests(body, verify):
     ok = resp.ok and bool(data.get("success", False))
     return ok, data, resp, text
 
-def _post_cloudscraper(body):
+def _post_cloudscraper_toppily(body):
     try:
         import cloudscraper
     except Exception as e:
@@ -216,8 +224,9 @@ def _derive_base_profit(amount_total, base_amount_hint, eff_percent):
         base = a
     return base, profit
 
-# ===== Resolve fields for shared-bundle =====
+# ===== Field resolvers ========================================================
 def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
+    """General network_id resolver for both providers."""
     nid = (item or {}).get("network_id") or (value_obj or {}).get("network_id")
     if nid not in (None, "", []):
         try:
@@ -239,7 +248,8 @@ def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
             return int(NETWORK_ID_FALLBACK[name])
     return None
 
-def _resolve_shared_bundle(item: dict, value_obj: dict):
+def _resolve_shared_bundle_toppily(item: dict, value_obj: dict):
+    """For Toppily: use MB (volume)."""
     vol = (value_obj or {}).get("volume")
     if vol not in (None, "", []):
         try:
@@ -254,7 +264,24 @@ def _resolve_shared_bundle(item: dict, value_obj: dict):
             pass
     return None
 
-# ===== Call Toppily with shared-bundle body =====
+def _resolve_shared_bundle_express(item: dict, value_obj: dict):
+    """For Express: MUST use package ID (offer `id`)."""
+    vid = (value_obj or {}).get("id")
+    if vid not in (None, "", []):
+        try:
+            return int(vid)
+        except Exception:
+            pass
+    sb = (item or {}).get("shared_bundle")
+    if sb not in (None, "", []):
+        try:
+            return int(sb)
+        except Exception:
+            pass
+    return None
+
+# ===== Provider callers =======================================================
+# --- Toppily (existing) ---
 def _send_toppily_shared_bundle(phone: str, network_id: int, shared_bundle: int, trx_ref: str,
                                 order_id: str, debug_events: list):
     if not TOPPILY_API_KEY.strip():
@@ -269,7 +296,7 @@ def _send_toppily_shared_bundle(phone: str, network_id: int, shared_bundle: int,
 
     try:
         verify_val = (_CA_BUNDLE if PRIMARY_VERIFY_SSL else False)
-        ok, data, resp, text = _post_requests(body, verify_val)
+        ok, data, resp, text = _post_requests_toppily(body, verify_val)
         dbg = _resp_debug(resp, text)
         blocked = _is_cloudflare_block(text, resp.headers, resp.status_code)
         payload = {**data, "http_status": resp.status_code}
@@ -282,7 +309,7 @@ def _send_toppily_shared_bundle(phone: str, network_id: int, shared_bundle: int,
                              "ok":ok,"blocked_by_cloudflare":blocked,"debug":dbg})
 
         if blocked and USE_CLOUDSCRAPER_FALLBACK:
-            ok2, data2, resp2, text2 = _post_cloudscraper(body)
+            ok2, data2, resp2, text2 = _post_cloudscraper_toppily(body)
             if resp2 is not None:
                 dbg2 = _resp_debug(resp2, text2)
                 blocked2 = _is_cloudflare_block(text2, resp2.headers, resp2.status_code)
@@ -301,7 +328,7 @@ def _send_toppily_shared_bundle(phone: str, network_id: int, shared_bundle: int,
     except requests.exceptions.SSLError as e:
         jlog("toppily_ssl_error", order_id=order_id, trx_ref=trx_ref, error=str(e))
         try:
-            ok, data, resp, text = _post_requests(body, False)
+            ok, data, resp, text = _post_requests_toppily(body, False)
             dbg = _resp_debug(resp, text)
             blocked = _is_cloudflare_block(text, resp.headers, resp.status_code)
             payload = {**data, "http_status": resp.status_code, "note":"insecure verify=False (diagnostic)"}
@@ -314,7 +341,7 @@ def _send_toppily_shared_bundle(phone: str, network_id: int, shared_bundle: int,
                                  "ok":ok,"blocked_by_cloudflare":blocked,"debug":dbg})
 
             if blocked and USE_CLOUDSCRAPER_FALLBACK:
-                ok2, data2, resp2, text2 = _post_cloudscraper(body)
+                ok2, data2, resp2, text2 = _post_cloudscraper_toppily(body)
                 if resp2 is not None:
                     dbg2 = _resp_debug(resp2, text2)
                     blocked2 = _is_cloudflare_block(text2, resp2.headers, resp2.status_code)
@@ -336,42 +363,94 @@ def _send_toppily_shared_bundle(phone: str, network_id: int, shared_bundle: int,
         jlog("toppily_network_error", order_id=order_id, trx_ref=trx_ref, error=str(e))
         return False, {"success": False, "error": str(e), "http_status": 599}
 
-# ===== Auto-deliver (processing → delivered after 30 minutes) =====
-_scheduler: BackgroundScheduler | None = None
+# --- Express (second API) ---
+def _send_express_single(phone: str, network_id: int, shared_bundle_id: int,
+                         incoming_ref: str, order_id: str, debug_events: list):
+    """
+    Express API: POST /buy-data-package
+    Body: { recipient_msisdn, network_id, shared_bundle, incoming_api_ref }
+    """
+    if not EXPRESS_API_KEY:
+        err = {"success": False, "error": "EXPRESS_API_KEY not set", "http_status": 500}
+        jlog("express_config_error", order_id=order_id, ref=incoming_ref)
+        return False, err
 
-def _autodeliver_due_orders():
-    """Flip processing → delivered when 30+ mins old."""
-    cutoff = datetime.utcnow() - timedelta(minutes=30)
-    now = datetime.utcnow()
-    res = orders_col.update_many(
-        {"status": "processing", "created_at": {"$lte": cutoff}},
-        {"$set": {"status": "delivered", "delivered_at": now, "updated_at": now}}
-    )
-    if getattr(res, "modified_count", 0):
-        jlog("autodeliver_run", modified=res.modified_count)
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": EXPRESS_API_KEY,
+        "User-Agent": "NanDataApp/1.0 (+server)",
+    }
+    masked = phone[:3] + "***" + phone[-2:] if phone else ""
+    body = {
+        "recipient_msisdn": phone,
+        "network_id": int(network_id),
+        "shared_bundle": int(shared_bundle_id),   # NOTE: Express expects the OFFER ID
+        "incoming_api_ref": incoming_ref
+    }
+    jlog("express_request_body", order_id=order_id, ref=incoming_ref,
+         body={"recipient_msisdn": masked, "network_id": body["network_id"], "shared_bundle": body["shared_bundle"]})
 
-def _ensure_scheduler_started():
-    global _scheduler
-    if _scheduler and _scheduler.running:
-        return
     try:
-        _scheduler = BackgroundScheduler(daemon=True)
-        _scheduler.add_job(_autodeliver_due_orders, "interval", minutes=1, id="autodeliver", replace_existing=True)
-        _scheduler.start()
-        jlog("scheduler_started", job="autodeliver_every_minute")
-    except Exception as e:
-        jlog("scheduler_error", error=str(e))
+        verify_val = (_CA_BUNDLE if PRIMARY_VERIFY_SSL else False)
+        resp = requests.post(EXPRESS_URL_SINGLE, headers=headers, json=body, timeout=45, verify=verify_val)
+        text = resp.text or ""
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = {"raw": text} if text else {}
+        dbg = _resp_debug(resp, text)
+        ok = resp.ok  # Express may not return JSON body; rely on HTTP status
+        jlog("express_call", order_id=order_id, ref=incoming_ref, verify=bool(verify_val), ok=ok,
+             status=resp.status_code, debug=dbg)
+        debug_events.append({"when": datetime.utcnow(), "stage":"express-single","verify":bool(verify_val),
+                             "ok":ok,"debug":dbg})
+        payload.setdefault("http_status", resp.status_code)
+        return ok, payload
+    except requests.RequestException as e:
+        jlog("express_network_error", order_id=order_id, ref=incoming_ref, error=str(e))
+        return False, {"success": False, "error": str(e), "http_status": 599}
 
-# Start the scheduler on import (safe; no-op if already running)
-_ensure_scheduler_started()
+# (Optional) bulk helper ready if you want to batch later.
+def _send_express_bulk(orders: list, incoming_ref: str, order_id: str, debug_events: list):
+    """
+    orders: [{ recipient_msisdn, network_id, shared_bundle, incoming_api_ref }, ...]
+    """
+    if not EXPRESS_API_KEY:
+        err = {"success": False, "error": "EXPRESS_API_KEY not set", "http_status": 500}
+        jlog("express_config_error", order_id=order_id, ref=incoming_ref)
+        return False, err
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": EXPRESS_API_KEY,
+        "User-Agent": "NanDataApp/1.0 (+server)",
+    }
+    body = {"orders": orders}
+    jlog("express_bulk_request_body", order_id=order_id, ref=incoming_ref, count=len(orders))
 
-# ===== Route =====
+    try:
+        verify_val = (_CA_BUNDLE if PRIMARY_VERIFY_SSL else False)
+        resp = requests.post(EXPRESS_URL_BULK, headers=headers, json=body, timeout=60, verify=verify_val)
+        text = resp.text or ""
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = {"raw": text} if text else {}
+        dbg = _resp_debug(resp, text)
+        ok = resp.ok
+        jlog("express_bulk_call", order_id=order_id, ref=incoming_ref, verify=bool(verify_val), ok=ok,
+             status=resp.status_code, debug=dbg)
+        debug_events.append({"when": datetime.utcnow(), "stage":"express-bulk","verify":bool(verify_val),
+                             "ok":ok,"debug":dbg})
+        payload.setdefault("http_status", resp.status_code)
+        return ok, payload
+    except requests.RequestException as e:
+        jlog("express_network_error", order_id=order_id, ref=incoming_ref, error=str(e))
+        return False, {"success": False, "error": str(e), "http_status": 599}
+
+# ===== Route (NO background auto-update) =====================================
 @checkout_bp.route("/checkout", methods=["POST"])
 def process_checkout():
     try:
-        # Opportunistic sweep to catch up (in case scheduler paused/restarted)
-        _autodeliver_due_orders()
-
         # Auth
         if "user_id" not in session or session.get("role") != "customer":
             jlog("checkout_auth_fail", session_keys=list(session.keys()))
@@ -423,18 +502,23 @@ def process_checkout():
             svc_doc = None
             svc_type = None
             svc_name = item.get("serviceName") or None
+            service_category = None
 
-            # Resolve service and its type (+ offers for base recovery)
+            # Resolve service and its type/category (+ offers for base recovery)
             if service_id_raw:
                 try:
                     svc_doc = services_col.find_one(
                         {"_id": ObjectId(service_id_raw)},
-                        {"type": 1, "network_id": 1, "name": 1, "network": 1, "offers": 1, "default_profit_percent": 1}
+                        {
+                            "type": 1, "network_id": 1, "name": 1, "network": 1,
+                            "offers": 1, "default_profit_percent": 1, "service_category": 1
+                        }
                     )
                     if svc_doc:
                         st = svc_doc.get("type")
                         svc_type = (st.strip().upper() if isinstance(st, str) else st)
                         svc_name = svc_doc.get("name") or svc_doc.get("network") or svc_name
+                        service_category = (svc_doc.get("service_category") or "").strip().lower()
                 except Exception:
                     svc_doc = None
                     svc_type = None
@@ -473,9 +557,15 @@ def process_checkout():
             # ---------- API path ----------
             api_requested_total += amt_total
 
+            # Decide provider
+            is_express = (service_category == "express services")
+
             # Validate fields for API call
             network_id = _resolve_network_id(item, value_obj, svc_doc)
-            shared_bundle = _resolve_shared_bundle(item, value_obj)
+            if is_express:
+                shared_bundle = _resolve_shared_bundle_express(item, value_obj)   # USE OFFER ID
+            else:
+                shared_bundle = _resolve_shared_bundle_toppily(item, value_obj)   # USE VOLUME (MB)
 
             if not phone or network_id is None or shared_bundle is None:
                 # Missing API fields → treat as processing and CHARGE
@@ -502,7 +592,13 @@ def process_checkout():
                 continue
 
             trx_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
-            ok, payload = _send_toppily_shared_bundle(phone, network_id, shared_bundle, trx_ref, order_id, debug_events)
+
+            if is_express:
+                ok, payload = _send_express_single(phone, network_id, shared_bundle, trx_ref, order_id, debug_events)
+                api_tag = "express"
+            else:
+                ok, payload = _send_toppily_shared_bundle(phone, network_id, shared_bundle, trx_ref, order_id, debug_events)
+                api_tag = "toppily"
 
             if ok:
                 # Delivered immediately
@@ -517,6 +613,7 @@ def process_checkout():
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
                     "service_type": svc_type,
+                    "provider": api_tag,
                     "trx_ref": trx_ref,
                     "line_status": "delivered",
                     "api_status": "success",
@@ -538,6 +635,7 @@ def process_checkout():
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
                     "service_type": svc_type,
+                    "provider": api_tag,
                     "trx_ref": trx_ref,
                     "line_status": "processing",          # never 'failed'
                     "api_status": "processing",
@@ -597,7 +695,7 @@ def process_checkout():
             })
 
             friendly_msg = (
-                f"✅ We’ve received your order. It’s now processing and will be delivered within 30 minutes. "
+                f"✅ We’ve received your order. It’s now processing and will be delivered soon. "
                 f"Order ID: {order_id}"
             )
 
