@@ -113,74 +113,142 @@
     <h2 class="text-center mb-4">Make an Order</h2>
 
     <!-- Services -->
-    <div class="mb-4">
-      <label class="form-label fw-semibold">Service</label>
-<div class="row g-3">
-  {% for svc in services %}
-  {% set status = (svc.status or 'OPEN')|upper %}
-  {% set availability = (svc.availability or 'AVAILABLE')|upper %}
-  {% set is_closed = status != 'OPEN' %}
-  {% set is_oos    = availability != 'AVAILABLE' %}
-  {% set can_order = (not is_closed) and (not is_oos) %}
+    <!-- Express Services (uses the exact same card markup for CSS/JS parity) -->
+{% if express_services is defined and express_services|length > 0 %}
+<div class="mb-4" id="express-services">
+  <label class="form-label fw-semibold">Express Services</label>
+  <div class="row g-3">
+    {% for svc in express_services %}
+    {% set status = (svc.status or 'OPEN')|upper %}
+    {% set availability = (svc.availability or 'AVAILABLE')|upper %}
+    {% set is_closed = status != 'OPEN' %}
+    {% set is_oos    = availability != 'AVAILABLE' %}
+    {% set can_order = (not is_closed) and (not is_oos) %}
 
-  <div class="col-12 col-sm-6">
-    <div class="svc-card h-100 shadow-sm p-2 rounded bg-white">
-      {% if svc.image_url %}
-        <img src="{{ svc.image_url }}" class="svc-img mb-2 w-100" alt="{{ svc.name }}" style="border-radius: 8px; object-fit: cover; max-height: 160px;">
-      {% endif %}
+    <div class="col-12 col-sm-6">
+      <div class="svc-card h-100 shadow-sm p-2 rounded bg-white">
+        {% if svc.image_url %}
+          <img src="{{ svc.image_url }}" class="svc-img mb-2 w-100" alt="{{ svc.name }}" style="border-radius: 8px; object-fit: cover; max-height: 160px;">
+        {% endif %}
 
-      <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
-        <div class="fw-semibold text-truncate">{{ svc.name }}</div>
-        <div class="d-flex flex-wrap svc-flags">
-          <span class="svc-flag {{ 'flag-open' if not is_closed else 'flag-closed' }}">{{ 'Open' if not is_closed else 'Closed' }}</span>
-          <span class="svc-flag {{ 'flag-available' if not is_oos else 'flag-oos' }}">{{ 'Available' if not is_oos else 'Out of Stock' }}</span>
+        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+          <div class="fw-semibold text-truncate">{{ svc.name }}</div>
+          <div class="d-flex flex-wrap svc-flags">
+            <span class="svc-flag {{ 'flag-open' if not is_closed else 'flag-closed' }}">{{ 'Open' if not is_closed else 'Closed' }}</span>
+            <span class="svc-flag {{ 'flag-available' if not is_oos else 'flag-oos' }}">{{ 'Available' if not is_oos else 'Out of Stock' }}</span>
+          </div>
         </div>
-      </div>
 
-      {# Show message ONLY when relevant #}
-      {% if is_closed and is_oos %}
-        <div class="small text-danger mb-2">
-          <i class="bi bi-exclamation-triangle me-1"></i>
-          {{ svc.disabled_reason or 'This service is currently unavailable.' }}
-        </div>
-      {% elif is_closed %}
-        <div class="small text-danger mb-2">
-          <i class="bi bi-exclamation-triangle me-1"></i>
-          This service is temporarily closed.
-        </div>
-      {% elif is_oos %}
-        <div class="small text-danger mb-2">
-          <i class="bi bi-exclamation-triangle me-1"></i>
-          This service is currently out of stock.
-        </div>
-      {% endif %}
+        {% if is_closed and is_oos %}
+          <div class="small text-danger mb-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            {{ svc.disabled_reason or 'This service is currently unavailable.' }}
+          </div>
+        {% elif is_closed %}
+          <div class="small text-danger mb-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            This service is temporarily closed.
+          </div>
+        {% elif is_oos %}
+          <div class="small text-danger mb-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            This service is currently out of stock.
+          </div>
+        {% endif %}
 
-      <div class="d-flex justify-content-between align-items-center gap-2">
-        <div class="text-muted small">
-          Default Profit: {{ (svc.effective_profit_percent or 0) | round(2) }}%
+        <div class="d-flex justify-content-between align-items-center gap-2">
+          <div class="text-muted small">
+            Default Profit: {{ (svc.effective_profit_percent or 0) | round(2) }}%
+          </div>
+          <button
+            class="btn btn-sm {{ 'btn-outline-primary' if can_order else 'btn-outline-secondary' }} select-service-btn"
+            {% if not can_order %}disabled data-disabled="true"{% endif %}
+            data-service='{{ {
+                "_id_str": svc._id_str,
+                "name": svc.name,
+                "effective_profit_percent": svc.effective_profit_percent | default(0),
+                "offers": svc.offers or []
+              } | tojson }}'>
+            Buy
+          </button>
         </div>
-        <button
-          class="btn btn-sm {{ 'btn-outline-primary' if can_order else 'btn-outline-secondary' }} select-service-btn"
-          {% if not can_order %}disabled data-disabled="true"{% endif %}
-          data-service='{{ {
-              "_id_str": svc._id_str,
-              "name": svc.name,
-              "effective_profit_percent": svc.effective_profit_percent | default(0),
-              "offers": svc.offers or []
-            } | tojson }}'>
-          Buy
-        </button>
       </div>
     </div>
+    {% endfor %}
   </div>
-  {% endfor %}
-
-  {% if services|length == 0 %}
-    <div class="col-12 text-muted">No services available yet.</div>
-  {% endif %}
 </div>
+<hr class="my-4">
+{% endif %}
+
+<!-- Regular Services (unchanged classes/behavior) -->
+<div class="mb-4">
+  <label class="form-label fw-semibold">Service</label>
+  <div class="row g-3">
+    {% for svc in services %}
+    {% set status = (svc.status or 'OPEN')|upper %}
+    {% set availability = (svc.availability or 'AVAILABLE')|upper %}
+    {% set is_closed = status != 'OPEN' %}
+    {% set is_oos    = availability != 'AVAILABLE' %}
+    {% set can_order = (not is_closed) and (not is_oos) %}
+
+    <div class="col-12 col-sm-6">
+      <div class="svc-card h-100 shadow-sm p-2 rounded bg-white">
+        {% if svc.image_url %}
+          <img src="{{ svc.image_url }}" class="svc-img mb-2 w-100" alt="{{ svc.name }}" style="border-radius: 8px; object-fit: cover; max-height: 160px;">
+        {% endif %}
+
+        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+          <div class="fw-semibold text-truncate">{{ svc.name }}</div>
+          <div class="d-flex flex-wrap svc-flags">
+            <span class="svc-flag {{ 'flag-open' if not is_closed else 'flag-closed' }}">{{ 'Open' if not is_closed else 'Closed' }}</span>
+            <span class="svc-flag {{ 'flag-available' if not is_oos else 'flag-oos' }}">{{ 'Available' if not is_oos else 'Out of Stock' }}</span>
+          </div>
+        </div>
+
+        {% if is_closed and is_oos %}
+          <div class="small text-danger mb-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            {{ svc.disabled_reason or 'This service is currently unavailable.' }}
+          </div>
+        {% elif is_closed %}
+          <div class="small text-danger mb-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            This service is temporarily closed.
+          </div>
+        {% elif is_oos %}
+          <div class="small text-danger mb-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            This service is currently out of stock.
+          </div>
+        {% endif %}
+
+        <div class="d-flex justify-content-between align-items-center gap-2">
+          <div class="text-muted small">
+            Default Profit: {{ (svc.effective_profit_percent or 0) | round(2) }}%
+          </div>
+          <button
+            class="btn btn-sm {{ 'btn-outline-primary' if can_order else 'btn-outline-secondary' }} select-service-btn"
+            {% if not can_order %}disabled data-disabled="true"{% endif %}
+            data-service='{{ {
+                "_id_str": svc._id_str,
+                "name": svc.name,
+                "effective_profit_percent": svc.effective_profit_percent | default(0),
+                "offers": svc.offers or []
+              } | tojson }}'>
+            Buy
+          </button>
+        </div>
+      </div>
     </div>
-    <hr class="my-4">
+    {% endfor %}
+
+    {% if services|length == 0 %}
+      <div class="col-12 text-muted">No services available yet.</div>
+    {% endif %}
+  </div>
+</div>
+<hr class="my-4">
+
 
 <div class="row g-3" id="afa-registration-block">
   <div class="col-12 col-sm-8 col-md-6">
