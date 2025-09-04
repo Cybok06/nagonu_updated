@@ -2,7 +2,6 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash
 from db import db
 from werkzeug.security import generate_password_hash
 from datetime import datetime
-from bson.objectid import ObjectId
 from pymongo.errors import DuplicateKeyError
 import re
 
@@ -10,32 +9,20 @@ signup_bp = Blueprint("signup", __name__)
 users_col = db["users"]
 balances_col = db["balances"]
 
-# ---- ONE-TIME (safe to keep here; it no-ops if indexes already exist) ----
-# Make sure we can never store duplicates even under race conditions.
-users_col.create_index("username", unique=True, sparse=True)
-users_col.create_index("email", unique=True, sparse=True)
-users_col.create_index("phone_normalized", unique=True, sparse=True)
+# NOTE: No users_col.create_index(...) calls here to avoid deploy crashes.
 
 def normalize_phone(raw: str) -> str:
-    """
-    Normalize Ghana numbers to a consistent local '0XXXXXXXXX' form.
-    Accepts +233XXXXXXXXX, 233XXXXXXXXX, or 0XXXXXXXXX (with/without spaces/dashes).
-    Falls back to just digits if it can't infer.
-    """
+    """Normalize Ghana numbers to '0XXXXXXXXX' where possible."""
     digits = re.sub(r"\D", "", raw or "")
     if not digits:
         return ""
-    # If begins with '233', keep last 9 and prefix with '0'
     if digits.startswith("233") and len(digits) >= 12:
         return "0" + digits[-9:]
-    # If exactly 9 digits (missing leading 0), prefix it
     if len(digits) == 9:
         return "0" + digits
-    # If already 10 and starts with 0, keep as is
     if len(digits) == 10 and digits.startswith("0"):
         return digits
-    # Otherwise return digits as a fallback (still unique-indexed)
-    return digits
+    return digits  # fallback
 
 @signup_bp.route("/signup", methods=["GET", "POST"])
 def signup():
@@ -61,19 +48,19 @@ def signup():
 
         phone_normalized = normalize_phone(phone)
 
-        # Pre-insert uniqueness checks (nice UX; DB enforces too)
-        conflicts = []
+        # ---- Simple pre-insert duplicate checks ----
         if username and users_col.find_one({"username": username}):
-            conflicts.append("username")
-        if email and users_col.find_one({"email": email}):
-            conflicts.append("email")
-        if phone_normalized and users_col.find_one({"phone_normalized": phone_normalized}):
-            conflicts.append("phone number")
-
-        if conflicts:
-            nice = ", ".join(conflicts)
-            flash(f"❌ That {nice} is already registered.", "danger")
+            flash("❌ Username already exists.", "danger")
             return redirect(url_for("signup.signup", ref=referral_code))
+
+        if email and users_col.find_one({"email": email}):
+            flash("❌ Email already exists.", "danger")
+            return redirect(url_for("signup.signup", ref=referral_code))
+
+        if phone_normalized and users_col.find_one({"phone_normalized": phone_normalized}):
+            flash("❌ Phone number already exists.", "danger")
+            return redirect(url_for("signup.signup", ref=referral_code))
+        # -------------------------------------------
 
         now = datetime.utcnow()
         new_user = {
@@ -81,8 +68,8 @@ def signup():
             "last_name": last_name,
             "username": username,
             "email": email,
-            "phone": phone,  # keep raw for display if you like
-            "phone_normalized": phone_normalized,  # enforced unique
+            "phone": phone,                 # keep raw for display if needed
+            "phone_normalized": phone_normalized,
             "business_name": business_name,
             "whatsapp": whatsapp,
             "referral": referral,
@@ -106,15 +93,7 @@ def signup():
             })
 
         except DuplicateKeyError as e:
-            # Rollback partial user if needed
-            try:
-                if 'user_id' in locals():
-                    users_col.delete_one({"_id": user_id})
-            except Exception:
-                pass
-
-            # Try to show a precise message (Mongo includes key info)
-            msg = "❌ That credential is already registered."
+            # If your DB already has unique indexes, this catches races.
             try:
                 kv = (e.details or {}).get("keyValue") or {}
                 if "username" in kv:
@@ -123,18 +102,16 @@ def signup():
                     msg = "❌ Email already exists."
                 elif "phone_normalized" in kv:
                     msg = "❌ Phone number already exists."
+                else:
+                    msg = "❌ That credential is already registered."
             except Exception:
-                pass
-
+                msg = "❌ That credential is already registered."
+            # best-effort cleanup if user doc got created before error
+            users_col.delete_one({"username": username})
             flash(msg, "danger")
             return redirect(url_for("signup.signup", ref=referral_code))
 
         except Exception:
-            try:
-                if 'user_id' in locals():
-                    users_col.delete_one({"_id": user_id})
-            except Exception:
-                pass
             flash("❌ Could not complete signup. Please try again.", "danger")
             return redirect(url_for("signup.signup", ref=referral_code))
 
