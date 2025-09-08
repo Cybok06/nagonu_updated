@@ -177,6 +177,7 @@ def _effective_profit_percent(service_doc, customer_id_obj):
 
 def _pick_offer_base_amount_from_service(svc_doc, value_obj, raw_value):
     try:
+        offers = svc_doc.get("offers") or {}
         offers = svc_doc.get("offers") or []
         vid = (value_obj or {}).get("id")
         vvol = (value_obj or {}).get("volume")
@@ -386,8 +387,8 @@ def _send_express_single(phone: str, network_id: int, shared_bundle_id: int,
     }
 
     body = {
-        "recipient_msisdn": phone,                # use as provided
-        "network_id": int(network_id),            # e.g., 3 for MTN
+        "recipient_msisdn": phone,
+        "network_id": int(network_id),
         "shared_bundle": int(shared_bundle_id),   # MUST be the OFFER ID
         "incoming_api_ref": incoming_ref
     }
@@ -398,7 +399,6 @@ def _send_express_single(phone: str, network_id: int, shared_bundle_id: int,
 
     try:
         verify_val = (_CA_BUNDLE if PRIMARY_VERIFY_SSL else False)
-        # Use json= to match content-type & body exactly (cleaner than data=json.dumps)
         resp = requests.post(EXPRESS_URL_SINGLE, headers=headers, json=body, timeout=45, verify=verify_val)
         text = resp.text or ""
         try:
@@ -493,7 +493,7 @@ def process_checkout():
         debug_events = []
 
         # We will charge for: successful API lines + any line we keep "processing"
-        total_delivered_api_amount = 0.0
+        total_delivered_api_amount = 0.0   # stays 0 because we no longer mark anything delivered immediately
         total_processing_amount = 0.0
         api_requested_total = 0.0
         has_processing = False
@@ -608,27 +608,7 @@ def process_checkout():
                 api_tag = "toppily"
 
             if ok:
-                # Delivered immediately
-                results.append({
-                    "phone": phone,
-                    "base_amount": base_amount,
-                    "amount": amt_total,
-                    "profit_amount": profit_amount,
-                    "profit_percent_used": eff_p,
-                    "value": item.get("value"),
-                    "value_obj": value_obj,
-                    "serviceId": service_id_raw,
-                    "serviceName": svc_name,
-                    "service_type": svc_type,
-                    "provider": api_tag,
-                    "trx_ref": trx_ref,
-                    "line_status": "delivered",
-                    "api_status": "success",
-                    "api_response": payload
-                })
-                total_delivered_api_amount += amt_total
-            else:
-                # FORCE processing (no failure surfaced) and CHARGE
+                # === SUCCESSFUL provider response -> STILL mark as processing ===
                 has_processing = True
                 total_processing_amount += amt_total
                 results.append({
@@ -644,7 +624,29 @@ def process_checkout():
                     "service_type": svc_type,
                     "provider": api_tag,
                     "trx_ref": trx_ref,
-                    "line_status": "processing",          # never 'failed'
+                    "line_status": "processing",     # <— important: not 'delivered'
+                    "api_status": "success",
+                    "api_response": payload
+                })
+                # NOTE: do NOT increment total_delivered_api_amount
+            else:
+                # Provider error → keep processing and CHARGE
+                has_processing = True
+                total_processing_amount += amt_total
+                results.append({
+                    "phone": phone,
+                    "base_amount": base_amount,
+                    "amount": amt_total,
+                    "profit_amount": profit_amount,
+                    "profit_percent_used": eff_p,
+                    "value": item.get("value"),
+                    "value_obj": value_obj,
+                    "serviceId": service_id_raw,
+                    "serviceName": svc_name,
+                    "service_type": svc_type,
+                    "provider": api_tag,
+                    "trx_ref": trx_ref,
+                    "line_status": "processing",
                     "api_status": "processing",
                     "api_response": payload
                 })
@@ -653,36 +655,33 @@ def process_checkout():
         if len(debug_events) > 10:
             debug_events = debug_events[-10:]
 
-        # Total to charge now = delivered API + all processing lines (totals already include profit)
+        # Charge now for: ALL processing lines (which includes all successful provider hits)
         total_to_charge_now = round(total_delivered_api_amount + total_processing_amount, 2)
 
         # ==== If nothing counted yet → charge full cart and mark processing ====
         if total_to_charge_now <= 0:
             status = "processing"
 
-            # Deduct the full cart total (balance already verified >= total_requested)
             balances_col.update_one(
                 {"user_id": user_id},
                 {"$inc": {"amount": -total_requested}, "$set": {"updated_at": datetime.utcnow()}},
                 upsert=True
             )
 
-            # Persist order
             orders_col.insert_one({
                 "user_id": user_id,
                 "order_id": order_id,
                 "items": results,
                 "total_amount": total_requested,
-                "charged_amount": total_requested,      # charged entire cart
+                "charged_amount": total_requested,
                 "profit_amount_total": round(profit_amount_total, 2),
-                "status": status,                       # "processing"
+                "status": status,                       # processing
                 "paid_from": method,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow(),
                 "debug": {"events": debug_events}
             })
 
-            # Record transaction for full cart amount
             transactions_col.insert_one({
                 "user_id": user_id,
                 "amount": total_requested,
@@ -717,15 +716,15 @@ def process_checkout():
             }), 200
         # ==== END extreme case ====
 
-        # Deduct now for: (delivered API + ALL processing)
+        # Deduct balance for the amount we are charging now
         balances_col.update_one(
             {"user_id": user_id},
             {"$inc": {"amount": -total_to_charge_now}, "$set": {"updated_at": datetime.utcnow()}},
             upsert=True
         )
 
-        # Determine overall status (no 'failed'/'partial' exposed)
-        status = "delivered" if (not has_processing and total_delivered_api_amount >= api_requested_total) else "processing"
+        # Overall order status: ALWAYS processing (even if all provider calls succeeded)
+        status = "processing"
 
         # Persist order
         orders_col.insert_one({
@@ -735,7 +734,7 @@ def process_checkout():
             "total_amount": total_requested,                # cart grand total (UI computed)
             "charged_amount": total_to_charge_now,          # charged now
             "profit_amount_total": round(profit_amount_total, 2),
-            "status": status,                               # delivered | processing
+            "status": status,                               # processing
             "paid_from": method,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
@@ -755,18 +754,15 @@ def process_checkout():
             "verified_at": datetime.utcnow(),
             "meta": {
                 "order_status": status,
-                "api_delivered_amount": round(total_delivered_api_amount, 2),
+                "api_delivered_amount": round(total_delivered_api_amount, 2),  # likely 0.0
                 "processing_amount": round(total_processing_amount, 2),
                 "profit_amount_total": round(profit_amount_total, 2)
             }
         })
 
-        # Response message (always success to frontend)
-        if status == "delivered":
-            msg = "✅ Order delivered. Order ID: {oid}".format(oid=order_id)
-        else:
-            msg = ("📝 Order received and is processing. "
-                   "We’ve charged your wallet. Order ID: {oid}").format(oid=order_id)
+        # Response message (always processing to frontend)
+        msg = ("📝 Order received and is processing. "
+               "We’ve charged your wallet. Order ID: {oid}").format(oid=order_id)
 
         return jsonify({
             "success": True,
