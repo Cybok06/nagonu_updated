@@ -20,13 +20,12 @@ service_profits_col = db["service_profits"]  # per-customer overrides
 # ===== Provider Configs =======================================================
 # --- Toppily (existing) ---
 TOPPILY_URL = "https://toppily.com/api/v1/buy-other-package"
-TOPPILY_API_KEY = "0e7434520859996d4b758c7c77e22013690fc9ae"  # keep secret
+TOPPILY_API_KEY = os.getenv("TOPPILY_API_KEY", "0e7434520859996d4b758c7c77e22013690fc9ae")  # keep secret
 
 # --- Express (second API) ---
 EXPRESS_URL_SINGLE = "https://reseller.dakazinabusinessconsult.com/api/v1/buy-data-package"
 EXPRESS_URL_BULK   = "https://reseller.dakazinabusinessconsult.com/api/v1/buy-bulk-data-packages"
-# Prefer environment var; you can hard-code if you want.
-EXPRESS_API_KEY    = "dk_wC8jFCnsbwJJmWcMwNlxXQWNojxX43Gy"
+EXPRESS_API_KEY    = os.getenv("EXPRESS_API_KEY", "dk_wC8jFCnsbwJJmWcMwNlxXQWNojxX43Gy")
 
 # TLS + CF toggles (used for both providers)
 USE_CUSTOM_CA_BUNDLE = True
@@ -363,12 +362,17 @@ def _send_toppily_shared_bundle(phone: str, network_id: int, shared_bundle: int,
         jlog("toppily_network_error", order_id=order_id, trx_ref=trx_ref, error=str(e))
         return False, {"success": False, "error": str(e), "http_status": 599}
 
-# --- Express (second API) ---
+# --- Express (second API) — follow provider doc strictly ---
 def _send_express_single(phone: str, network_id: int, shared_bundle_id: int,
                          incoming_ref: str, order_id: str, debug_events: list):
     """
     Express API: POST /buy-data-package
-    Body: { recipient_msisdn, network_id, shared_bundle, incoming_api_ref }
+    Body: {
+      "recipient_msisdn": "<MSISDN>",
+      "network_id": <int>,
+      "shared_bundle": <offer_id>,
+      "incoming_api_ref": "<unique>"
+    }
     """
     if not EXPRESS_API_KEY:
         err = {"success": False, "error": "EXPRESS_API_KEY not set", "http_status": 500}
@@ -380,18 +384,21 @@ def _send_express_single(phone: str, network_id: int, shared_bundle_id: int,
         "x-api-key": EXPRESS_API_KEY,
         "User-Agent": "NanDataApp/1.0 (+server)",
     }
-    masked = phone[:3] + "***" + phone[-2:] if phone else ""
+
     body = {
-        "recipient_msisdn": phone,
-        "network_id": int(network_id),
-        "shared_bundle": int(shared_bundle_id),   # NOTE: Express expects the OFFER ID
+        "recipient_msisdn": phone,                # use as provided
+        "network_id": int(network_id),            # e.g., 3 for MTN
+        "shared_bundle": int(shared_bundle_id),   # MUST be the OFFER ID
         "incoming_api_ref": incoming_ref
     }
+
+    masked = phone[:3] + "***" + phone[-2:] if phone else ""
     jlog("express_request_body", order_id=order_id, ref=incoming_ref,
          body={"recipient_msisdn": masked, "network_id": body["network_id"], "shared_bundle": body["shared_bundle"]})
 
     try:
         verify_val = (_CA_BUNDLE if PRIMARY_VERIFY_SSL else False)
+        # Use json= to match content-type & body exactly (cleaner than data=json.dumps)
         resp = requests.post(EXPRESS_URL_SINGLE, headers=headers, json=body, timeout=45, verify=verify_val)
         text = resp.text or ""
         try:
@@ -399,7 +406,7 @@ def _send_express_single(phone: str, network_id: int, shared_bundle_id: int,
         except Exception:
             payload = {"raw": text} if text else {}
         dbg = _resp_debug(resp, text)
-        ok = resp.ok  # Express may not return JSON body; rely on HTTP status
+        ok = resp.ok  # provider may omit success flag; rely on HTTP status
         jlog("express_call", order_id=order_id, ref=incoming_ref, verify=bool(verify_val), ok=ok,
              status=resp.status_code, debug=dbg)
         debug_events.append({"when": datetime.utcnow(), "stage":"express-single","verify":bool(verify_val),
@@ -410,7 +417,7 @@ def _send_express_single(phone: str, network_id: int, shared_bundle_id: int,
         jlog("express_network_error", order_id=order_id, ref=incoming_ref, error=str(e))
         return False, {"success": False, "error": str(e), "http_status": 599}
 
-# (Optional) bulk helper ready if you want to batch later.
+# (Optional) bulk helper (kept for future batching)
 def _send_express_bulk(orders: list, incoming_ref: str, order_id: str, debug_events: list):
     """
     orders: [{ recipient_msisdn, network_id, shared_bundle, incoming_api_ref }, ...]
