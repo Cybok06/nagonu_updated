@@ -110,144 +110,241 @@
 
   <!-- Make an Order -->
   <div class="container py-4" id="services">
-    <h2 class="text-center mb-4">Make an Order</h2>
+  <h2 class="text-center mb-4">Make an Order</h2>
 
-    <!-- Services -->
-    <!-- Express Services (uses the exact same card markup for CSS/JS parity) -->
-{% if express_services is defined and express_services|length > 0 %}
-<div class="mb-4" id="express-services">
-  <label class="form-label fw-semibold"><u>MTN NORMAL</u></label>
-  <div class="row g-3">
-    {% for svc in express_services %}
-    {% set status = (svc.status or 'OPEN')|upper %}
-    {% set availability = (svc.availability or 'AVAILABLE')|upper %}
-    {% set is_closed = status != 'OPEN' %}
-    {% set is_oos    = availability != 'AVAILABLE' %}
-    {% set can_order = (not is_closed) and (not is_oos) %}
+  {% set has_normal  = services is defined and (services|length) > 0 %}
+  {% set has_express = express_services is defined and (express_services|length) > 0 %}
+  {% set first_normal  = has_normal  and services[0] or None %}
+  {% set first_express = has_express and express_services[0] or None %}
 
-    <div class="col-12 col-sm-6">
-      <div class="svc-card h-100 shadow-sm p-2 rounded bg-white">
-        {% if svc.image_url %}
-          <img src="{{ svc.image_url }}" class="svc-img mb-2 w-100" alt="{{ svc.name }}" style="border-radius: 8px; object-fit: cover; max-height: 160px;">
-        {% endif %}
+  <!-- TOP: First Normal & First Express side-by-side -->
+  <div class="row g-4">
+    <!-- First MTN NORMAL -->
+    <div class="col-12 col-lg-6">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <span class="badge bg-dark">MTN</span>
+        <span class="badge bg-secondary">Normal</span>
+      </div>
 
-        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
-          <div class="fw-semibold text-truncate">{{ svc.name }}</div>
-          <div class="d-flex flex-wrap svc-flags">
-            <span class="svc-flag {{ 'flag-open' if not is_closed else 'flag-closed' }}">{{ 'Open' if not is_closed else 'Closed' }}</span>
-            <span class="svc-flag {{ 'flag-available' if not is_oos else 'flag-oos' }}">{{ 'Available' if not is_oos else 'Out of Stock' }}</span>
-          </div>
-        </div>
+      {% if first_normal %}
+        {% set svc = first_normal %}
+        {% set status = (svc.status or 'OPEN')|upper %}
+        {% set availability = (svc.availability or 'AVAILABLE')|upper %}
+        {% set is_closed = status != 'OPEN' %}
+        {% set is_oos    = availability != 'AVAILABLE' %}
+        {% set can_order = (not is_closed) and (not is_oos) %}
 
-        {% if is_closed and is_oos %}
-          <div class="small text-danger mb-2">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            {{ svc.disabled_reason or 'This service is currently unavailable.' }}
-          </div>
-        {% elif is_closed %}
-          <div class="small text-danger mb-2">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            This service is temporarily closed.
-          </div>
-        {% elif is_oos %}
-          <div class="small text-danger mb-2">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            This service is currently out of stock.
-          </div>
-        {% endif %}
+        <div class="svc-card h-100 shadow-sm p-2 rounded bg-white">
+          {% if svc.image_url %}
+            <img src="{{ svc.image_url }}" class="svc-img mb-2 w-100" alt="{{ svc.name }}" style="border-radius:8px;object-fit:cover;max-height:160px;">
+          {% endif %}
 
-        <div class="d-flex justify-content-between align-items-center gap-2">
-          <div class="text-muted small">
-            Default Profit: {{ (svc.effective_profit_percent or 0) | round(2) }}%
+          <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+            <div class="fw-semibold text-truncate">
+              {{ svc.name }} <span class="badge bg-secondary ms-1"></span>
+            </div>
+            <div class="d-flex flex-wrap svc-flags">
+              <span class="svc-flag {{ 'flag-open' if not is_closed else 'flag-closed' }}">{{ 'Open' if not is_closed else 'Closed' }}</span>
+              <span class="svc-flag {{ 'flag-available' if not is_oos else 'flag-oos' }}">{{ 'Available' if not is_oos else 'Out of Stock' }}</span>
+            </div>
           </div>
-          <button
-            class="btn btn-sm {{ 'btn-outline-primary' if can_order else 'btn-outline-secondary' }} select-service-btn"
-            {% if not can_order %}disabled data-disabled="true"{% endif %}
-            data-service='{{ {
+
+          {% if is_closed and is_oos %}
+            <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>{{ svc.disabled_reason or 'This service is currently unavailable.' }}</div>
+          {% elif is_closed %}
+            <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>This service is temporarily closed.</div>
+          {% elif is_oos %}
+            <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>This service is currently out of stock.</div>
+          {% endif %}
+
+          <div class="d-flex justify-content-end">
+            <button
+              class="btn btn-sm {{ 'btn-outline-primary' if can_order else 'btn-outline-secondary' }} select-service-btn"
+              {% if not can_order %}disabled data-disabled="true"{% endif %}
+              data-service='{{ {
                 "_id_str": svc._id_str,
                 "name": svc.name,
-                "effective_profit_percent": svc.effective_profit_percent | default(0),
+                "display_name": (svc.name ~ " Normal"),
                 "offers": svc.offers or []
               } | tojson }}'>
-            Buy
-          </button>
+              Buy
+            </button>
+          </div>
         </div>
-      </div>
+      {% else %}
+        <div class="text-muted">No MTN Normal services available.</div>
+      {% endif %}
     </div>
-    {% endfor %}
-  </div>
-</div>
-<hr class="my-4">
-{% endif %}
 
-<!-- Regular Services (unchanged classes/behavior) -->
-<div class="mb-4">
-  <label class="form-label fw-semibold"><u>MTN EXPRESS</u></label>
-  <div class="row g-3">
-    {% for svc in services %}
-    {% set status = (svc.status or 'OPEN')|upper %}
-    {% set availability = (svc.availability or 'AVAILABLE')|upper %}
-    {% set is_closed = status != 'OPEN' %}
-    {% set is_oos    = availability != 'AVAILABLE' %}
-    {% set can_order = (not is_closed) and (not is_oos) %}
+    <!-- First MTN EXPRESS -->
+    <div class="col-12 col-lg-6">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <span class="badge bg-dark">MTN</span>
+        <span class="badge bg-warning text-dark">Express</span>
+      </div>
 
-    <div class="col-12 col-sm-6">
-      <div class="svc-card h-100 shadow-sm p-2 rounded bg-white">
-        {% if svc.image_url %}
-          <img src="{{ svc.image_url }}" class="svc-img mb-2 w-100" alt="{{ svc.name }}" style="border-radius: 8px; object-fit: cover; max-height: 160px;">
-        {% endif %}
+      {% if first_express %}
+        {% set svc = first_express %}
+        {% set status = (svc.status or 'OPEN')|upper %}
+        {% set availability = (svc.availability or 'AVAILABLE')|upper %}
+        {% set is_closed = status != 'OPEN' %}
+        {% set is_oos    = availability != 'AVAILABLE' %}
+        {% set can_order = (not is_closed) and (not is_oos) %}
 
-        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
-          <div class="fw-semibold text-truncate">{{ svc.name }}</div>
-          <div class="d-flex flex-wrap svc-flags">
-            <span class="svc-flag {{ 'flag-open' if not is_closed else 'flag-closed' }}">{{ 'Open' if not is_closed else 'Closed' }}</span>
-            <span class="svc-flag {{ 'flag-available' if not is_oos else 'flag-oos' }}">{{ 'Available' if not is_oos else 'Out of Stock' }}</span>
-          </div>
-        </div>
+        <div class="svc-card h-100 shadow-sm p-2 rounded bg-white">
+          {% if svc.image_url %}
+            <img src="{{ svc.image_url }}" class="svc-img mb-2 w-100" alt="{{ svc.name }}" style="border-radius:8px;object-fit:cover;max-height:160px;">
+          {% endif %}
 
-        {% if is_closed and is_oos %}
-          <div class="small text-danger mb-2">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            {{ svc.disabled_reason or 'This service is currently unavailable.' }}
+          <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+            <div class="fw-semibold text-truncate">
+              {{ svc.name }} <span class="badge bg-warning text-dark ms-1"></span>
+            </div>
+            <div class="d-flex flex-wrap svc-flags">
+              <span class="svc-flag {{ 'flag-open' if not is_closed else 'flag-closed' }}">{{ 'Open' if not is_closed else 'Closed' }}</span>
+              <span class="svc-flag {{ 'flag-available' if not is_oos else 'flag-oos' }}">{{ 'Available' if not is_oos else 'Out of Stock' }}</span>
+            </div>
           </div>
-        {% elif is_closed %}
-          <div class="small text-danger mb-2">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            This service is temporarily closed.
-          </div>
-        {% elif is_oos %}
-          <div class="small text-danger mb-2">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            This service is currently out of stock.
-          </div>
-        {% endif %}
 
-        <div class="d-flex justify-content-between align-items-center gap-2">
-          <div class="text-muted small">
-            Default Profit: {{ (svc.effective_profit_percent or 0) | round(2) }}%
-          </div>
-          <button
-            class="btn btn-sm {{ 'btn-outline-primary' if can_order else 'btn-outline-secondary' }} select-service-btn"
-            {% if not can_order %}disabled data-disabled="true"{% endif %}
-            data-service='{{ {
+          {% if is_closed and is_oos %}
+            <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>{{ svc.disabled_reason or 'This service is currently unavailable.' }}</div>
+          {% elif is_closed %}
+            <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>This service is temporarily closed.</div>
+          {% elif is_oos %}
+            <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>This service is currently out of stock.</div>
+          {% endif %}
+
+          <div class="d-flex justify-content-end">
+            <button
+              class="btn btn-sm {{ 'btn-outline-primary' if can_order else 'btn-outline-secondary' }} select-service-btn"
+              {% if not can_order %}disabled data-disabled="true"{% endif %}
+              data-service='{{ {
                 "_id_str": svc._id_str,
                 "name": svc.name,
-                "effective_profit_percent": svc.effective_profit_percent | default(0),
+                "display_name": (svc.name ~ " Express"),
                 "offers": svc.offers or []
               } | tojson }}'>
-            Buy
-          </button>
+              Buy
+            </button>
+          </div>
         </div>
+      {% else %}
+        <div class="text-muted">No MTN Express services available.</div>
+      {% endif %}
+    </div>
+  </div>
+<!-- BELOW: Remaining Express (from index 1) -->
+  {% if has_express and (express_services|length) > 1 %}
+    <div class="mt-4">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <span class="badge bg-dark"></span>
+        <span class="badge bg-warning text-dark">Telecel Express</span>
+      </div>
+      <div class="row g-3">
+        {% for svc in express_services[1:] %}
+          {% set status = (svc.status or 'OPEN')|upper %}
+          {% set availability = (svc.availability or 'AVAILABLE')|upper %}
+          {% set is_closed = status != 'OPEN' %}
+          {% set is_oos    = availability != 'AVAILABLE' %}
+          {% set can_order = (not is_closed) and (not is_oos) %}
+          <div class="col-12 col-sm-6 col-lg-4">
+            <div class="svc-card h-100 shadow-sm p-2 rounded bg-white">
+              {% if svc.image_url %}
+                <img src="{{ svc.image_url }}" class="svc-img mb-2 w-100" alt="{{ svc.name }}" style="border-radius:8px;object-fit:cover;max-height:160px;">
+              {% endif %}
+              <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                <div class="fw-semibold text-truncate">
+                  {{ svc.name }} <span class="badge bg-warning text-dark ms-1">Express</span>
+                </div>
+                <div class="d-flex flex-wrap svc-flags">
+                  <span class="svc-flag {{ 'flag-open' if not is_closed else 'flag-closed' }}">{{ 'Open' if not is_closed else 'Closed' }}</span>
+                  <span class="svc-flag {{ 'flag-available' if not is_oos else 'flag-oos' }}">{{ 'Available' if not is_oos else 'Out of Stock' }}</span>
+                </div>
+              </div>
+              {% if is_closed and is_oos %}
+                <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>{{ svc.disabled_reason or 'This service is currently unavailable.' }}</div>
+              {% elif is_closed %}
+                <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>This service is temporarily closed.</div>
+              {% elif is_oos %}
+                <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>This service is currently out of stock.</div>
+              {% endif %}
+              <div class="d-flex justify-content-end">
+                <button
+                  class="btn btn-sm {{ 'btn-outline-primary' if can_order else 'btn-outline-secondary' }} select-service-btn"
+                  {% if not can_order %}disabled data-disabled="true"{% endif %}
+                  data-service='{{ {
+                    "_id_str": svc._id_str,
+                    "name": svc.name,
+                    "display_name": (svc.name ~ " Express"),
+                    "offers": svc.offers or []
+                  } | tojson }}'>
+                  Buy
+                </button>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
       </div>
     </div>
-    {% endfor %}
+  {% endif %}
+  <!-- BELOW: Remaining Normal (from index 1) -->
+  {% if has_normal and (services|length) > 1 %}
+    <div class="mt-4">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <span class="badge bg-dark"></span>
+        <span class="badge bg-secondary">Other Networks</span>
+      </div>
+      <div class="row g-3">
+        {% for svc in services[1:] %}
+          {% set status = (svc.status or 'OPEN')|upper %}
+          {% set availability = (svc.availability or 'AVAILABLE')|upper %}
+          {% set is_closed = status != 'OPEN' %}
+          {% set is_oos    = availability != 'AVAILABLE' %}
+          {% set can_order = (not is_closed) and (not is_oos) %}
+          <div class="col-12 col-sm-6 col-lg-4">
+            <div class="svc-card h-100 shadow-sm p-2 rounded bg-white">
+              {% if svc.image_url %}
+                <img src="{{ svc.image_url }}" class="svc-img mb-2 w-100" alt="{{ svc.name }}" style="border-radius:8px;object-fit:cover;max-height:160px;">
+              {% endif %}
+              <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                <div class="fw-semibold text-truncate">
+                  {{ svc.name }} <span class="badge bg-secondary ms-1">Normal</span>
+                </div>
+                <div class="d-flex flex-wrap svc-flags">
+                  <span class="svc-flag {{ 'flag-open' if not is_closed else 'flag-closed' }}">{{ 'Open' if not is_closed else 'Closed' }}</span>
+                  <span class="svc-flag {{ 'flag-available' if not is_oos else 'flag-oos' }}">{{ 'Available' if not is_oos else 'Out of Stock' }}</span>
+                </div>
+              </div>
+              {% if is_closed and is_oos %}
+                <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>{{ svc.disabled_reason or 'This service is currently unavailable.' }}</div>
+              {% elif is_closed %}
+                <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>This service is temporarily closed.</div>
+              {% elif is_oos %}
+                <div class="small text-danger mb-2"><i class="bi bi-exclamation-triangle me-1"></i>This service is currently out of stock.</div>
+              {% endif %}
+              <div class="d-flex justify-content-end">
+                <button
+                  class="btn btn-sm {{ 'btn-outline-primary' if can_order else 'btn-outline-secondary' }} select-service-btn"
+                  {% if not can_order %}disabled data-disabled="true"{% endif %}
+                  data-service='{{ {
+                    "_id_str": svc._id_str,
+                    "name": svc.name,
+                    "display_name": (svc.name ~ " Normal"),
+                    "offers": svc.offers or []
+                  } | tojson }}'>
+                  Buy
+                </button>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
 
-    {% if services|length == 0 %}
-      <div class="col-12 text-muted">No services available yet.</div>
-    {% endif %}
-  </div>
+  
+  <hr class="my-4">
 </div>
-<hr class="my-4">
 
 
 <div class="row g-3" id="afa-registration-block">
@@ -345,15 +442,13 @@
       <div class="card border-0 shadow-sm rounded-4 p-4 mb-5 bg-white">
 
         <!-- Header -->
-        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
-          <h4 class="mb-2 mb-md-0 fw-bold">
-            <i class="bi bi-gear-fill text-primary me-2"></i>
-            Service: <span id="chosen-service-name" class="text-primary"></span>
-          </h4>
-          <div class="ms-auto">
-            <span class="badge bg-light text-dark border" id="profit-hint">Profit: <span id="profit-pct">0</span>%</span>
-          </div>
-        </div>
+       <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+  <h4 class="mb-2 mb-md-0 fw-bold">
+    <i class="bi bi-gear-fill text-primary me-2"></i>
+    Service: <span id="chosen-service-name" class="text-primary"></span>
+  </h4>
+</div>
+
 
         <!-- Bulk Input Trigger -->
         <div class="mb-4">
@@ -554,43 +649,34 @@
   var rowsBody = document.getElementById("rows-body");
   var workArea = document.getElementById("work-area");
   var chosenNameEl = document.getElementById("chosen-service-name");
-  var profitPctEl = document.getElementById("profit-pct");
+  // REMOVED: profitPctEl and all profit UI
 
   // ---- Cart + persistence ----
   var CART_KEY = "nndata_cart_v1";
   var cart = [];
 
-  function money(n) {
-    return Number(n || 0).toFixed(2);
-  }
+  function money(n) { return Number(n || 0).toFixed(2); }
 
   function loadCart() {
     try {
       var saved = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
-      if (Object.prototype.toString.call(saved) === "[object Array]") {
-        cart = saved;
-      }
+      if (Object.prototype.toString.call(saved) === "[object Array]") cart = saved;
     } catch (e) {}
   }
-
   function saveCart() {
-    try {
-      localStorage.setItem(CART_KEY, JSON.stringify(cart));
-    } catch (e) {}
+    try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch (e) {}
   }
 
   function formatVolumeLabel(value) {
     if (value && typeof value === "string") return value;
     if (value && typeof value === "object") {
       var vol = Number(value.volume || 0);
-      return vol >= 1000
-        ? (String(vol / 1000).replace(/\.0+$/, "") + "GB")
-        : (vol + "MB");
+      return vol >= 1000 ? (String(vol / 1000).replace(/\.0+$/, "") + "GB") : (vol + "MB");
     }
     return "-";
   }
 
-  // Build <option> list WITHOUT template literals
+  // No "Default Profit" in tooltips anymore
   function renderOfferOptions(offers) {
     offers = offers || [];
     var html = '<option value="">-- Choose Offer --</option>';
@@ -598,27 +684,21 @@
       var o = offers[i];
       var label = o.value_text ? o.value_text : formatVolumeLabel(o.value);
       var disabled = (o.amount == null || o.total == null) ? ' disabled' : '';
-      var tip = (o.amount != null && o.profit_percent_used != null)
-        ? ('Base GHS ' + money(o.amount) + ' + ' + o.profit_percent_used + '%')
-        : '';
       var totalVal = (o.total != null ? o.total : '');
       var baseVal = (o.amount != null ? o.amount : '');
-      var ppVal = (o.profit_percent_used != null ? o.profit_percent_used : '');
-      var titleAttr = tip ? (' title="' + tip.replace(/"/g, '&quot;') + '"') : '';
+      var idxAttr = ' data-idx="' + i + '"';
       html += '<option' + disabled +
               ' value="' + totalVal + '"' +
               ' data-base="' + baseVal + '"' +
               ' data-total="' + totalVal + '"' +
-              ' data-pp="' + ppVal + '"' +
-              ' data-idx="' + i + '"' +
-              titleAttr + '>' +
+              idxAttr + '>' +
               'GHS ' + money(totalVal || 0) + ' - ' + label +
               '</option>';
     }
     return html;
   }
 
-  // ---------- PHONE FORMAT: 0xxxxxxxxx (10 digits, starts with 0) ----------
+  // ---------- PHONE FORMAT ----------
   var PHONE_RE = /^0\d{9}$/;
 
   function attachPhoneMask(container) {
@@ -632,11 +712,8 @@
           var digits = (inp.value || "").replace(/\D+/g, "");
           if (digits.length > 10) digits = digits.slice(0, 10);
           inp.value = digits;
-          if (!PHONE_RE.test(digits)) {
-            inp.classList.add("is-invalid");
-          } else {
-            inp.classList.remove("is-invalid");
-          }
+          if (!PHONE_RE.test(digits)) inp.classList.add("is-invalid");
+          else inp.classList.remove("is-invalid");
         }
         inp.addEventListener("input", handle);
         handle();
@@ -644,7 +721,6 @@
     }
   }
 
-  // Build a row with DOM APIs (no backticks)
   function addRow(phone, selectedIdx) {
     phone = phone || "";
 
@@ -762,7 +838,6 @@
       var valueText = (opt.textContent || "").replace(/^.*-\s*/, "") || "-";
       var total = Number(opt.getAttribute("data-total") || sel.value || 0);
       var base  = Number(opt.getAttribute("data-base") || 0);
-      var pp    = Number(opt.getAttribute("data-pp") || 0);
 
       var idxAttr = opt.getAttribute("data-idx");
       var offerIdx = typeof idxAttr === "string" ? Number(idxAttr) : null;
@@ -771,12 +846,11 @@
 
       cart.push({
         serviceId: chosenService._id_str,
-        serviceName: chosenService.name,
+        serviceName: chosenService.display_name || chosenService.name,
         phone: phone,
         value: valueText,
         value_obj: valueObj,
         base_amount: base,
-        profit_percent_used: pp,
         amount: total,
         total: total
       });
@@ -814,7 +888,7 @@
     return candidates[0].idx;
   }
 
-  // Service selection (also moves work-area below selected card)
+  // Service selection (uses display_name if provided)
   function wireSelectButtons() {
     var btns = document.querySelectorAll(".select-service-btn");
     for (var i = 0; i < btns.length; i++) {
@@ -825,8 +899,7 @@
           try { chosenService = JSON.parse(svcDataStr); } catch(e){ chosenService = null; }
           if (!chosenService) return;
 
-          chosenNameEl.textContent = chosenService.name || "";
-          profitPctEl.textContent = Number(chosenService.effective_profit_percent || 0).toFixed(2);
+          chosenNameEl.textContent = (chosenService.display_name || chosenService.name || "");
 
           var cardCol = btn.closest(".col-12");
           if (cardCol && workArea) {
@@ -931,20 +1004,14 @@
     var btn = e.target.closest ? e.target.closest("button[data-remove]") : null;
     if (!btn) return;
     var idx = Number(btn.getAttribute("data-remove"));
-    if (!isNaN(idx)) {
-      cart.splice(idx, 1);
-      updateCartUI();
-    }
+    if (!isNaN(idx)) { cart.splice(idx, 1); updateCartUI(); }
   });
 
   // Clear cart
   var clearBtn = document.getElementById("clear-cart-btn");
   if (clearBtn) clearBtn.addEventListener("click", function(){
     if (!cart.length) return;
-    if (confirm("Clear all items in the cart?")) {
-      cart = [];
-      updateCartUI();
-    }
+    if (confirm("Clear all items in the cart?")) { cart = []; updateCartUI(); }
   });
 
   // Proceed to checkout
@@ -971,9 +1038,7 @@
       if (label) label.textContent = on ? "Processing..." : "Confirm Payment";
     }
     var dis = document.querySelectorAll("#checkout-section input, #checkout-section select, #checkout-section button");
-    for (var i = 0; i < dis.length; i++) {
-      if (dis[i] !== confirmBtn) dis[i].disabled = !!on;
-    }
+    for (var i = 0; i < dis.length; i++) { if (dis[i] !== confirmBtn) dis[i].disabled = !!on; }
   }
 
   // Confirm payment (with loader)
@@ -1023,9 +1088,7 @@
       }).catch(function(err){
         var msg = aborted ? "The request took too long and was cancelled. Please check your network and try again." : "Something went wrong while processing payment.";
         Swal.fire({ title: "Error", text: msg, icon: "error" });
-      }).finally(function(){
-        setProcessing(false);
-      });
+      }).finally(function(){ setProcessing(false); });
     });
   });
 
@@ -1034,10 +1097,10 @@
   updateCartUI();
   wireSelectButtons();
 
-  // Bulk trigger Enter -> add row
   var addRowBtn = document.getElementById("add-row-btn");
   if (addRowBtn) addRowBtn.addEventListener("click", function(){ addRow(); });
-  </script>
+</script>
+
   <script>
 (function(){
   // Reuse your PHONE_RE if it already exists; else define it.
