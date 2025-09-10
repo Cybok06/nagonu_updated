@@ -238,7 +238,7 @@
     <div class="mt-4">
       <div class="d-flex align-items-center gap-2 mb-2">
         <span class="badge bg-dark"></span>
-        <span class="badge bg-warning text-dark">Telecel Express</span>
+        <span class="badge bg-warning text-dark"></span>
       </div>
       <div class="row g-3">
         {% for svc in express_services[1:] %}
@@ -292,7 +292,7 @@
     <div class="mt-4">
       <div class="d-flex align-items-center gap-2 mb-2">
         <span class="badge bg-dark"></span>
-        <span class="badge bg-secondary">Other Networks</span>
+        <span class="badge bg-secondary"></span>
       </div>
       <div class="row g-3">
         {% for svc in services[1:] %}
@@ -308,7 +308,7 @@
               {% endif %}
               <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
                 <div class="fw-semibold text-truncate">
-                  {{ svc.name }} <span class="badge bg-secondary ms-1">Normal</span>
+                  {{ svc.name }} <span class="badge bg-secondary ms-1"></span>
                 </div>
                 <div class="d-flex flex-wrap svc-flags">
                   <span class="svc-flag {{ 'flag-open' if not is_closed else 'flag-closed' }}">{{ 'Open' if not is_closed else 'Closed' }}</span>
@@ -1199,4 +1199,5 @@
 
 </body>
 </html>
+
 
