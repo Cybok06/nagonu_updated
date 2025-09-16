@@ -1,536 +1,731 @@
-<!-- templates/admin_customers.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Customer List - Admin</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin — Orders</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+
   <style>
     :root{
-      --sea-blue:#0ea5e9;
-      --ok:#16a34a; --ok-soft:#ecfdf5;
-      --bad:#ef4444; --bad-soft:#fef2f2;
-      --muted:#64748b;
-      --border:#e2e8f0;
-      --chip:#0ea5e91a;
-    }
-    @media (min-width: 992px){ .admin-content{ margin-left:260px; padding:2rem; } }
-    @media (max-width: 991px){ .admin-content{ margin-top:1rem; padding:1rem; } }
-
-    .page-title{ display:flex; align-items:center; gap:.6rem; }
-    .page-title i{ color:var(--sea-blue); }
-
-    .filter-card{ border:1px solid var(--border); border-radius:14px; background:#fff; }
-    .filter-card .form-control, .filter-card .form-select{ border-radius:10px; }
-
-    /* Card Grid */
-    .cards{ display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:16px; }
-    .cust-card{ border:1px solid var(--border); border-radius:16px; overflow:hidden; transition:transform .15s ease, box-shadow .15s ease; background:#fff; }
-    .cust-card:hover{ transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.08); }
-
-    .card-top{ display:flex; gap:12px; align-items:center; padding:14px 14px 0 14px; }
-    .avatar{
-      width:56px; height:56px; border-radius:999px; display:grid; place-items:center;
-      font-size:28px; user-select:none; flex:0 0 auto;
-      background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.8), transparent 60%),
-                  linear-gradient(135deg, #e0f2fe, #c7d2fe);
-      border:2px solid #fff; box-shadow:0 2px 6px rgba(0,0,0,.06);
+      --primary:#2563eb;--primary-2:#1d4ed8;--primary-3:#3b82f6;
+      --bg:#f8fafc;--bg-2:#f1f5f9;--card:#ffffff;--border:#e2e8f0;
+      --text:#0b1b2b;--muted:#64748b;
+      --ok:#16a34a;--ok-soft:#ecfdf5;          /* delivered */
+      --warn:#f59e0b;--warn-soft:#fffbeb;      /* pending  */
+      --info:#0ea5e9;--info-soft:#e6f6fe;      /* processing */
+      --bad:#ef4444;--bad-soft:#fef2f2;        /* failed */
+      --violet:#6366f1;--violet-soft:#eef2ff;  /* refunded */
+      --teal:#14b8a6;--teal-soft:#e6fffb;      /* completed */
+      --shadow-md:0 4px 12px rgba(2,10,28,.08);
+      --shadow-lg:0 12px 28px rgba(2,10,28,.12);
+      --radius:16px;
     }
 
-    .name-wrap{ flex:1 1 auto; min-width:0; }
-    .name{ font-weight:700; font-size:1.05rem; }
-    .uname{ color:var(--muted); font-size:.9rem; word-break:break-all; }
+    body{background:linear-gradient(135deg,var(--bg) 0%,var(--bg-2) 100%);color:var(--text);font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+    .container{max-width:1400px}
+    h2{color:var(--primary);font-weight:800;letter-spacing:.2px}
+    .subhead{color:var(--muted)}
+    .chip{display:inline-flex;align-items:center;gap:.5rem;background:#eef2ff;color:#3730a3;padding:.4rem .7rem;border-radius:999px;border:1px solid #c7d2fe;font-size:.82rem}
 
-    .status-badge{
-      padding:.25rem .55rem; border-radius:999px; font-weight:700; font-size:.75rem;
-      border:1px solid transparent; white-space:nowrap;
+    /* Sticky header (title + actions) */
+    .sticky-header{position:sticky;top:0;background:linear-gradient(135deg,var(--bg) 0%,var(--bg-2) 100%);
+      z-index:20;padding:.5rem 0 .75rem;margin-bottom:.25rem}
+
+    /* Filters */
+    .filter-bar{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:1rem 1.25rem;position:sticky;top:4.25rem;z-index:10}
+    .filter-row{row-gap:.75rem}
+    .form-select,.form-control{border:2px solid var(--border);border-radius:10px;padding:.55rem .8rem}
+    .form-select:focus,.form-control:focus{border-color:var(--primary);box-shadow:0 0 0 .2rem rgba(37,99,235,.25)}
+
+    /* Mobile filter toggle */
+    .filter-toggle{display:none}
+    @media (max-width: 767.98px){
+      .filter-toggle{display:flex;gap:.5rem}
+      .filter-bar{display:none}
+      .filter-bar.show{display:block}
     }
-    .st-active{ background:var(--ok-soft); color:var(--ok); border-color:#a7f3d0; }
-    .st-blocked{ background:var(--bad-soft); color:var(--bad); border-color:#fecaca; }
 
-    .card-body{ padding:12px 14px 0 14px; }
-    .kv{ display:flex; gap:.5rem; align-items:center; color:#0f172a; font-size:.92rem; }
-    .kv i{ color:var(--muted); }
+    .actions-bar{display:flex;flex-wrap:wrap;gap:.5rem}
+    .btn-icon{display:inline-flex;align-items:center;gap:.5rem}
 
-    .chips{ display:flex; gap:6px; flex-wrap:wrap; margin-top:.35rem; }
-    .chip{ background:var(--chip); color:#075985; border:1px dashed #7dd3fc; padding:.15rem .5rem; border-radius:999px; font-size:.73rem; font-weight:600; }
+    .table-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);overflow:hidden}
+    table.table{margin:0}
+    thead th{background:linear-gradient(135deg,var(--primary) 0%,var(--primary-2) 100%);color:#fff;border:none;text-transform:uppercase;font-size:.8rem;letter-spacing:.6px}
+    tbody tr:hover{background:#f0f7ff}
+    td,th{vertical-align:middle}
+    .table-responsive{scrollbar-width:thin}
 
-    .card-foot{ display:flex; gap:8px; padding:12px 14px 14px 14px; border-top:1px solid var(--border); }
-    .btn-ghost{ border:1px solid var(--border); background:#fff; }
-    .btn-ghost:hover{ border-color:#cbd5e1; background:#f8fafc; }
+    /* Status chips */
+    .status-chip{display:inline-flex;align-items:center;gap:.45rem;padding:.35rem .65rem;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid transparent}
+    .st-delivered{color:var(--ok);background:var(--ok-soft);border-color:#a7f3d0}
+    .st-failed{color:var(--bad);background:var(--bad-soft);border-color:#fecaca}
+    .st-processing{color:var(--info);background:var(--info-soft);border-color:#bae6fd}
+    .st-refunded{color:var(--violet);background:var(--violet-soft);border-color:#c7d2fe}
+    .st-pending{color:var(--warn);background:var(--warn-soft);border-color:#fde68a}
+    .st-completed{color:var(--teal);background:var(--teal-soft);border-color:#99f6e4}
 
-    /* Modal header color */
-    .modal-header{ background-color: var(--sea-blue); color:#fff; }
+    /* Paid-from badge */
+    .pf-badge{border-radius:999px;padding:.45rem .65rem;font-weight:700}
+    .pf-wallet{background:#ecfeff;color:#155e75;border:1px solid #a5f3fc}
+    .pf-card{background:#f0f9ff;color:#1e3a8a;border:1px solid #bfdbfe}
+    .pf-momo{background:#fefce8;color:#713f12;border:1px solid #fde68a}
+    .pf-paystack{background:#eef2ff;color:#1e1b4b;border:1px solid #c7d2fe}
+    .pf-flutterwave{background:#fff7ed;color:#7c2d12;border:1px solid #fed7aa}
+    .pf-bank{background:#f5f3ff;color:#4c1d95;border:1px solid #ddd6fe}
 
-    /* Toast z-index */
-    .toast{ z-index:1080; }
+    /* Inline actions tray (desktop) */
+    .status-actions{display:inline-flex;gap:.35rem;flex-wrap:wrap;align-items:center;margin-left:.25rem}
+    .status-actions .btn{padding:.2rem .5rem;font-size:.75rem;border-radius:999px}
+
+    /* Card view (mobile) */
+    @media (max-width: 767.98px){
+      .table-wrap{display:none}
+      .cards{display:grid;gap:1rem}
+      .order-card{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-md);padding:1rem}
+      .order-card .header{display:flex;justify-content:space-between;gap:.5rem;align-items:center}
+      .order-card .meta{color:var(--muted);font-size:.85rem}
+      .order-card .items{margin:.5rem 0 0}
+      .order-card .it{display:flex;justify-content:space-between;border-top:1px dashed var(--border);padding-top:.5rem;margin-top:.5rem}
+      .order-card .tot{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}
+      .order-card .footer{display:flex;gap:.5rem;align-items:center;margin-top:.75rem;flex-wrap:wrap}
+      .order-card .footer .form-check-input{width:22px;height:22px}
+      .order-card .btn-sm{padding:.45rem .6rem}
+      .card-actions{display:flex;gap:.35rem;flex-wrap:wrap; width:100%}
+      .card-actions form {display:inline}
+      .card-actions .btn {font-size:.75rem; padding:.35rem .55rem; border-radius:999px}
+    }
+    @media (min-width: 768px){
+      .cards{display:none}
+    }
+
+    /* Bigger touch targets for checkboxes */
+    .form-check-input{width:18px;height:18px}
+    .table .form-check-input{transform:translateY(2px)}
+
+    /* Offcanvas & jobs list */
+    .offcanvas{border-left:1px solid var(--border)}
+    .schedule-row{display:flex;align-items:center;justify-content:space-between;border-bottom:1px dashed var(--border);padding:.6rem 0}
+    .muted{color:var(--muted)}
+
+    /* Floating bar for selected (mobile) */
+    .floating-bar{
+      position:fixed;left:0;right:0;bottom:0;background:#0b1220cc;color:#fff;backdrop-filter:blur(8px);
+      display:none;z-index:1050;padding:.6rem .9rem;box-shadow:0 -8px 24px rgba(2,10,28,.22)
+    }
+    .floating-bar.show{display:flex;align-items:center;gap:.75rem;justify-content:space-between}
+    .floating-bar .btn{box-shadow:var(--shadow-md)}
   </style>
 </head>
 <body>
   {% include 'admin_sidebar.html' %}
 
-  <div class="admin-content">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h2 class="page-title mb-0"><i class="bi bi-people-fill fs-4"></i> All Registered Customers</h2>
+  <div class="container py-3 py-md-4">
+    <!-- Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-start sticky-header">
+      <div class="mb-2">
+        <h2 class="mb-1"><i class="fas fa-box me-2"></i>Customer Orders</h2>
+        <div class="subhead d-flex flex-wrap gap-2">
+          <span class="chip"><i class="fa-solid fa-database"></i> Total: {{ total_orders or 0 }}</span>
+          {% if status_filter %}<span class="chip"><i class="fa-solid fa-filter"></i> Status: {{ status_filter|capitalize }}</span>{% endif %}
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <!-- Mobile: Filter toggle -->
+        <button class="btn btn-outline-secondary btn-icon d-md-none" id="toggleFilters">
+          <i class="fa-solid fa-sliders"></i> Filters
+        </button>
+
+        <!-- View Schedules -->
+        <button class="btn btn-outline-primary btn-icon" data-bs-toggle="offcanvas" data-bs-target="#jobsOffcanvas">
+          <i class="fa-solid fa-clock-rotate-left"></i> Scheduled Orders
+        </button>
+
+        <!-- Bulk Deliver within current filters -->
+        <form method="POST" action="{{ url_for('admin_orders.bulk_deliver_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+          <button class="btn btn-success btn-icon" data-confirm="Mark ALL processing orders in the current filters as DELIVERED?">
+            <i class="fa-solid fa-truck-fast"></i> Mark Processing → Delivered
+          </button>
+        </form>
+
+        <!-- NEW: Mark Selected → Delivered (desktop header) -->
+        <button class="btn btn-dark btn-icon" id="markSelectedDelivered">
+          <i class="fa-solid fa-check-double"></i> Mark Selected → Delivered
+        </button>
+
+        <!-- Schedule for selected -->
+        <button class="btn btn-outline-dark btn-icon" id="openScheduleSelected" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+          <i class="fa-solid fa-calendar-plus"></i> Schedule Status (Selected)
+        </button>
+      </div>
     </div>
 
-    <!-- Search & Filters -->
-    <form method="get" class="filter-card p-3 mb-4">
-      <div class="row g-3 align-items-end">
-        <div class="col-md-3">
-          <label class="form-label">Search</label>
-          <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Name, phone, username, etc.">
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+            <i class="fas fa-info-circle me-2"></i>{{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Filters -->
+    <div class="filter-toggle d-md-none mb-2">
+      <span class="text-muted small"><i class="fa-regular fa-circle-question me-1"></i>Tap “Filters” to refine</span>
+    </div>
+
+    <form method="get" class="filter-bar mb-3" id="filtersCard">
+      <div class="row filter-row">
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-hashtag me-1"></i>Order ID</label>
+          <input type="text" name="order_id" value="{{ order_id_q or '' }}" class="form-control" placeholder="Paste or type order id">
         </div>
-        <div class="col-md-2">
-          <label class="form-label">Referral</label>
-          <input type="text" name="referral" value="{{ referral }}" class="form-control" placeholder="Referral code">
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-user me-1"></i>Customer</label>
+          <input type="text" name="customer" value="{{ customer_q or '' }}" class="form-control" placeholder="Name / email / phone / username">
         </div>
-        <div class="col-md-2">
-          <label class="form-label">WhatsApp?</label>
-          <select name="has_whatsapp" class="form-select">
-            <option value="">Any</option>
-            <option value="1" {% if has_whatsapp == '1' %}selected{% endif %}>Yes</option>
-            <option value="0" {% if has_whatsapp == '0' %}selected{% endif %}>No</option>
-          </select>
-        </div>
-        <div class="col-md-2">
-          <label class="form-label">Email?</label>
-          <select name="has_email" class="form-select">
-            <option value="">Any</option>
-            <option value="1" {% if has_email == '1' %}selected{% endif %}>Yes</option>
-            <option value="0" {% if has_email == '0' %}selected{% endif %}>No</option>
-          </select>
-        </div>
-        <div class="col-md-2">
-          <label class="form-label">Status</label>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-clipboard-check me-1"></i>Status</label>
           <select name="status" class="form-select">
-            <option value="">Any</option>
-            <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
-            <option value="blocked" {% if status == 'blocked' %}selected{% endif %}>Blocked</option>
+            <option value="">All</option>
+            {% for s in ['processing','delivered','failed','refunded','pending','completed'] %}
+              <option value="{{ s }}" {% if s == status_filter %}selected{% endif %}>{{ s|capitalize }}</option>
+            {% endfor %}
           </select>
         </div>
-        <div class="col-md-1 d-grid">
-          <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i></button>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-wallet me-1"></i>Paid From</label>
+          <select name="paid_from" class="form-select">
+            <option value="">Any</option>
+            {% for src in ['wallet','card','momo','paystack','flutterwave','bank'] %}
+              <option value="{{ src }}" {% if (paid_from or '')==src %}selected{% endif %}>{{ src|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-arrow-down-1-9 me-1"></i>Min Total (₵)</label>
+          <input type="number" step="0.01" name="min_total" value="{{ min_total or '' }}" class="form-control" placeholder="0.00">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-arrow-up-9-1 me-1"></i>Max Total (₵)</label>
+          <input type="number" step="0.01" name="max_total" value="{{ max_total or '' }}" class="form-control" placeholder="1000.00">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-calendar-day me-1"></i>From</label>
+          <input type="date" name="date_from" value="{{ date_from or '' }}" class="form-control">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-calendar-check me-1"></i>To</label>
+          <input type="date" name="date_to" value="{{ date_to or '' }}" class="form-control">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-boxes-stacked me-1"></i>Item Service</label>
+          <input type="text" name="item_service" value="{{ item_service or '' }}" class="form-control" placeholder="e.g., Bigtime Data">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-tags me-1"></i>Item Offer</label>
+          <input type="text" name="item_offer" value="{{ item_offer or '' }}" class="form-control" placeholder="e.g., 1GB">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-mobile-screen-button me-1"></i>Item Phone</label>
+          <input type="text" name="item_phone" value="{{ item_phone or '' }}" class="form-control" placeholder="e.g., 055xxxxxxx">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-sort me-1"></i>Sort</label>
+          <select name="sort" class="form-select">
+            <option value="newest" {% if (sort or '')=='newest' %}selected{% endif %}>Newest first</option>
+            <option value="oldest" {% if (sort or '')=='oldest' %}selected{% endif %}>Oldest first</option>
+            <option value="amount_desc" {% if (sort or '')=='amount_desc' %}selected{% endif %}>Amount: High → Low</option>
+            <option value="amount_asc" {% if (sort or '')=='amount_asc' %}selected{% endif %}>Amount: Low → High</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-list-ol me-1"></i>Per Page</label>
+          <select name="per_page" class="form-select">
+            {% for n in [10,20,30,50,100] %}
+              <option value="{{ n }}" {% if (per_page or 10)|int == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-3 d-flex align-items-end gap-2">
+          <button type="submit" class="btn btn-primary btn-icon w-100 w-md-auto">
+            <i class="fa-solid fa-magnifying-glass"></i> Apply Filters
+          </button>
+          <a href="{{ url_for('admin_orders.admin_view_orders') }}" class="btn btn-outline-secondary btn-icon w-100 w-md-auto">
+            <i class="fa-solid fa-rotate-left"></i> Reset
+          </a>
         </div>
       </div>
     </form>
 
-    <!-- Card Grid -->
-    <div class="cards">
-      {% for c in customers %}
-      {% set st = (c.status or 'active') %}
-      <div class="cust-card">
-        <div class="card-top">
-          <div class="avatar" data-avatar-idx="{{ loop.index0 }}">🐾</div>
-          <div class="name-wrap">
-            <div class="name text-truncate">
-              {{ (c.first_name or '') ~ ' ' ~ (c.last_name or '') }}
-            </div>
-            <div class="uname text-truncate">@{{ c.username }}</div>
-          </div>
-          <div class="ms-auto">
-            {% if st == 'blocked' %}
-              <span class="status-badge st-blocked"><i class="bi bi-shield-exclamation me-1"></i>Blocked</span>
+    <!-- TABLE (md+) -->
+    <div class="table-wrap mb-3">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead class="text-center">
+            <tr>
+              <th style="width:42px">
+                <input class="form-check-input" type="checkbox" id="checkAll">
+              </th>
+              <th><i class="fas fa-receipt me-1"></i>Order ID</th>
+              <th><i class="fas fa-user me-1"></i>Customer</th>
+              <th><i class="fas fa-shopping-cart me-1"></i>Items</th>
+              <th><i class="fas fa-money-bill-wave me-1"></i>Total (₵)</th>
+              <th><i class="fas fa-tasks me-1"></i>Status</th>
+              <th><i class="fas fa-credit-card me-1"></i>Paid From</th>
+              <th><i class="fas fa-calendar me-1"></i>Date</th>
+              <th style="width:110px">Quick</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for order in orders %}
+            {% set st = (order.get('status') or '').lower() %}
+            <tr>
+              <td class="text-center">
+                <input class="form-check-input row-check" type="checkbox" value="{{ order['_id'] }}">
+              </td>
+              <td class="fw-semibold">{{ order["order_id"] }}</td>
+              <td>
+                <div class="fw-semibold">{{ (order["user"] or {}).get("first_name","") }} {{ (order["user"] or {}).get("last_name","") }}</div>
+                <div class="small text-muted">
+                  <i class="fas fa-envelope me-1"></i>{{ (order["user"] or {}).get("email","") }}<br>
+                  <i class="fas fa-phone-alt me-1"></i><strong>{{ (order["user"] or {}).get("phone","") }}</strong>
+                </div>
+              </td>
+              <td>
+                <ul class="list-unstyled small mb-0">
+                  {% for item in order["items"] %}
+                  <li class="mb-1 border-bottom pb-1">
+                    <strong>{{ item["serviceName"] }}</strong> – {{ item.get("value","") }}<br>
+                    <span class="d-block"><i class="fas fa-mobile-alt me-1 text-muted"></i><strong>{{ item.get("phone","") }}</strong></span>
+                    <span class="d-block mt-1"><i class="fas fa-tag me-1 text-muted"></i>₵{{ "%.2f"|format(item.get("amount") or 0) }}</span>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </td>
+              <td class="text-center fw-semibold text-success">
+                <i class="fas fa-coins me-1"></i>₵{{ "%.2f"|format(order.get("total_amount", 0) or 0) }}
+              </td>
+              <td class="text-center">
+                <span class="status-chip
+                  {% if st=='delivered' %}st-delivered
+                  {% elif st=='failed' %}st-failed
+                  {% elif st=='processing' %}st-processing
+                  {% elif st=='refunded' %}st-refunded
+                  {% elif st=='pending' %}st-pending
+                  {% elif st=='completed' %}st-completed
+                  {% else %}st-processing{% endif %}">
+                  <i class="fa-solid fa-circle"></i> {{ st|capitalize }}
+                </span>
+
+                <!-- Inline actions tray (desktop) -->
+                <div class="status-actions mt-2">
+                  {% for newst in ['failed','refunded','processing','delivered'] %}
+                  <form method="POST" class="m-0 d-inline"
+                        action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+                    <input type="hidden" name="status" value="{{ newst }}">
+                    <button type="submit" class="btn btn-outline-{{ 'danger' if newst=='failed' else ('success' if newst=='delivered' else ('info' if newst=='processing' else 'primary')) }} btn-sm"
+                            {% if newst=='refunded' %}data-confirm="Mark this order as Refunded? This credits the customer's wallet if not already."{% endif %}>
+                      {{ newst|capitalize }}
+                    </button>
+                  </form>
+                  {% endfor %}
+                </div>
+              </td>
+              <td class="text-center">
+                {% set pf = (order.get("paid_from") or "N/A")|lower %}
+                <span class="pf-badge
+                  {% if pf=='wallet' %}pf-wallet
+                  {% elif pf=='card' %}pf-card
+                  {% elif pf=='momo' %}pf-momo
+                  {% elif pf=='paystack' %}pf-paystack
+                  {% elif pf=='flutterwave' %}pf-flutterwave
+                  {% elif pf=='bank' %}pf-bank
+                  {% else %}pf-card{% endif %}">
+                  <i class="fas fa-wallet me-1"></i>{{ pf|capitalize }}
+                </span>
+              </td>
+              <td class="text-center">
+                <small class="muted"><i class="fas fa-clock me-1"></i>
+                  {{ order.get("created_at").strftime('%Y-%m-%d %H:%M') if order.get("created_at") else 'N/A' }}
+                </small>
+              </td>
+              <td class="text-center">
+                <!-- Quick schedule button for this row -->
+                <button class="btn btn-sm btn-dark" data-quick-schedule="{{ order['_id'] }}" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+                  <i class="fa-solid fa-calendar-plus"></i>
+                </button>
+              </td>
+            </tr>
             {% else %}
-              <span class="status-badge st-active"><i class="bi bi-shield-check me-1"></i>Active</span>
-            {% endif %}
+            <tr>
+              <td colspan="9" class="text-center text-muted py-5">
+                <i class="fas fa-inbox fa-3x mb-3 d-block"></i>
+                <h5>No orders found</h5>
+                <p class="mb-0">Try adjusting your filter criteria</p>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CARD LIST (xs-sm) -->
+    <div class="cards mb-5">
+      {% for order in orders %}
+      {% set st = (order.get('status') or '').lower() %}
+      <div class="order-card">
+        <div class="header">
+          <div>
+            <div class="fw-bold">#{{ order["order_id"] }}</div>
+            <div class="meta">
+              {{ (order["user"] or {}).get("first_name","") }} {{ (order["user"] or {}).get("last_name","") }} •
+              <i class="fa-regular fa-clock"></i>
+              {{ order.get("created_at").strftime('%Y-%m-%d %H:%M') if order.get("created_at") else 'N/A' }}
+            </div>
+          </div>
+          <div>
+            <span class="status-chip
+              {% if st=='delivered' %}st-delivered
+              {% elif st=='failed' %}st-failed
+              {% elif st=='processing' %}st-processing
+              {% elif st=='refunded' %}st-refunded
+              {% elif st=='pending' %}st-pending
+              {% elif st=='completed' %}st-completed
+              {% else %}st-processing{% endif %}">
+              <i class="fa-solid fa-circle"></i> {{ st|capitalize }}
+            </span>
           </div>
         </div>
 
-        <div class="card-body">
-          <div class="kv mb-1"><i class="bi bi-envelope"></i><span>{{ c.email or '—' }}</span></div>
-          <div class="kv mb-1"><i class="bi bi-telephone"></i><span>{{ c.phone or '—' }}</span></div>
-          <div class="kv mb-1"><i class="bi bi-building"></i><span>{{ c.business_name or '—' }}</span></div>
-          <div class="kv mb-1"><i class="bi bi-whatsapp"></i><span>{{ c.whatsapp or '—' }}</span></div>
-          <div class="chips">
-            {% if c.referral %}<span class="chip"><i class="bi bi-people"></i> Referral: {{ c.referral }}</span>{% endif %}
-            {% if c.status_updated_at %}<span class="chip"><i class="bi bi-clock-history"></i> {{ c.status_updated_at.strftime('%Y-%m-%d %H:%M') }}</span>{% endif %}
+        <div class="items">
+          {% for item in order["items"] %}
+          <div class="it">
+            <div>
+              <strong>{{ item["serviceName"] }}</strong> – {{ item.get("value","") }}<br>
+              <small class="text-muted"><i class="fas fa-mobile-alt me-1"></i>{{ item.get("phone","") }}</small>
+            </div>
+            <div class="fw-semibold">₵{{ "%.2f"|format(item.get("amount") or 0) }}</div>
           </div>
+          {% endfor %}
         </div>
 
-        <div class="card-foot">
-          <!-- Edit -->
-          <button
-            class="btn btn-ghost edit-btn flex-grow-1"
-            data-bs-toggle="modal"
-            data-bs-target="#editModal"
-            data-id="{{ c._id|string }}"
-            data-first_name="{{ c.first_name }}"
-            data-last_name="{{ c.last_name }}"
-            data-username="{{ c.username }}"
-            data-email="{{ c.email }}"
-            data-phone="{{ c.phone }}"
-            data-business_name="{{ c.business_name }}"
-            data-whatsapp="{{ c.whatsapp }}"
-            data-referral="{{ c.referral }}">
-            <i class="bi bi-pencil-square me-1"></i> Edit
-          </button>
+        <div class="tot">
+          <span class="fw-semibold text-success"><i class="fas fa-coins me-1"></i>₵{{ "%.2f"|format(order.get("total_amount", 0) or 0) }}</span>
+          {% set pf = (order.get("paid_from") or "N/A")|lower %}
+          <span class="pf-badge ms-auto
+            {% if pf=='wallet' %}pf-wallet
+            {% elif pf=='card' %}pf-card
+            {% elif pf=='momo' %}pf-momo
+            {% elif pf=='paystack' %}pf-paystack
+            {% elif pf=='flutterwave' %}pf-flutterwave
+            {% elif pf=='bank' %}pf-bank
+            {% else %}pf-card{% endif %}">
+            <i class="fas fa-wallet me-1"></i>{{ pf|capitalize }}
+          </span>
+        </div>
 
-          <!-- Block / Unblock -->
-          {% if st == 'blocked' %}
-          <button class="btn btn-success flex-grow-1"
-                  title="Unblock customer"
-                  onclick="toggleBlock('{{ c._id|string }}', false)">
-            <i class="bi bi-unlock me-1"></i> Unblock
-          </button>
-          {% else %}
-          <button class="btn btn-outline-danger flex-grow-1"
-                  title="Block customer"
-                  onclick="toggleBlock('{{ c._id|string }}', true)">
-            <i class="bi bi-lock me-1"></i> Block
-          </button>
-          {% endif %}
+        <div class="footer">
+          <input class="form-check-input row-check" type="checkbox" value="{{ order['_id'] }}">
 
-          <!-- Reset Link -->
-          <button class="btn btn-outline-secondary flex-grow-1"
-                  onclick="openResetModal('{{ c._id|string }}')"
-                  title="Generate one-time password reset link">
-            <i class="bi bi-link-45deg me-1"></i> Reset
-          <button class="btn btn-danger flex-grow-1 open-delete"
-        data-id="{{ c._id }}"
-        data-name="{{ (c.first_name or '') ~ ' ' ~ (c.last_name or '') }}">
-  <i class="bi bi-trash me-1"></i> Delete
-</button>
-
-
+          <!-- MOBILE ACTIONS (always visible; no dropdowns) -->
+          <div class="card-actions">
+            {% for newst in ['delivered','processing','failed','refunded'] %}
+            <form method="POST" action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+              <input type="hidden" name="status" value="{{ newst }}">
+              <button type="submit"
+                class="btn btn-outline-{{ 'success' if newst=='delivered' else ('info' if newst=='processing' else ('danger' if newst=='failed' else 'primary')) }} btn-sm"
+                {% if newst=='refunded' %}data-confirm="Mark this order as Refunded? This credits the customer's wallet if not already."{% endif %}>
+                {{ newst|capitalize }}
+              </button>
+            </form>
+            {% endfor %}
+            <button class="btn btn-dark btn-sm" data-quick-schedule="{{ order['_id'] }}" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+              <i class="fa-solid fa-calendar-plus"></i> Schedule
+            </button>
+          </div>
         </div>
       </div>
-      {% else %}
-        <div class="alert alert-info">No customers found.</div>
       {% endfor %}
     </div>
 
     <!-- Pagination -->
     {% if total_pages > 1 %}
-    <nav class="mt-4">
-      <ul class="pagination justify-content-center">
-        {% for p in range(1, total_pages + 1) %}
-          <li class="page-item {% if p == page %}active{% endif %}">
-            <a class="page-link" href="?{{ base_qs }}&page={{ p }}">{{ p }}</a>
-          </li>
-        {% endfor %}
-      </ul>
-    </nav>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+      <div class="text-muted small">Page {{ page }} of {{ total_pages }}</div>
+      <nav>
+        <ul class="pagination pagination-sm mb-0">
+          {% if page > 1 %}
+            <li class="page-item">
+              <a class="page-link" href="{{ url_for('admin_orders.admin_view_orders', page=page-1) }}{% if filters_query %}&{{ filters_query }}{% endif %}">
+                <i class="fas fa-chevron-left"></i> Prev
+              </a>
+            </li>
+          {% endif %}
+          {% for p in range(1, total_pages+1) %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('admin_orders.admin_view_orders', page=p) }}{% if filters_query %}&{{ filters_query }}{% endif %}">
+                {{ p }}
+              </a>
+            </li>
+          {% endfor %}
+          {% if page < total_pages %}
+            <li class="page-item">
+              <a class="page-link" href="{{ url_for('admin_orders.admin_view_orders', page=page+1) }}{% if filters_query %}&{{ filters_query }}{% endif %}">
+                Next <i class="fas fa-chevron-right"></i>
+              </a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    </div>
     {% endif %}
   </div>
 
-  <!-- Edit Modal -->
-  <div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <form id="editForm">
-          <div class="modal-header">
-            <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Edit Customer</h5>
-            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <input type="hidden" id="customer_id" name="customer_id">
-            <div class="mb-2"><input type="text" class="form-control" name="first_name" placeholder="First Name"></div>
-            <div class="mb-2"><input type="text" class="form-control" name="last_name" placeholder="Last Name"></div>
-            <div class="mb-2"><input type="text" class="form-control" name="username" placeholder="Username"></div>
-            <div class="mb-2"><input type="email" class="form-control" name="email" placeholder="Email"></div>
-            <div class="mb-2"><input type="text" class="form-control" name="phone" placeholder="Phone"></div>
-            <div class="mb-2"><input type="text" class="form-control" name="business_name" placeholder="Business Name"></div>
-            <div class="mb-2"><input type="text" class="form-control" name="whatsapp" placeholder="WhatsApp"></div>
-            <div class="mb-2"><input type="text" class="form-control" name="referral" placeholder="Referral"></div>
-            <div class="mb-2"><input type="password" class="form-control" name="password" placeholder="New Password (leave blank to keep current)"></div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-              <i class="bi bi-x-circle"></i> Close
-            </button>
-            <button type="submit" class="btn btn-primary">
-              <i class="bi bi-save"></i> Save Changes
-            </button>
-          </div>
-        </form>
-      </div>
+  <!-- Hidden form for "Mark Selected → Delivered" -->
+  <form method="POST" id="bulkSelectedDeliverForm" action="{{ url_for('admin_orders.bulk_deliver_selected') }}" class="d-none">
+    <input type="hidden" name="order_ids" id="bulkSelectedIds">
+  </form>
+
+  <!-- Floating bulk bar (mobile) -->
+  <div class="floating-bar" id="floatingBar">
+    <div><span id="selCount" class="badge bg-light text-dark">0</span> selected</div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-light btn-sm" id="fbSchedule" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+        <i class="fa-solid fa-calendar-plus me-1"></i>Schedule
+      </button>
+      <button class="btn btn-success btn-sm" id="fbDeliver">
+        <i class="fa-solid fa-check-double me-1"></i>Deliver
+      </button>
+      <a href="{{ url_for('admin_orders.admin_view_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}" class="btn btn-light btn-sm">
+        Reset
+      </a>
     </div>
   </div>
 
-  <!-- Reset Link Modal -->
-  <div class="modal fade" id="resetLinkModal" tabindex="-1" aria-hidden="true" aria-labelledby="resetLinkLabel">
-    <div class="modal-dialog">
-      <div class="modal-content">
+  <!-- Schedule Modal -->
+  <div class="modal fade" id="scheduleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="POST" action="{{ url_for('admin_orders.schedule_status') }}">
         <div class="modal-header">
-          <h5 id="resetLinkLabel" class="modal-title"><i class="bi bi-link-45deg"></i> Generate Reset Link</h5>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          <h5 class="modal-title"><i class="fa-solid fa-calendar-plus me-2"></i>Schedule Status Change</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
+
         <div class="modal-body">
-          <input type="hidden" id="reset_user_id">
           <div class="mb-3">
-            <label class="form-label">Expires In (hours)</label>
-            <input type="number" class="form-control" id="ttl_hours" min="1" value="24">
-            <div class="helper mt-1 text-muted">Default is 24 hours. Link is single-use.</div>
+            <label class="form-label">Orders Selected</label>
+            <div class="small text-muted">You can select multiple orders from the list. This will populate automatically.</div>
+            <div id="selectedOrdersPreview" class="mt-2"></div>
           </div>
-          <div id="resetResult" class="d-none">
-            <label class="form-label">Reset URL</label>
-            <div class="input-group">
-              <input id="resetUrl" type="text" class="form-control" readonly>
-              <button class="btn btn-outline-secondary" type="button" id="copyBtn">
-                <i class="bi bi-clipboard"></i>
-              </button>
+
+          <input type="hidden" name="order_ids" id="scheduleOrderIds">
+
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">New Status</label>
+              <select name="status" class="form-select" required>
+                {% for s in ['processing','delivered','failed','refunded','pending','completed'] %}
+                  <option value="{{ s }}">{{ s|capitalize }}</option>
+                {% endfor %}
+              </select>
             </div>
-            <div class="form-text" id="expiresText"></div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Delay (minutes)</label>
+              <input type="number" min="0" step="1" class="form-control" name="delay_minutes" id="delayMinutes" placeholder="e.g., 10">
+              <div class="form-text">Set a delay OR specify an exact time below.</div>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Run At (UTC)</label>
+              <input type="datetime-local" class="form-control" id="runAtLocal" placeholder="YYYY-MM-DD HH:MM">
+              <input type="hidden" name="run_at" id="runAtUtc">
+            </div>
+
+            <div class="col-12">
+              <label class="form-label">Note (optional)</label>
+              <input type="text" class="form-control" name="note" placeholder="Reason or extra info for audit">
+            </div>
           </div>
         </div>
+
         <div class="modal-footer">
-          <button id="generateBtn" type="button" class="btn btn-primary">
-            <span class="label"><i class="bi bi-lightning-charge"></i> Generate</span>
-            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-          </button>
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-            Close
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" type="submit">
+            <i class="fa-solid fa-calendar-check me-1"></i> Schedule
           </button>
         </div>
-      </div>
+      </form>
     </div>
   </div>
 
-  <!-- Delete Confirm Modal -->
-  <div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true" aria-labelledby="deleteLabel">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header bg-danger text-white">
-          <h5 id="deleteLabel" class="modal-title"><i class="bi bi-exclamation-triangle"></i> Delete Customer</h5>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <input type="hidden" id="delete_user_id">
-          <p class="mb-2">Are you sure you want to delete <strong id="delete_user_name"></strong>?</p>
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="hardDelete">
-            <label class="form-check-label" for="hardDelete">Delete permanently (cannot be undone)</label>
-          </div>
-          <div class="form-text mt-1">If unchecked, we’ll soft-delete the account so it won’t appear in the list.</div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button id="confirmDeleteBtn" type="button" class="btn btn-danger">
-            <span class="label"><i class="bi bi-trash"></i> Delete</span>
-            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-          </button>
-        </div>
-      </div>
+  <!-- Offcanvas: Scheduled Jobs -->
+  <div class="offcanvas offcanvas-end" tabindex="-1" id="jobsOffcanvas" aria-labelledby="jobsLabel">
+    <div class="offcanvas-header">
+      <h5 id="jobsLabel" class="mb-0"><i class="fa-solid fa-clock-rotate-left me-2"></i>Scheduled Jobs</h5>
+      <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
-  </div>
-
-  <!-- Toasts -->
-  <div class="position-fixed bottom-0 end-0 p-3">
-    <div id="mainToast" class="toast align-items-center text-bg-primary border-0" role="alert" aria-live="assertive" aria-atomic="true">
-      <div class="d-flex">
-        <div class="toast-body" id="toastBody">Action completed.</div>
-        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    <div class="offcanvas-body">
+      <div id="jobsList" class="small"></div>
+      <div class="text-center mt-3">
+        <button class="btn btn-outline-primary btn-sm" id="refreshJobs"><i class="fa-solid fa-rotate"></i> Refresh</button>
       </div>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    // ========== Animal avatar assignment (deterministic by card index) ==========
-    const animals = ["🦊","🐼","🦁","🐯","🐨","🐵","🦉","🐸","🐶","🐱","🐰","🦄","🐢","🐧","🐙","🦖","🦕","🦓","🦒","🐘","🦬","🐺","🦔","🦭"];
-    document.querySelectorAll('.avatar').forEach(el=>{
-      const idx = parseInt(el.getAttribute('data-avatar-idx')||'0',10);
-      el.textContent = animals[idx % animals.length];
-    });
+    // ---------- helpers ----------
+    const $$ = (sel, root=document)=>Array.from(root.querySelectorAll(sel));
+    const $  = (sel, root=document)=>root.querySelector(sel);
+    const pad2 = n => String(n).padStart(2,'0');
 
-    // ===== Edit Modal Prefill =====
-    const editModal = document.getElementById('editModal');
-    editModal.addEventListener('show.bs.modal', event => {
-      const button = event.relatedTarget;
-      document.getElementById('customer_id').value = button.getAttribute('data-id');
-      document.querySelector('#editForm [name="first_name"]').value    = button.getAttribute('data-first_name') || '';
-      document.querySelector('#editForm [name="last_name"]').value     = button.getAttribute('data-last_name') || '';
-      document.querySelector('#editForm [name="username"]').value      = button.getAttribute('data-username') || '';
-      document.querySelector('#editForm [name="email"]').value         = button.getAttribute('data-email') || '';
-      document.querySelector('#editForm [name="phone"]').value         = button.getAttribute('data-phone') || '';
-      document.querySelector('#editForm [name="business_name"]').value = button.getAttribute('data-business_name') || '';
-      document.querySelector('#editForm [name="whatsapp"]').value      = button.getAttribute('data-whatsapp') || '';
-      document.querySelector('#editForm [name="referral"]').value      = button.getAttribute('data-referral') || '';
-      document.querySelector('#editForm [name="password"]').value      = '';
-    });
+    // Mobile: toggle filter card
+    const toggleFiltersBtn = document.getElementById('toggleFilters');
+    const filtersCard = document.getElementById('filtersCard');
+    toggleFiltersBtn?.addEventListener('click', ()=>filtersCard.classList.toggle('show'));
 
-    // ===== Save Edits =====
-    document.getElementById('editForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const id = document.getElementById('customer_id').value;
-      const formData = new FormData(this);
-      fetch(`/admin/customers/update/${id}`, { method:'POST', body:formData })
-        .then(res => res.json())
-        .then(data => {
-          showToast(data.message || 'Updated.');
-          if (data.status === 'success') location.reload();
-        })
-        .catch(() => showToast('Network error', true));
-    });
-
-    // ===== Block / Unblock =====
-    async function toggleBlock(id, block) {
-      try {
-        const res = await fetch(`/admin/customers/toggle_block/${id}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ block: !!block })
-        });
-        const data = await res.json();
-        showToast(data.message || 'Done');
-        if (data.status === 'success') location.reload();
-      } catch (e) {
-        showToast('Network error while updating status', true);
-      }
+    // Select all / per-row selection (desktop)
+    const checkAll = document.getElementById('checkAll');
+    function getSelectedIds(){
+      return $$('.row-check').filter(c => c.checked).map(c => c.value);
     }
+    checkAll?.addEventListener('change', () => {
+      $$('.row-check').forEach(c => c.checked = checkAll.checked);
+      updateFloatingBar();
+    });
 
-    // ===== Reset Link Flow =====
-    const resetLinkModal = document.getElementById('resetLinkModal');
-    const generateBtn    = document.getElementById('generateBtn');
-    const resetResult    = document.getElementById('resetResult');
-    const resetUrlInput  = document.getElementById('resetUrl');
-    const copyBtn        = document.getElementById('copyBtn');
-    const expiresText    = document.getElementById('expiresText');
+    // sync floating bar on any checkbox change
+    document.addEventListener('change', (e)=>{
+      if (e.target.classList.contains('row-check')) updateFloatingBar();
+    });
 
-    function openResetModal(userId) {
-      document.getElementById('reset_user_id').value = userId;
-      document.getElementById('ttl_hours').value = 24;
-      resetResult.classList.add('d-none');
-      resetUrlInput.value = '';
-      expiresText.textContent = '';
-      new bootstrap.Modal(resetLinkModal).show();
-    }
+    // Schedule modal wiring
+    const openSelBtn = document.getElementById('openScheduleSelected');
+    const scheduleOrderIds = document.getElementById('scheduleOrderIds');
+    const selectedOrdersPreview = document.getElementById('selectedOrdersPreview');
+    const runAtLocal = document.getElementById('runAtLocal');
+    const runAtUtc = document.getElementById('runAtUtc');
 
-    generateBtn.addEventListener('click', async () => {
-      const userId = document.getElementById('reset_user_id').value;
-      const ttl = document.getElementById('ttl_hours').value || 24;
+    openSelBtn?.addEventListener('click', () => {
+      const ids = getSelectedIds();
+      scheduleOrderIds.value = ids.join(',');
+      selectedOrdersPreview.innerHTML = ids.length
+        ? `<span class="badge text-bg-dark">${ids.length}</span> selected`
+        : `<span class="text-danger">No orders selected yet — you can still add one from the list.</span>`;
+    });
 
-      toggleGenerateLoading(true);
-      try {
-        const form = new FormData();
-        form.append('user_id', userId);
-        form.append('ttl_hours', ttl);
+    // Per-row quick schedule adds that row to modal
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-quick-schedule]');
+      if (!b) return;
+      const id = b.getAttribute('data-quick-schedule');
+      const current = scheduleOrderIds.value ? scheduleOrderIds.value.split(',').filter(Boolean) : [];
+      if (!current.includes(id)) current.push(id);
+      scheduleOrderIds.value = current.join(',');
+      selectedOrdersPreview.innerHTML = `<span class="badge text-bg-dark">${current.length}</span> selected`;
+    });
 
-        const res = await fetch('/admin/reset/generate', { method:'POST', body:form });
+    // Convert datetime-local (local) -> UTC "YYYY-MM-DD HH:MM"
+    runAtLocal?.addEventListener('change', () => {
+      if (!runAtLocal.value){ runAtUtc.value = ''; return; }
+      const dt = new Date(runAtLocal.value);
+      const y = dt.getUTCFullYear(), m = pad2(dt.getUTCMonth()+1), d = pad2(dt.getUTCDate());
+      const hh = pad2(dt.getUTCHours()), mm = pad2(dt.getUTCMinutes());
+      runAtUtc.value = `${y}-${m}-${d} ${hh}:${mm}`;
+    });
+
+    // Jobs offcanvas loader
+    async function loadJobs(){
+      const list = document.getElementById('jobsList');
+      list.innerHTML = '<div class="text-center text-muted py-2"><i class="fa-solid fa-spinner fa-spin me-2"></i>Loading…</div>';
+      try{
+        const res = await fetch('{{ url_for("admin_orders.list_schedules") }}', {credentials:'same-origin'});
+        if (!res.ok) throw new Error('Network');
         const data = await res.json();
-
-        if (data.status === 'success') {
-          resetUrlInput.value = data.reset_url;
-          expiresText.textContent = data.expires_at ? `Expires at: ${new Date(data.expires_at).toLocaleString()}` : '';
-          resetResult.classList.remove('d-none');
-          showToast('Reset link generated.');
-        } else {
-          showToast(data.message || 'Failed to generate link', true);
+        if (!data.jobs || !data.jobs.length){
+          list.innerHTML = '<div class="text-center text-muted">No scheduled jobs.</div>';
+          return;
         }
-      } catch (e) {
-        showToast('Network error while generating link', true);
-      } finally {
-        toggleGenerateLoading(false);
+        const baseCancel = '{{ url_for("admin_orders.cancel_schedule", job_id="__JOB__") }}';
+        list.innerHTML = data.jobs.map(j => {
+          const cancelUrl = baseCancel.replace('__JOB__', encodeURIComponent(j.id));
+          const statusTxt = (Array.isArray(j.args) && j.args[1]) ? `Status → <b>${j.args[1]}</b>` : '';
+          return `
+          <div class="schedule-row">
+            <div>
+              <div><strong>ID:</strong> <code>${j.id}</code></div>
+              <div class="muted"><i class="fa-regular fa-clock me-1"></i>${j.next_run_time ?? '—'}</div>
+              <div class="muted"><small>${statusTxt}</small></div>
+            </div>
+            <form method="POST" action="${cancelUrl}">
+              <button class="btn btn-sm btn-outline-danger" data-confirm="Cancel this schedule?">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </form>
+          </div>`;
+        }).join('');
+      }catch(e){
+        list.innerHTML = '<div class="text-danger">Failed to load schedules.</div>';
       }
+    }
+    const jobsOffcanvas = document.getElementById('jobsOffcanvas');
+    jobsOffcanvas?.addEventListener('shown.bs.offcanvas', loadJobs);
+    document.getElementById('refreshJobs')?.addEventListener('click', loadJobs);
+
+    // Floating bulk bar (mobile)
+    const floatingBar = document.getElementById('floatingBar');
+    const selCount = document.getElementById('selCount');
+    const fbSchedule = document.getElementById('fbSchedule');
+    const fbDeliver = document.getElementById('fbDeliver');
+
+    function updateFloatingBar(){
+      const count = getSelectedIds().length;
+      selCount.textContent = count;
+      if (count > 0) floatingBar.classList.add('show');
+      else floatingBar.classList.remove('show');
+    }
+
+    fbSchedule?.addEventListener('click', ()=>{
+      const ids = getSelectedIds();
+      scheduleOrderIds.value = ids.join(',');
+      selectedOrdersPreview.innerHTML = ids.length
+        ? `<span class="badge text-bg-dark">${ids.length}</span> selected`
+        : `<span class="text-danger">No orders selected yet.</span>`;
     });
 
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(resetUrlInput.value);
-        showToast('Link copied to clipboard');
-      } catch {
-        resetUrlInput.select();
-        document.execCommand('copy');
-        showToast('Link copied');
+    // Bulk Selected → Delivered (desktop button)
+    const markSelectedDeliveredBtn = document.getElementById('markSelectedDelivered');
+    const bulkSelectedDeliverForm = document.getElementById('bulkSelectedDeliverForm');
+    const bulkSelectedIds = document.getElementById('bulkSelectedIds');
+
+    function submitBulkDeliverSelected(){
+      const ids = getSelectedIds();
+      if (!ids.length){
+        alert('Select at least one order.');
+        return;
       }
+      bulkSelectedIds.value = ids.join(',');
+      bulkSelectedDeliverForm.submit();
+    }
+
+    markSelectedDeliveredBtn?.addEventListener('click', submitBulkDeliverSelected);
+    fbDeliver?.addEventListener('click', submitBulkDeliverSelected);
+
+    // Centralized confirm (for any data-confirm buttons)
+    document.addEventListener('click', (e) => {
+      const submitBtn = e.target.closest('button[type="submit"][data-confirm], .btn[data-confirm]');
+      if (!submitBtn) return;
+      const msg = submitBtn.getAttribute('data-confirm') || 'Are you sure?';
+      if (!window.confirm(msg)) { e.preventDefault(); e.stopPropagation(); }
     });
-
-    function toggleGenerateLoading(on) {
-      const spinner = generateBtn.querySelector('.spinner-border');
-      const label = generateBtn.querySelector('.label');
-      generateBtn.disabled = on;
-      spinner.classList.toggle('d-none', !on);
-      label.classList.toggle('d-none', on);
-    }
-
-    // ===== Delete Flow =====
-    const deleteModal = document.getElementById('deleteModal');
-    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
-    let _pendingDeleteId = null;
-
-    function openDeleteModal(userId, name) {
-      _pendingDeleteId = userId;
-      document.getElementById('delete_user_id').value = userId;
-      document.getElementById('delete_user_name').textContent = name || 'this customer';
-      document.getElementById('hardDelete').checked = false;
-      new bootstrap.Modal(deleteModal).show();
-    }
-
-    confirmDeleteBtn.addEventListener('click', async () => {
-      const hard = document.getElementById('hardDelete').checked;
-      toggleDeleteLoading(true);
-      try {
-        const res = await fetch(`/admin/customers/delete/${_pendingDeleteId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ hard })
-        });
-        const data = await res.json();
-        if (data.status === 'success') {
-          showToast(data.message || (hard ? 'Deleted permanently' : 'Deleted (soft)'));
-          // Reload to reflect removal from listing
-          location.reload();
-        } else {
-          showToast(data.message || 'No action taken', true);
-        }
-      } catch (e) {
-        showToast('Network error while deleting', true);
-      } finally {
-        toggleDeleteLoading(false);
-      }
-    });
-
-    function toggleDeleteLoading(on) {
-      const spinner = confirmDeleteBtn.querySelector('.spinner-border');
-      if (!spinner) {
-        // Create spinner lazily to keep markup clean
-        const sp = document.createElement('span');
-        sp.className = 'spinner-border spinner-border-sm d-none';
-        sp.setAttribute('role', 'status');
-        sp.setAttribute('aria-hidden', 'true');
-        confirmDeleteBtn.appendChild(sp);
-      }
-      const spn = confirmDeleteBtn.querySelector('.spinner-border');
-      const label = confirmDeleteBtn.querySelector('.label') || (function(){
-        const span = document.createElement('span');
-        span.className = 'label';
-        span.innerHTML = '<i class="bi bi-trash"></i> Delete';
-        confirmDeleteBtn.prepend(span);
-        return span;
-      })();
-      confirmDeleteBtn.disabled = on;
-      spn.classList.toggle('d-none', !on);
-      label.classList.toggle('d-none', on);
-    }
-
-    // ===== Toast helper =====
-    function showToast(msg, isError=false) {
-      const toastEl = document.getElementById('mainToast');
-      const body = document.getElementById('toastBody');
-      body.textContent = msg;
-      toastEl.classList.toggle('text-bg-danger', !!isError);
-      toastEl.classList.toggle('text-bg-primary', !isError);
-      new bootstrap.Toast(toastEl, { delay: 2500 }).show();
-    }
-
-    // Expose functions needed by inline handlers
-    window.toggleBlock = toggleBlock;
-    window.openResetModal = openResetModal;
-    window.openDeleteModal = openDeleteModal;
   </script>
-  <script>
-  // Hook delete buttons without inline JS
-  document.querySelectorAll('.open-delete').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-id');
-      const name = btn.getAttribute('data-name') || 'this customer';
-      openDeleteModal(id, name);
-    });
-  });
-</script>
-
 </body>
 </html>
