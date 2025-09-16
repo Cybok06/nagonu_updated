@@ -231,29 +231,37 @@
       <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
         <div class="fw-semibold text-truncate">AFA Registration</div>
         <div class="d-flex svc-flags">
-          <span class="svc-flag flag-open">Open</span>
-          <span class="svc-flag flag-available">Available</span>
+          {% set is_open = afa.is_open if afa is defined else true %}
+          {% set in_stock = afa.in_stock if afa is defined else true %}
+          <span class="svc-flag {{ 'flag-open' if is_open else 'flag-closed' }}">{{ 'Open' if is_open else 'Closed' }}</span>
+          <span class="svc-flag {{ 'flag-available' if in_stock else 'flag-oos' }}">{{ 'Available' if in_stock else 'Out of Stock' }}</span>
         </div>
       </div>
 
+      {% if not is_open or not in_stock %}
+        <div class="small text-danger mb-2">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          {{ afa.disabled_reason or ('This service is currently unavailable.' if not is_open else 'This service is currently out of stock.') }}
+        </div>
+      {% endif %}
+
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div class="text-muted small">
-          AFA Registration @ <strong>GHS 2.00</strong>
+          AFA Registration @
+          <strong>GHS {{ '%.2f'|format((afa.price if afa is defined and afa.price is not none else 2.00)) }}</strong>
         </div>
         <div class="d-flex gap-2">
-          <!-- Use ONE of the hrefs below -->
-          <!-- If using Jinja: -->
           <a href="{{ url_for('afa.afa_list_page') }}"
              class="btn btn-sm btn-outline-secondary">
             View Registrations
           </a>
-          <!-- Or plain path: -->
-          <!-- <a href="/customer/afa" class="btn btn-sm btn-outline-secondary">View Registrations</a> -->
 
+          {% set buy_disabled = (not is_open) or (not in_stock) %}
           <button type="button"
-                  class="btn btn-sm btn-outline-primary"
-                  data-bs-toggle="modal"
-                  data-bs-target="#afaModal">
+                  class="btn btn-sm {{ 'btn-outline-primary' if not buy_disabled else 'btn-outline-secondary' }}"
+                  data-bs-toggle="{{ '' if buy_disabled else 'modal' }}"
+                  data-bs-target="{{ '' if buy_disabled else '#afaModal' }}"
+                  {% if buy_disabled %}disabled{% endif %}>
             Buy
           </button>
         </div>
@@ -262,12 +270,15 @@
   </div>
 </div>
 
+<!-- Modal uses dynamic price in title -->
 <div class="modal fade" id="afaModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <form id="afa-form" autocomplete="off" novalidate>
         <div class="modal-header">
-          <h5 class="modal-title">AFA Registration (GHS 2.00)</h5>
+          <h5 class="modal-title">
+            AFA Registration (GHS {{ '%.2f'|format((afa.price if afa is defined and afa.price is not none else 2.00)) }})
+          </h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
 
@@ -295,7 +306,7 @@
 
           <div class="mb-2">
             <label class="form-label fw-semibold">Ghana Card Number (optional) GHA-XXXXXXXXX-X</label>
-            <input type="text" class="form-control" id="afa-ghana-card" >
+            <input type="text" class="form-control" id="afa-ghana-card">
           </div>
         </div>
 
@@ -307,8 +318,6 @@
     </div>
   </div>
 </div>
-
-
     <hr class="my-5">
 
     <!-- Work area -->
@@ -518,12 +527,11 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
-  <script>
+ <script>
   var chosenService = null;
   var rowsBody = document.getElementById("rows-body");
   var workArea = document.getElementById("work-area");
   var chosenNameEl = document.getElementById("chosen-service-name");
-  // REMOVED: profitPctEl and all profit UI
 
   // ---- Cart + persistence ----
   var CART_KEY = "nndata_cart_v1";
@@ -550,7 +558,6 @@
     return "-";
   }
 
-  // No "Default Profit" in tooltips anymore
   function renderOfferOptions(offers) {
     offers = offers || [];
     var html = '<option value="">-- Choose Offer --</option>';
@@ -762,6 +769,21 @@
     return candidates[0].idx;
   }
 
+  // ---- Overlay/Backdrop safety cleanup ----
+  function cleanupOverlays() {
+    // Hide our full-page loader if visible
+    var pl = document.getElementById("page-loader");
+    if (pl && !pl.classList.contains("d-none")) pl.classList.add("d-none");
+
+    // Remove any Bootstrap backdrops
+    document.querySelectorAll(".modal-backdrop").forEach(function(el){ el.remove(); });
+
+    // Reset body classes/styles set by Bootstrap modals
+    document.body.classList.remove("modal-open");
+    document.body.style.removeProperty("overflow");
+    document.body.style.removeProperty("paddingRight");
+  }
+
   // Service selection (uses display_name if provided)
   function wireSelectButtons() {
     var btns = document.querySelectorAll(".select-service-btn");
@@ -874,12 +896,17 @@
 
   // Cart interactions
   var cartModal = document.getElementById("cartModal");
-  if (cartModal) cartModal.addEventListener("click", function(e){
-    var btn = e.target.closest ? e.target.closest("button[data-remove]") : null;
-    if (!btn) return;
-    var idx = Number(btn.getAttribute("data-remove"));
-    if (!isNaN(idx)) { cart.splice(idx, 1); updateCartUI(); }
-  });
+  if (cartModal) {
+    // Remove items
+    cartModal.addEventListener("click", function(e){
+      var btn = e.target.closest ? e.target.closest("button[data-remove]") : null;
+      if (!btn) return;
+      var idx = Number(btn.getAttribute("data-remove"));
+      if (!isNaN(idx)) { cart.splice(idx, 1); updateCartUI(); }
+    });
+    // Safety cleanup whenever any modal fully hides
+    cartModal.addEventListener("hidden.bs.modal", cleanupOverlays);
+  }
 
   // Clear cart
   var clearBtn = document.getElementById("clear-cart-btn");
@@ -915,7 +942,7 @@
     for (var i = 0; i < dis.length; i++) { if (dis[i] !== confirmBtn) dis[i].disabled = !!on; }
   }
 
-  // Confirm payment (with loader)
+  // Confirm payment (with loader) + overlay safety ordering
   if (confirmBtn) confirmBtn.addEventListener("click", function(){
     var methodSel = document.getElementById("payment-method");
     var method = methodSel ? methodSel.value : "from_account";
@@ -948,21 +975,48 @@
           .catch(function(){ return { ok: response.ok, json: {} }; });
       }).then(function(result){
         if (result.ok && result.json && result.json.success) {
-          Swal.fire({ title: "Success!", text: result.json.message || "Payment completed.", icon: "success" });
-          cart = [];
-          localStorage.removeItem(CART_KEY);
-          updateCartUI();
-          var section = document.getElementById("checkout-section");
-          if (section) section.classList.add("d-none");
-          var modal = bootstrap.Modal.getInstance(document.getElementById("cartModal"));
-          if (modal && modal.hide) modal.hide();
+          // Turn off loader BEFORE showing SweetAlert to avoid stacked overlays
+          setProcessing(false);
+          cleanupOverlays();
+
+          Swal.fire({
+            title: "Success!",
+            text: result.json.message || "Payment completed.",
+            icon: "success"
+          }).then(function(){
+            cart = [];
+            localStorage.removeItem(CART_KEY);
+            updateCartUI();
+            var section = document.getElementById("checkout-section");
+            if (section) section.classList.add("d-none");
+            var modal = bootstrap.Modal.getInstance(document.getElementById("cartModal"));
+            if (modal && modal.hide) modal.hide();
+            cleanupOverlays();
+          });
+
         } else {
-          Swal.fire({ title: "Failed", text: (result.json && result.json.message) || "Payment failed. Please try again.", icon: "error" });
+          setProcessing(false);
+          cleanupOverlays();
+
+          Swal.fire({
+            title: "Failed",
+            text: (result.json && (result.json.message || result.json.error)) || "Payment failed. Please try again.",
+            icon: "error"
+          }).then(cleanupOverlays);
         }
       }).catch(function(err){
-        var msg = aborted ? "The request took too long and was cancelled. Please check your network and try again." : "Something went wrong while processing payment.";
-        Swal.fire({ title: "Error", text: msg, icon: "error" });
-      }).finally(function(){ setProcessing(false); });
+        setProcessing(false);
+        cleanupOverlays();
+
+        var msg = aborted
+          ? "The request took too long and was cancelled. Please check your network and try again."
+          : "Something went wrong while processing payment.";
+        Swal.fire({ title: "Error", text: msg, icon: "error" }).then(cleanupOverlays);
+      }).finally(function(){
+        // belt-and-suspenders
+        setProcessing(false);
+        cleanupOverlays();
+      });
     });
   });
 
@@ -973,9 +1027,12 @@
 
   var addRowBtn = document.getElementById("add-row-btn");
   if (addRowBtn) addRowBtn.addEventListener("click", function(){ addRow(); });
+
+  // Global safety: clear any stuck overlays on page load
+  window.addEventListener("load", cleanupOverlays);
 </script>
 
-  <script>
+<script>
 (function(){
   // Reuse your PHONE_RE if it already exists; else define it.
   if (typeof PHONE_RE === "undefined") {
@@ -1070,6 +1127,7 @@
   });
 })();
 </script>
+
 
 </body>
 </html>
