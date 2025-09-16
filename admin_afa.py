@@ -7,12 +7,20 @@ import re
 
 admin_afa_bp = Blueprint("admin_afa", __name__)
 
+# Collections
 afa_col = db["afa_registrations"]
 users_col = db["users"]
 balances_col = db["balances"]
 balance_logs_col = db["balance_logs"]
+afa_settings_col = db["afa_settings"]
+# Optional: if you want to reflect open/stock into a service doc (e.g., "AFA TALKTIME")
+services_col = db["services"]
 
-AMOUNT_DEFAULT = 2.00  # GHS
+# Constants / defaults
+SETTINGS_ID = "AFA_SETTINGS"
+AMOUNT_DEFAULT = 2.00  # only used as a last-resort fallback
+
+# ------------------ Helpers ------------------
 
 def _now():
     return datetime.utcnow()
@@ -42,6 +50,33 @@ def _to_objectid(maybe):
     except Exception:
         return None
 
+def _get_settings():
+    """
+    Ensure there is a single settings doc.
+    Structure: { _id, price: float, is_open: bool, in_stock: bool, updated_at: datetime }
+    """
+    s = afa_settings_col.find_one({"_id": SETTINGS_ID})
+    if not s:
+        s = {
+            "_id": SETTINGS_ID,
+            "price": AMOUNT_DEFAULT,
+            "is_open": True,
+            "in_stock": True,
+            "updated_at": _now(),
+        }
+        afa_settings_col.insert_one(s)
+    return s
+
+def _save_settings(price: float, is_open: bool, in_stock: bool):
+    doc = {
+        "price": float(price),
+        "is_open": bool(is_open),
+        "in_stock": bool(in_stock),
+        "updated_at": _now(),
+    }
+    afa_settings_col.update_one({"_id": SETTINGS_ID}, {"$set": doc}, upsert=True)
+    return _get_settings()  # return hydrated (with _id)
+
 # ------------------ PAGE ------------------
 
 @admin_afa_bp.route("/admin/afa")
@@ -50,12 +85,76 @@ def admin_afa_page():
         return redirect(url_for("login.login"))
     return render_template("admin_afa.html")
 
+# ------------------ SETTINGS API ------------------
+
+@admin_afa_bp.route("/admin/api/afa/settings", methods=["GET"])
+def admin_afa_get_settings():
+    if not _require_admin():
+        return jsonify(success=False, error="Unauthorized"), 401
+    s = _get_settings()
+    return jsonify(
+        success=True,
+        data={
+            "price": float(s.get("price", AMOUNT_DEFAULT)),
+            "is_open": bool(s.get("is_open", True)),
+            "in_stock": bool(s.get("in_stock", True)),
+            "updated_at": s.get("updated_at").strftime("%d %b %Y, %I:%M %p")
+            if s.get("updated_at")
+            else "",
+        },
+    )
+
+@admin_afa_bp.route("/admin/api/afa/settings", methods=["POST"])
+def admin_afa_set_settings():
+    if not _require_admin():
+        return jsonify(success=False, error="Unauthorized"), 401
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        price = float(payload.get("price", AMOUNT_DEFAULT))
+        if price < 0:
+            return jsonify(success=False, error="Price must be >= 0.00"), 400
+        is_open = bool(payload.get("is_open", True))
+        in_stock = bool(payload.get("in_stock", True))
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 400
+
+    doc = _save_settings(price, is_open, in_stock)
+
+    # (Optional) Mirror flags to a service doc if present (safe no-op otherwise)
+    try:
+        services_col.update_many(
+            {"name": {"$in": ["AFA TALKTIME", "AFA Registration"]}},
+            {
+                "$set": {
+                    "status": "OPEN" if is_open else "CLOSED",
+                    "availability": "AVAILABLE" if in_stock else "OUT_OF_STOCK",
+                    "updated_at": _now(),
+                }
+            },
+        )
+    except Exception:
+        pass
+
+    return jsonify(
+        success=True,
+        data={
+            "price": float(doc["price"]),
+            "is_open": bool(doc["is_open"]),
+            "in_stock": bool(doc["in_stock"]),
+            "updated_at": doc["updated_at"].strftime("%d %b %Y, %I:%M %p"),
+        },
+    )
+
 # ------------- LIST / FILTER API -------------
 
 @admin_afa_bp.route("/admin/api/afa/list", methods=["GET"])
 def admin_afa_list():
     if not _require_admin():
         return jsonify(success=False, error="Unauthorized"), 401
+
+    s = _get_settings()
+    current_price = float(s.get("price", AMOUNT_DEFAULT))
 
     q = (request.args.get("q") or "").strip()
     status = (request.args.get("status") or "").strip().lower()
@@ -103,23 +202,41 @@ def admin_afa_list():
     total = afa_col.count_documents(query)
 
     # status counts + total amount (for current filter)
-    agg = list(afa_col.aggregate([
-        {"$match": query},
-        {"$group": {
-            "_id": "$status",
-            "count": {"$sum": 1},
-            "sum_amount": {"$sum": {"$ifNull": ["$amount", AMOUNT_DEFAULT]}}
-        }}
-    ]))
-    status_counts = { (d["_id"] or "pending"): d["count"] for d in agg }
+    # Use the stored amount if present; else fall back to current_price
+    agg = list(
+        afa_col.aggregate(
+            [
+                {"$match": query},
+                {
+                    "$group": {
+                        "_id": "$status",
+                        "count": {"$sum": 1},
+                        "sum_amount": {
+                            "$sum": {
+                                "$cond": [
+                                    {"$gt": ["$amount", None]},
+                                    "$amount",
+                                    current_price,
+                                ]
+                            }
+                        },
+                    }
+                },
+            ]
+        )
+    )
+    status_counts = {(d["_id"] or "pending"): d["count"] for d in agg}
     total_amount = sum(d.get("sum_amount", 0.0) for d in agg)
 
-    cur = (afa_col.find(query)
-           .sort([("created_at", -1)])
-           .skip((page - 1) * page_size)
-           .limit(page_size))
+    cur = (
+        afa_col.find(query)
+        .sort([("created_at", -1)])
+        .skip((page - 1) * page_size)
+        .limit(page_size)
+    )
 
     items = list(cur)
+
     # hydrate customers for display
     cust_ids = []
     for d in items:
@@ -141,32 +258,48 @@ def admin_afa_list():
         created = d.get("created_at")
         cid = d.get("customer_id")
         uinfo = users_map.get(cid) if isinstance(cid, ObjectId) else None
-        out_items.append({
-            "id": str(d["_id"]),
-            "customer": {
-                "id": str(cid) if cid is not None else None,
-                "name": (uinfo.get("username") or (f"{uinfo.get('first_name','')} {uinfo.get('last_name','')}".strip())
-                         if uinfo else None),
-                "phone": uinfo.get("phone") if uinfo else None
-            },
-            "name": d.get("name"),
-            "phone": d.get("phone"),
-            "ghana_card": d.get("ghana_card"),
-            "dob": d.get("dob"),
-            "location": d.get("location"),
-            "amount": float(d.get("amount", AMOUNT_DEFAULT)),
-            "status": (d.get("status") or "pending"),
-            "charged": bool(d.get("charged", False)),
-            "created_at_display": created.strftime("%d %b %Y, %I:%M %p") if created else "",
-        })
+        # prefer stored amount; else use current admin-set price
+        amount = d.get("amount")
+        amount = float(amount if amount is not None else current_price)
 
-    return jsonify(success=True,
-                   items=out_items,
-                   total=total,
-                   total_amount=round(float(total_amount or 0), 2),
-                   page=page,
-                   page_size=page_size,
-                   status_counts=status_counts)
+        out_items.append(
+            {
+                "id": str(d["_id"]),
+                "customer": {
+                    "id": str(cid) if cid is not None else None,
+                    "name": (
+                        uinfo.get("username")
+                        or (
+                            f"{uinfo.get('first_name','')} {uinfo.get('last_name','')}".strip()
+                            if uinfo
+                            else None
+                        )
+                    ),
+                    "phone": uinfo.get("phone") if uinfo else None,
+                },
+                "name": d.get("name"),
+                "phone": d.get("phone"),
+                "ghana_card": d.get("ghana_card"),
+                "dob": d.get("dob"),
+                "location": d.get("location"),
+                "amount": amount,
+                "status": (d.get("status") or "pending"),
+                "charged": bool(d.get("charged", False)),
+                "created_at_display": created.strftime("%d %b %Y, %I:%M %p")
+                if created
+                else "",
+            }
+        )
+
+    return jsonify(
+        success=True,
+        items=out_items,
+        total=total,
+        total_amount=round(float(total_amount or 0), 2),
+        page=page,
+        page_size=page_size,
+        status_counts=status_counts,
+    )
 
 # ------------- UPDATE STATUS -------------
 
@@ -184,17 +317,14 @@ def admin_afa_update_status(reg_id):
     if not oid:
         return jsonify(success=False, error="Invalid id"), 400
 
-    upd = {
-        "status": new_status,
-        "updated_at": _now()
-    }
+    upd = {"status": new_status, "updated_at": _now()}
     res = afa_col.update_one({"_id": oid}, {"$set": upd})
     if not res.matched_count:
         return jsonify(success=False, error="Registration not found"), 404
 
     return jsonify(success=True, message="Status updated.")
 
-# ------------- CHARGE CUSTOMER (GHS 2) -------------
+# ------------- CHARGE CUSTOMER (uses current settings price as fallback) -------------
 
 @admin_afa_bp.route("/admin/api/afa/<reg_id>/charge", methods=["POST"])
 def admin_afa_charge(reg_id):
@@ -212,7 +342,14 @@ def admin_afa_charge(reg_id):
     if reg.get("charged"):
         return jsonify(success=False, error="Already charged"), 400
 
-    amount = float(reg.get("amount", AMOUNT_DEFAULT))
+    settings = _get_settings()
+    current_price = float(settings.get("price", AMOUNT_DEFAULT))
+
+    # prefer stored amount; otherwise charge the current admin-set price
+    amount = float(reg.get("amount", current_price))
+    if amount < 0:
+        amount = current_price
+
     customer_id = reg.get("customer_id")
 
     # find the customer's balance doc (prefer ObjectId)
@@ -234,7 +371,7 @@ def admin_afa_charge(reg_id):
     # update balance
     balances_col.update_one(
         {"_id": bal["_id"]},
-        {"$set": {"amount": new_amount, "updated_at": _now()}}
+        {"$set": {"amount": new_amount, "updated_at": _now()}},
     )
 
     # log
@@ -254,25 +391,29 @@ def admin_afa_charge(reg_id):
     }
     log_res = balance_logs_col.insert_one(log_doc)
 
-    # mark registration as charged
+    # mark registration as charged (also store the amount actually charged)
     afa_col.update_one(
         {"_id": oid},
-        {"$set": {
-            "charged": True,
-            "charged_amount": amount,
-            "charged_at": _now(),
-            "charged_by": actor_name,
-            "charge_log_id": log_res.inserted_id
-        }}
+        {
+            "$set": {
+                "charged": True,
+                "charged_amount": amount,
+                "charged_at": _now(),
+                "charged_by": actor_name,
+                "charge_log_id": log_res.inserted_id,
+                # if the registration didn't have an amount, persist the price used now
+                "amount": reg.get("amount", amount),
+                "updated_at": _now(),
+            }
+        },
     )
 
     return jsonify(success=True, message="Customer charged successfully.")
-# ---- AFA stats for dashboard ----
 
+# ---- AFA stats for dashboard ----
 
 @admin_afa_bp.route("/admin/api/afa/stats", methods=["GET"])
 def admin_afa_stats():
-    # Reuse your existing admin guard
     if not _require_admin():
         return jsonify(success=False, error="Unauthorized"), 401
 
@@ -281,25 +422,28 @@ def admin_afa_stats():
     end = start + timedelta(days=1)
 
     try:
-        total      = afa_col.count_documents({})
-        today_cnt  = afa_col.count_documents({"created_at": {"$gte": start, "$lt": end}})
-        pending    = afa_col.count_documents({"status": "pending"})
+        total = afa_col.count_documents({})
+        today_cnt = afa_col.count_documents({"created_at": {"$gte": start, "$lt": end}})
+        pending = afa_col.count_documents({"status": "pending"})
         processing = afa_col.count_documents({"status": "processing"})
-        delivered  = afa_col.count_documents({"status": "delivered"})
-        completed  = afa_col.count_documents({"status": "completed"})
-        failed     = afa_col.count_documents({"status": {"$in": ["failed", "rejected"]}})
-        uncharged  = afa_col.count_documents({"$or": [{"charged": {"$exists": False}}, {"charged": False}]})
+        delivered = afa_col.count_documents({"status": "delivered"})
+        completed = afa_col.count_documents({"status": "completed"})
+        failed = afa_col.count_documents({"status": {"$in": ["failed", "rejected"]}})
+        uncharged = afa_col.count_documents({"$or": [{"charged": {"$exists": False}}, {"charged": False}]})
     except Exception:
         total = today_cnt = pending = processing = delivered = completed = failed = uncharged = 0
 
-    return jsonify(success=True, data={
-        "total": total,
-        "today": today_cnt,
-        "pending": pending,
-        "processing": processing,
-        "delivered": delivered,
-        "completed": completed,
-        "failed": failed,
-        "rejected": failed,   # keep a mirror key if you use it in UI
-        "uncharged": uncharged
-    })
+    return jsonify(
+        success=True,
+        data={
+            "total": total,
+            "today": today_cnt,
+            "pending": pending,
+            "processing": processing,
+            "delivered": delivered,
+            "completed": completed,
+            "failed": failed,
+            "rejected": failed,  # mirror key for front-end convenience
+            "uncharged": uncharged,
+        },
+    )
