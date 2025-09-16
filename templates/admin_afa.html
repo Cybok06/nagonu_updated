@@ -31,6 +31,61 @@
       <h3 class="mb-0">AFA Registrations (Admin)</h3>
     </div>
 
+    <!-- AFA Settings -->
+    <div class="page-card p-3 mb-3">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-2">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-gear-fill text-primary fs-5"></i>
+          <h5 class="mb-0">AFA Settings</h5>
+        </div>
+        <div class="text-muted small">
+          Last updated: <span id="afa-updated-at">—</span>
+        </div>
+      </div>
+
+      <form id="afa-settings-form" class="row g-3 align-items-end">
+        <div class="col-12 col-md-3">
+          <label class="form-label fw-semibold" for="afa-price">Price (GHS)</label>
+          <div class="input-group">
+            <span class="input-group-text">GHS</span>
+            <input id="afa-price" type="number" step="0.01" min="0" class="form-control" placeholder="2.00">
+          </div>
+          <div class="form-text">Amount customers will be charged for AFA registration.</div>
+        </div>
+
+        <div class="col-6 col-md-3">
+          <label class="form-label fw-semibold d-block">Open / Closed</label>
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="afa-is-open">
+            <label class="form-check-label" for="afa-is-open">
+              <span id="lbl-open">Open</span>
+            </label>
+          </div>
+          <div class="form-text">Turn off to close AFA registration.</div>
+        </div>
+
+        <div class="col-6 col-md-3">
+          <label class="form-label fw-semibold d-block">Availability</label>
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="afa-in-stock">
+            <label class="form-check-label" for="afa-in-stock">
+              <span id="lbl-stock">Available</span>
+            </label>
+          </div>
+          <div class="form-text">Turn off to mark as Out of Stock.</div>
+        </div>
+
+        <div class="col-12 col-md-3 d-flex gap-2">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save me-1"></i> Save Settings
+          </button>
+          <button type="button" id="afa-settings-refresh" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+          </button>
+        </div>
+      </form>
+    </div>
+
     <!-- Filters -->
     <div class="page-card p-3 mb-3">
       <form id="filter-form" class="row g-2 align-items-end">
@@ -138,9 +193,11 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
     (function(){
       var page = 1;
+      var afaSettings = { price: 2.00, is_open: true, in_stock: true };
 
       function money(n){ return Number(n || 0).toFixed(2); }
       function badge(st){
@@ -154,6 +211,61 @@
         return '<span class="'+cls+'">'+ s.charAt(0).toUpperCase()+s.slice(1) +'</span>';
       }
 
+      // ===== AFA SETTINGS =====
+      function loadAfaSettings(){
+        return fetch("/admin/api/afa/settings")
+          .then(r=>r.json())
+          .then(res=>{
+            if(!res || !res.success){ throw new Error((res && res.error) || "Failed to load settings"); }
+            var s = res.data || {};
+            afaSettings.price   = (s.price != null ? Number(s.price) : 2.00);
+            afaSettings.is_open = !!s.is_open;
+            afaSettings.in_stock= !!s.in_stock;
+
+            document.getElementById("afa-price").value = afaSettings.price.toFixed(2);
+            document.getElementById("afa-is-open").checked = afaSettings.is_open;
+            document.getElementById("afa-in-stock").checked = afaSettings.in_stock;
+            document.getElementById("lbl-open").textContent  = afaSettings.is_open ? "Open" : "Closed";
+            document.getElementById("lbl-stock").textContent = afaSettings.in_stock ? "Available" : "Out of Stock";
+            document.getElementById("afa-updated-at").textContent = s.updated_at || "—";
+          });
+      }
+
+      document.getElementById("afa-is-open").addEventListener("change", function(){
+        document.getElementById("lbl-open").textContent = this.checked ? "Open" : "Closed";
+      });
+      document.getElementById("afa-in-stock").addEventListener("change", function(){
+        document.getElementById("lbl-stock").textContent = this.checked ? "Available" : "Out of Stock";
+      });
+      document.getElementById("afa-settings-refresh").addEventListener("click", function(){
+        loadAfaSettings().catch(err=>Swal.fire("Error", err.message || "Failed to refresh settings", "error"));
+      });
+      document.getElementById("afa-settings-form").addEventListener("submit", function(e){
+        e.preventDefault();
+        var price = parseFloat(document.getElementById("afa-price").value || "0");
+        var isOpen = document.getElementById("afa-is-open").checked;
+        var inStock = document.getElementById("afa-in-stock").checked;
+
+        if (isNaN(price) || price < 0){
+          Swal.fire("Invalid Price", "Enter a valid price (>= 0.00).", "warning");
+          return;
+        }
+
+        fetch("/admin/api/afa/settings", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ price: price, is_open: isOpen, in_stock: inStock })
+        })
+        .then(r=>r.json())
+        .then(res=>{
+          if(!res || !res.success){ throw new Error((res && res.error) || "Failed to save"); }
+          Swal.fire("Saved", "AFA settings updated successfully.", "success");
+          return loadAfaSettings();
+        })
+        .catch(err=>Swal.fire("Error", err.message || "Failed to save settings", "error"));
+      });
+
+      // ===== LIST / TABLE =====
       function load(){
         var q = document.getElementById("q").value || "";
         var status = document.getElementById("status").value || "";
@@ -172,7 +284,7 @@
         fetch("/admin/api/afa/list?"+params.join("&"))
           .then(function(r){ return r.json(); })
           .then(function(res){
-            if (!res || !res.success){ alert((res && res.error) || "Failed to load"); return; }
+            if (!res || !res.success){ Swal.fire("Error", (res && res.error) || "Failed to load", "error"); return; }
 
             document.getElementById("stat-total").textContent = res.total;
             document.getElementById("stat-sum").textContent = money(res.total_amount || 0);
@@ -212,7 +324,7 @@
                 '<td>'+
                   '<div class="btn-group btn-group-sm" role="group">'+
                     '<button class="btn btn-outline-success btn-deliver" data-id="'+it.id+'" '+(disableDeliver?'disabled':'')+'>Mark Delivered</button>'+
-                    '<button class="btn btn-outline-danger btn-charge" data-id="'+it.id+'" '+(disableCharge?'disabled':'')+'>Charge GHS 2</button>'+
+                    '<button class="btn btn-outline-danger btn-charge" data-id="'+it.id+'" '+(disableCharge?'disabled':'')+'>Charge GHS '+money(afaSettings.price)+'</button>'+
                   '</div>'+
                 '</td>';
               tbody.appendChild(tr);
@@ -226,7 +338,7 @@
             document.getElementById("prev").disabled = (res.page <= 1);
             document.getElementById("next").disabled = (res.page * res.page_size >= res.total);
           })
-          .catch(function(){ alert("Network error"); });
+          .catch(function(){ Swal.fire("Error", "Network error while loading data", "error"); });
       }
 
       // filters
@@ -260,9 +372,9 @@
             body: JSON.stringify({status: "delivered"})
           }).then(function(r){ return r.json(); })
             .then(function(res){
-              if(!res || !res.success){ alert((res && res.error) || "Failed"); }
+              if(!res || !res.success){ Swal.fire("Error", (res && res.error) || "Failed"); }
               load();
-            }).catch(function(){ alert("Network error"); })
+            }).catch(function(){ Swal.fire("Error", "Network error", "error"); })
             .finally(function(){ b1.disabled=false; });
           return;
         }
@@ -270,22 +382,38 @@
         var b2 = e.target.closest(".btn-charge");
         if (b2){
           var id = b2.getAttribute("data-id");
-          if (!confirm("Charge this customer GHS 2.00 for AFA registration?")) return;
-          b2.disabled = true;
-          fetch("/admin/api/afa/"+encodeURIComponent(id)+"/charge", {
-            method: "POST"
-          }).then(function(r){ return r.json(); })
-            .then(function(res){
-              if(!res || !res.success){ alert((res && res.error) || "Charge failed"); }
-              else { alert("Charged successfully."); }
-              load();
-            }).catch(function(){ alert("Network error"); })
-            .finally(function(){ b2.disabled=false; });
+          Swal.fire({
+            title: "Charge customer?",
+            html: "AFA charge: <b>GHS "+money(afaSettings.price)+"</b>",
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "Yes, charge",
+            cancelButtonText: "Cancel",
+            confirmButtonColor: "#dc3545"
+          }).then(function(resSwal){
+            if (!resSwal.isConfirmed) return;
+            b2.disabled = true;
+            fetch("/admin/api/afa/"+encodeURIComponent(id)+"/charge", {
+              method: "POST"
+            }).then(function(r){ return r.json(); })
+              .then(function(res){
+                if(!res || !res.success){ Swal.fire("Charge failed", (res && res.error) || "Could not charge", "error"); }
+                else { Swal.fire("Charged", "Customer charged successfully.", "success"); }
+                load();
+              }).catch(function(){ Swal.fire("Error", "Network error", "error"); })
+              .finally(function(){ b2.disabled=false; });
+          });
           return;
         }
       });
 
-      load(); // initial
+      // Boot: load settings first, then table
+      loadAfaSettings()
+        .then(load)
+        .catch(err=>{
+          Swal.fire("Error", err.message || "Failed to load AFA settings", "error");
+          load(); // still try to load table
+        });
     })();
   </script>
 </body>
