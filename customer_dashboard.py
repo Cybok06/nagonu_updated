@@ -3,6 +3,7 @@ from bson import ObjectId
 from db import db
 import json, ast, re
 from datetime import datetime
+from typing import Optional, Any, Dict, List  # <-- for Python < 3.10 union hints
 
 customer_dashboard_bp = Blueprint("customer_dashboard", __name__)
 services_col = db["services"]
@@ -10,6 +11,7 @@ balances_col = db["balances"]
 orders_col = db["orders"]
 service_profits_col = db["service_profits"]  # per-customer overrides
 users_col = db["users"]                      # for display name
+settings_col = db["settings"]                # <-- NEW: for AFA settings (price/open/stock)
 
 # ---------- helpers ----------
 _NUM = re.compile(r"^\s*-?\d+(\.\d+)?\s*$", re.IGNORECASE)
@@ -19,7 +21,7 @@ _MIN = re.compile(r"(\d+(?:\.\d+)?)[\s]*(?:MIN|MINS|MINUTE|MINUTES)\b", re.IGNOR
 _PKG_TAIL = re.compile(r"\s*\(Pkg\s*\d+\)\s*$", re.IGNORECASE)
 _mapping_like = re.compile(r"^\s*\{.*\}\s*$", re.DOTALL)
 
-def _to_float(x):
+def _to_float(x: Any) -> Optional[float]:
     try:
         return float(x)
     except Exception:
@@ -27,7 +29,7 @@ def _to_float(x):
 
 # ---- unit helpers ------------------------------------------------------------
 
-def _service_unit(svc) -> str:
+def _service_unit(svc: Dict[str, Any]) -> str:
     """
     Returns the unit for a service:
       - 'minutes' for AFA talktime (by name or optional svc['unit']=='minutes')
@@ -41,7 +43,7 @@ def _service_unit(svc) -> str:
         return "minutes"
     return "data"
 
-def _format_volume_unit(value: float | None, unit: str) -> str:
+def _format_volume_unit(value: Optional[float], unit: str) -> str:
     if value is None:
         return "-"
     try:
@@ -56,7 +58,7 @@ def _format_volume_unit(value: float | None, unit: str) -> str:
         return f"{int(gb)}GB" if abs(gb - int(gb)) < 1e-9 else f"{gb:.2f}GB"
     return f"{int(v)}MB"
 
-def _parse_value_field(value):
+def _parse_value_field(value: Any) -> Any:
     """
     Accepts:
       - dict like {"id": 50, "volume": 20000}
@@ -87,7 +89,7 @@ def _parse_value_field(value):
         return vt
     return value
 
-def _extract_volume(value, unit: str) -> float | None:
+def _extract_volume(value: Any, unit: str) -> Optional[float]:
     """Return numeric volume for sorting (MB for data, minutes for talktime)."""
     if isinstance(value, dict):
         vol = value.get("volume")
@@ -134,7 +136,7 @@ def _extract_volume(value, unit: str) -> float | None:
             return None
     return None
 
-def _value_text_for_display(value, unit: str):
+def _value_text_for_display(value: Any, unit: str) -> str:
     if isinstance(value, dict):
         vol = _extract_volume(value, unit)
         return _format_volume_unit(vol, unit) if vol is not None else "-"
@@ -144,18 +146,18 @@ def _value_text_for_display(value, unit: str):
         return _format_volume_unit(vol, unit) if vol is not None else (cleaned or "-")
     return value or "-"
 
-def _get_service_default_profit(service_doc):
+def _get_service_default_profit(service_doc: Dict[str, Any]) -> float:
     return _to_float(service_doc.get("default_profit_percent")) or 0.0
 
-def _get_customer_profit_override(service_id, customer_id_obj):
+def _get_customer_profit_override(service_id: ObjectId, customer_id_obj: ObjectId) -> Optional[float]:
     ov = service_profits_col.find_one({"service_id": service_id, "customer_id": customer_id_obj})
     return _to_float(ov.get("profit_percent")) if ov else None
 
-def _effective_profit_percent(service_doc, customer_id_obj):
+def _effective_profit_percent(service_doc: Dict[str, Any], customer_id_obj: ObjectId) -> float:
     override = _get_customer_profit_override(service_doc["_id"], customer_id_obj)
     return override if override is not None else _get_service_default_profit(service_doc)
 
-def _price_with_profit(amount, profit_percent):
+def _price_with_profit(amount: Optional[float], profit_percent: Optional[float]) -> Optional[float]:
     a = _to_float(amount)
     p = _to_float(profit_percent) or 0.0
     if a is None:
@@ -163,7 +165,7 @@ def _price_with_profit(amount, profit_percent):
     return round(a + (a * (p / 100.0)), 2)
 
 # ---- service ordering ----
-PREFERRED_ORDER = [
+PREFERRED_ORDER: List[str] = [
     "MTN",
     "AT - iShare",
     "AT - BigTime",
@@ -173,7 +175,7 @@ PREFERRED_ORDER = [
 def _norm(s: str) -> str:
     return (s or "").strip().lower()
 
-def _name_rank(name: str) -> int | None:
+def _name_rank(name: str) -> Optional[int]:
     n = _norm(name)
     for i, want in enumerate(PREFERRED_ORDER):
         if _norm(want) == n:
@@ -184,7 +186,7 @@ def _name_rank(name: str) -> int | None:
             return i
     return None
 
-def _created_ts(service_doc) -> float:
+def _created_ts(service_doc: Dict[str, Any]) -> float:
     ca = service_doc.get("created_at")
     if isinstance(ca, datetime):
         return ca.timestamp()
@@ -196,7 +198,7 @@ def _created_ts(service_doc) -> float:
     except Exception:
         return 0.0
 
-def _service_priority_tuple(svc):
+def _service_priority_tuple(svc: Dict[str, Any]):
     prio = _to_float(svc.get("priority"))
     prio = prio if prio is not None else float("inf")
     name = svc.get("name") or ""
@@ -208,7 +210,7 @@ def _service_priority_tuple(svc):
     alpha = _norm(name)
     return (prio, nrank, display_order, ts, alpha)
 
-def _display_name(user_doc):
+def _display_name(user_doc: Optional[Dict[str, Any]]) -> str:
     if not user_doc:
         return "Customer"
     for key in ("full_name", "name"):
@@ -226,7 +228,7 @@ def _display_name(user_doc):
 
 # ---- new: service-state helper ------------------------------------------------
 
-def _service_state(svc):
+def _service_state(svc: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize flags + derive if the service can be ordered.
     """
@@ -258,6 +260,47 @@ def _service_state(svc):
         "can_order": can_order,
         "disabled_reason": disabled_reason
     }
+
+# ---------- AFA settings loader (price / open / stock) ----------
+def _load_afa_settings() -> Dict[str, Any]:
+    """
+    Reads configurable AFA price/open/stock from db.settings.
+    Falls back to defaults and to flags on 'AFA TALKTIME' service if present.
+    """
+    defaults: Dict[str, Any] = {
+        "price": 2.00,
+        "is_open": True,
+        "in_stock": True,
+        "status": "OPEN",
+        "availability": "AVAILABLE",
+        "disabled_reason": "This service is currently unavailable."
+    }
+    doc = settings_col.find_one({"key": "afa_settings"}) or settings_col.find_one({"key": "afa"})
+    if doc:
+        price = _to_float(doc.get("price"))
+        if price is not None:
+            defaults["price"] = price
+        is_open = bool(doc.get("is_open", True))
+        in_stock = bool(doc.get("in_stock", True))
+        defaults["is_open"] = is_open
+        defaults["in_stock"] = in_stock
+        defaults["status"] = "OPEN" if is_open else "CLOSED"
+        defaults["availability"] = "AVAILABLE" if in_stock else "OUT_OF_STOCK"
+        if doc.get("disabled_reason"):
+            defaults["disabled_reason"] = str(doc["disabled_reason"])
+
+    # Optional: reflect flags from a service named AFA TALKTIME
+    svc = services_col.find_one({"name": {"$regex": r"^\s*AFA\s+TALKTIME\s*$", "$options": "i"}})
+    if svc:
+        st = _service_state(svc)
+        defaults["status"] = st["status"]
+        defaults["availability"] = st["availability"]
+        defaults["is_open"] = (st["status"] == "OPEN")
+        defaults["in_stock"] = (st["availability"] == "AVAILABLE")
+        if st.get("disabled_reason"):
+            defaults["disabled_reason"] = st["disabled_reason"]
+
+    return defaults
 
 # ---------- globals ----------
 @customer_dashboard_bp.app_context_processor
@@ -299,7 +342,7 @@ def customer_dashboard():
     raw_services = list(services_col.find({}))
     raw_services.sort(key=_service_priority_tuple)
 
-    services = []
+    services: List[Dict[str, Any]] = []
     for s in raw_services:
         s["_id_str"] = str(s["_id"])
         eff_profit = _effective_profit_percent(s, user_oid)
@@ -311,7 +354,7 @@ def customer_dashboard():
         unit = _service_unit(s)  # minutes for AFA TALKTIME, data otherwise
         offers = s.get("offers") or []
 
-        normalized_offers = []
+        normalized_offers: List[Dict[str, Any]] = []
         for of in offers:
             parsed_value = _parse_value_field(of.get("value"))
             vol_num = _extract_volume(parsed_value, unit)  # for sorting
@@ -349,8 +392,9 @@ def customer_dashboard():
         .sort("created_at", -1)
         .limit(5)
     )
-# ---- split into categories (Express vs others) ----
-    def _is_express(svc):
+
+    # ---- split into categories (Express vs others) ----
+    def _is_express(svc: Dict[str, Any]) -> bool:
         cat = (svc.get("service_category") or "").strip().lower()
         cat2 = (svc.get("category") or "").strip().lower()
         return cat == "express services" or cat2 == "express"
@@ -358,12 +402,15 @@ def customer_dashboard():
     express_services = [s for s in services if _is_express(s)]
     regular_services = [s for s in services if not _is_express(s)]
 
-    return render_template(
-    "customer_dashboard.html",
-    services=regular_services,        # keep old variable working for existing section
-    express_services=express_services,# NEW
-    balance=balance,
-    recent_orders=recent_orders,
-    customer_name=customer_name,
-)
+    # NEW: AFA settings (price / open / stock) for template
+    afa = _load_afa_settings()
 
+    return render_template(
+        "customer_dashboard.html",
+        services=regular_services,         # keep old variable working for existing section
+        express_services=express_services, # NEW
+        balance=balance,
+        recent_orders=recent_orders,
+        customer_name=customer_name,
+        afa=afa,                           # pass settings for the AFA block in your HTML
+    )
