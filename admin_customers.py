@@ -3,7 +3,6 @@ from flask import Blueprint, render_template, session, redirect, url_for, reques
 from db import db
 from urllib.parse import urlencode
 from bson import ObjectId
-import bson
 import math
 import re
 from werkzeug.security import generate_password_hash
@@ -17,6 +16,9 @@ def _require_admin_json():
         return False, (jsonify({"status": "error", "message": "Unauthorized"}), 403)
     return True, None
 
+def _require_admin_redirect():
+    return session.get("role") == "admin"
+
 def _to_object_id(hex_id: str):
     try:
         return ObjectId(hex_id)
@@ -26,7 +28,7 @@ def _to_object_id(hex_id: str):
 # View Customers Page
 @admin_customers_bp.route("/admin/customers")
 def view_customers():
-    if session.get("role") != "admin":
+    if not _require_admin_redirect():
         return redirect(url_for("login.login"))
 
     # --- Filters ---
@@ -41,6 +43,9 @@ def view_customers():
 
     # Build query
     conditions = [{"role": "customer"}]
+
+    # Exclude deleted by default
+    conditions.append({"$or": [{"deleted": {"$exists": False}}, {"deleted": False}]})
 
     if q:
         regex = {"$regex": re.escape(q), "$options": "i"}
@@ -142,10 +147,10 @@ def update_customer(customer_id):
         data.pop("password", None)
 
     # Protect fields
-    for key in ("_id", "role"):
+    for key in ("_id", "role", "deleted", "deleted_at"):
         data.pop(key, None)
 
-    res = users_col.update_one({"_id": oid}, {"$set": data})
+    res = users_col.update_one({"_id": oid, "role": "customer"}, {"$set": data})
     return jsonify({
         "status": "success" if res.modified_count else "noop",
         "message": "Customer updated successfully" if res.modified_count else "No changes detected"
@@ -175,11 +180,11 @@ def toggle_block(customer_id):
     update_doc = {
         "$set": {
             "status": new_status,
-            "is_blocked": bool(block),            # <-- add boolean for easy checks
+            "is_blocked": bool(block),
             "status_updated_at": now
         },
         "$push": {
-            "status_history": {                   # <-- add audit trail
+            "status_history": {
                 "at": now,
                 "by": session.get("admin_id") or session.get("user_id"),
                 "action": "toggle_block",
@@ -195,4 +200,57 @@ def toggle_block(customer_id):
         "message": "Customer blocked" if block else "Customer unblocked",
         "new_status": new_status,
         "modified": int(bool(res.modified_count))
+    })
+
+# === Delete (Soft by default, optional hard delete) ===
+@admin_customers_bp.route("/admin/customers/delete/<customer_id>", methods=["POST"])
+def delete_customer(customer_id):
+    ok, resp = _require_admin_json()
+    if not ok:
+        return resp
+
+    oid = _to_object_id(customer_id)
+    if not oid:
+        return jsonify({"status": "error", "message": "Invalid customer id"}), 400
+
+    payload = request.get_json(silent=True) or {}
+    hard = bool(payload.get("hard", False))
+
+    user = users_col.find_one({"_id": oid, "role": "customer"})
+    if not user:
+        return jsonify({"status": "error", "message": "Customer not found"}), 404
+
+    if hard:
+        # Permanent delete (use with care; consider cascading in your app if needed)
+        res = users_col.delete_one({"_id": oid})
+        return jsonify({
+            "status": "success" if res.deleted_count else "noop",
+            "message": "Customer permanently deleted" if res.deleted_count else "No action taken",
+            "hard": True
+        })
+
+    # Soft delete (recommended)
+    now = datetime.utcnow()
+    res = users_col.update_one(
+        {"_id": oid},
+        {
+            "$set": {
+                "deleted": True,
+                "deleted_at": now,
+                "status": "deleted"
+            },
+            "$push": {
+                "status_history": {
+                    "at": now,
+                    "by": session.get("admin_id") or session.get("user_id"),
+                    "action": "delete",
+                    "to": "deleted"
+                }
+            }
+        }
+    )
+    return jsonify({
+        "status": "success" if res.modified_count else "noop",
+        "message": "Customer deleted (soft)" if res.modified_count else "No action taken",
+        "hard": False
     })
