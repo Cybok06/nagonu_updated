@@ -17,6 +17,7 @@ transactions_col = db["transactions"]
 services_col = db["services"]
 service_profits_col = db["service_profits"]  # per-customer overrides
 
+
 # ===== Provider Configs =======================================================
 # --- Toppily (existing) ---
 TOPPILY_URL = "https://toppily.com/api/v1/buy-other-package"
@@ -454,6 +455,27 @@ def _send_express_bulk(orders: list, incoming_ref: str, order_id: str, debug_eve
         jlog("express_network_error", order_id=order_id, ref=incoming_ref, error=str(e))
         return False, {"success": False, "error": str(e), "http_status": 599}
 
+# ===== Unavailability checker =================================================
+def _service_unavailability_reason(svc_doc: dict):
+    """
+    Returns (is_unavailable, reason_text)
+    reason_text is exactly 'Out of stock' or 'Closed'.
+    Missing service is treated as 'Closed'.
+    """
+    if not svc_doc:
+        return True, "Closed"
+
+    status = (svc_doc.get("status") or "").strip().upper()
+    availability = (svc_doc.get("availability") or "").strip().upper()
+
+    if availability in {"OUT_OF_STOCK", "OUT OF STOCK", "OUTOFSTOCK"}:
+        return True, "Out of stock"
+
+    if status == "CLOSED":
+        return True, "Closed"
+
+    return False, ""
+
 # ===== Route (NO background auto-update) =====================================
 @checkout_bp.route("/checkout", methods=["POST"])
 def process_checkout():
@@ -518,7 +540,8 @@ def process_checkout():
                         {"_id": ObjectId(service_id_raw)},
                         {
                             "type": 1, "network_id": 1, "name": 1, "network": 1,
-                            "offers": 1, "default_profit_percent": 1, "service_category": 1
+                            "offers": 1, "default_profit_percent": 1, "service_category": 1,
+                            "status": 1, "availability": 1
                         }
                     )
                     if svc_doc:
@@ -529,6 +552,20 @@ def process_checkout():
                 except Exception:
                     svc_doc = None
                     svc_type = None
+
+            # ===== HARD GATE: availability / status =====
+            is_unavail, reason_text = _service_unavailability_reason(svc_doc)
+            if is_unavail:
+                # Stop the entire checkout and return explicit reason
+                return jsonify({
+                    "success": False,
+                    "message": reason_text,              # "Out of stock" or "Closed"
+                    "unavailable": {
+                        "serviceId": service_id_raw,
+                        "serviceName": svc_name,
+                        "reason": reason_text
+                    }
+                }), 400
 
             # --- Compute base_amount & profit_amount (ABSOLUTE) ---
             base_hint = _to_float(item.get("base_amount"))
