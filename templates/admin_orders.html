@@ -89,9 +89,12 @@
       .order-card .items{margin:.5rem 0 0}
       .order-card .it{display:flex;justify-content:space-between;border-top:1px dashed var(--border);padding-top:.5rem;margin-top:.5rem}
       .order-card .tot{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}
-      .order-card .footer{display:flex;gap:.5rem;align-items:center;margin-top:.75rem}
+      .order-card .footer{display:flex;gap:.5rem;align-items:center;margin-top:.75rem;flex-wrap:wrap}
       .order-card .footer .form-check-input{width:22px;height:22px}
       .order-card .btn-sm{padding:.45rem .6rem}
+      .card-actions{display:flex;gap:.35rem;flex-wrap:wrap; width:100%}
+      .card-actions form {display:inline}
+      .card-actions .btn {font-size:.75rem; padding:.35rem .55rem; border-radius:999px}
     }
     @media (min-width: 768px){
       .cards{display:none}
@@ -147,8 +150,13 @@
           </button>
         </form>
 
+        <!-- NEW: Mark Selected → Delivered (desktop header) -->
+        <button class="btn btn-dark btn-icon" id="markSelectedDelivered">
+          <i class="fa-solid fa-check-double"></i> Mark Selected → Delivered
+        </button>
+
         <!-- Schedule for selected -->
-        <button class="btn btn-dark btn-icon" id="openScheduleSelected" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+        <button class="btn btn-outline-dark btn-icon" id="openScheduleSelected" data-bs-toggle="modal" data-bs-target="#scheduleModal">
           <i class="fa-solid fa-calendar-plus"></i> Schedule Status (Selected)
         </button>
       </div>
@@ -315,14 +323,10 @@
                   <i class="fa-solid fa-circle"></i> {{ st|capitalize }}
                 </span>
 
-                <!-- Inline actions toggle -->
-                <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-toggle-actions="actions-{{ order['_id'] }}">
-                  Change
-                </button>
-
-                <div id="actions-{{ order['_id'] }}" class="status-actions d-none mt-2">
+                <!-- Inline actions tray (desktop) -->
+                <div class="status-actions mt-2">
                   {% for newst in ['failed','refunded','processing','delivered'] %}
-                  <form method="POST" class="m-0"
+                  <form method="POST" class="m-0 d-inline"
                         action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
                     <input type="hidden" name="status" value="{{ newst }}">
                     <button type="submit" class="btn btn-outline-{{ 'danger' if newst=='failed' else ('success' if newst=='delivered' else ('info' if newst=='processing' else 'primary')) }} btn-sm"
@@ -429,27 +433,22 @@
 
         <div class="footer">
           <input class="form-check-input row-check" type="checkbox" value="{{ order['_id'] }}">
-          <!-- Mobile actions dropdown: update status without leaving card -->
-          <div class="dropdown ms-auto">
-            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-              <i class="fa-solid fa-wrench me-1"></i>Actions
-            </button>
-            <div class="dropdown-menu dropdown-menu-end p-2" style="min-width:220px">
-              <!-- Each dropdown item is a mini-form posting the new status -->
-              {% for newst in ['delivered','processing','failed','refunded'] %}
-              <form method="POST" action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}" class="mb-1">
-                <input type="hidden" name="status" value="{{ newst }}">
-                <button type="submit" class="dropdown-item d-flex align-items-center gap-2"
-                  {% if newst=='refunded' %}data-confirm="Mark this order as Refunded? This credits the customer's wallet if not already."{% endif %}>
-                  <i class="fa-solid fa-circle"></i> {{ newst|capitalize }}
-                </button>
-              </form>
-              {% endfor %}
-              <div class="dropdown-divider"></div>
-              <button class="dropdown-item d-flex align-items-center gap-2" data-quick-schedule="{{ order['_id'] }}" data-bs-toggle="modal" data-bs-target="#scheduleModal">
-                <i class="fa-solid fa-calendar-plus"></i> Schedule status…
+
+          <!-- MOBILE ACTIONS (always visible; no dropdowns) -->
+          <div class="card-actions">
+            {% for newst in ['delivered','processing','failed','refunded'] %}
+            <form method="POST" action="{{ url_for('admin_orders.update_order_status', order_id=order['_id']) }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+              <input type="hidden" name="status" value="{{ newst }}">
+              <button type="submit"
+                class="btn btn-outline-{{ 'success' if newst=='delivered' else ('info' if newst=='processing' else ('danger' if newst=='failed' else 'primary')) }} btn-sm"
+                {% if newst=='refunded' %}data-confirm="Mark this order as Refunded? This credits the customer's wallet if not already."{% endif %}>
+                {{ newst|capitalize }}
               </button>
-            </div>
+            </form>
+            {% endfor %}
+            <button class="btn btn-dark btn-sm" data-quick-schedule="{{ order['_id'] }}" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+              <i class="fa-solid fa-calendar-plus"></i> Schedule
+            </button>
           </div>
         </div>
       </div>
@@ -489,12 +488,20 @@
     {% endif %}
   </div>
 
+  <!-- Hidden form for "Mark Selected → Delivered" -->
+  <form method="POST" id="bulkSelectedDeliverForm" action="{{ url_for('admin_orders.bulk_deliver_selected') }}" class="d-none">
+    <input type="hidden" name="order_ids" id="bulkSelectedIds">
+  </form>
+
   <!-- Floating bulk bar (mobile) -->
   <div class="floating-bar" id="floatingBar">
     <div><span id="selCount" class="badge bg-light text-dark">0</span> selected</div>
     <div class="d-flex gap-2">
       <button class="btn btn-outline-light btn-sm" id="fbSchedule" data-bs-toggle="modal" data-bs-target="#scheduleModal">
         <i class="fa-solid fa-calendar-plus me-1"></i>Schedule
+      </button>
+      <button class="btn btn-success btn-sm" id="fbDeliver">
+        <i class="fa-solid fa-check-double me-1"></i>Deliver
       </button>
       <a href="{{ url_for('admin_orders.admin_view_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}" class="btn btn-light btn-sm">
         Reset
@@ -585,26 +592,6 @@
     const filtersCard = document.getElementById('filtersCard');
     toggleFiltersBtn?.addEventListener('click', ()=>filtersCard.classList.toggle('show'));
 
-    // Toggle inline actions tray (desktop)
-    document.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-toggle-actions]');
-      if (!btn) return;
-      const id = btn.getAttribute('data-toggle-actions');
-      const target = document.getElementById(id);
-      if (!target) return;
-      const cell = btn.closest('td') || document;
-      $$('.status-actions', cell).forEach(x => { if (x !== target) x.classList.add('d-none'); });
-      target.classList.toggle('d-none');
-    });
-
-    // Centralized confirm
-    document.addEventListener('click', (e) => {
-      const submitBtn = e.target.closest('button[type="submit"][data-confirm], .btn[data-confirm]');
-      if (!submitBtn) return;
-      const msg = submitBtn.getAttribute('data-confirm') || 'Are you sure?';
-      if (!window.confirm(msg)) { e.preventDefault(); e.stopPropagation(); }
-    });
-
     // Select all / per-row selection (desktop)
     const checkAll = document.getElementById('checkAll');
     function getSelectedIds(){
@@ -655,7 +642,7 @@
       runAtUtc.value = `${y}-${m}-${d} ${hh}:${mm}`;
     });
 
-    // Jobs offcanvas loader (fix action URL creation)
+    // Jobs offcanvas loader
     async function loadJobs(){
       const list = document.getElementById('jobsList');
       list.innerHTML = '<div class="text-center text-muted py-2"><i class="fa-solid fa-spinner fa-spin me-2"></i>Loading…</div>';
@@ -697,6 +684,7 @@
     const floatingBar = document.getElementById('floatingBar');
     const selCount = document.getElementById('selCount');
     const fbSchedule = document.getElementById('fbSchedule');
+    const fbDeliver = document.getElementById('fbDeliver');
 
     function updateFloatingBar(){
       const count = getSelectedIds().length;
@@ -704,12 +692,39 @@
       if (count > 0) floatingBar.classList.add('show');
       else floatingBar.classList.remove('show');
     }
+
     fbSchedule?.addEventListener('click', ()=>{
       const ids = getSelectedIds();
       scheduleOrderIds.value = ids.join(',');
       selectedOrdersPreview.innerHTML = ids.length
         ? `<span class="badge text-bg-dark">${ids.length}</span> selected`
         : `<span class="text-danger">No orders selected yet.</span>`;
+    });
+
+    // Bulk Selected → Delivered (desktop button)
+    const markSelectedDeliveredBtn = document.getElementById('markSelectedDelivered');
+    const bulkSelectedDeliverForm = document.getElementById('bulkSelectedDeliverForm');
+    const bulkSelectedIds = document.getElementById('bulkSelectedIds');
+
+    function submitBulkDeliverSelected(){
+      const ids = getSelectedIds();
+      if (!ids.length){
+        alert('Select at least one order.');
+        return;
+      }
+      bulkSelectedIds.value = ids.join(',');
+      bulkSelectedDeliverForm.submit();
+    }
+
+    markSelectedDeliveredBtn?.addEventListener('click', submitBulkDeliverSelected);
+    fbDeliver?.addEventListener('click', submitBulkDeliverSelected);
+
+    // Centralized confirm (for any data-confirm buttons)
+    document.addEventListener('click', (e) => {
+      const submitBtn = e.target.closest('button[type="submit"][data-confirm], .btn[data-confirm]');
+      if (!submitBtn) return;
+      const msg = submitBtn.getAttribute('data-confirm') || 'Are you sure?';
+      if (!window.confirm(msg)) { e.preventDefault(); e.stopPropagation(); }
     });
   </script>
 </body>
