@@ -1,14 +1,11 @@
-# admin_orders.py  — Admin Orders + SCHEDULER (per-order timed status changes)
+# admin_orders.py  — Admin Orders + DB-Backed Scheduler (Render-safe) + Bulk Deliver (Selected)
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash, jsonify
 from bson import ObjectId, Regex
 from db import db
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
-
-# === NEW: APScheduler
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.date import DateTrigger
-from apscheduler.jobstores.base import ConflictingIdError, JobLookupError
+import uuid
+from typing import List, Tuple
 
 admin_orders_bp = Blueprint("admin_orders", __name__)
 
@@ -16,40 +13,22 @@ orders_col        = db["orders"]
 users_col         = db["users"]
 balances_col      = db["balances"]         # for refunds
 transactions_col  = db["transactions"]     # for refund ledger
+schedules_col     = db["order_schedules"]  # NEW: persistent job queue
 
 # Keep legacy; primary set includes refunded
 ALLOWED_STATUSES   = {"pending", "processing", "delivered", "failed", "completed", "refunded"}
 ALLOWED_SORTS      = {"newest", "oldest", "amount_desc", "amount_asc"}
 DEFAULT_PER_PAGE   = 10
 
-# ---------- SCHEDULER SINGLETON ----------
-_scheduler: BackgroundScheduler | None = None
-
-def _ensure_scheduler_started():
-    """
-    Start a single background scheduler (idempotent). In production, prefer
-    running this only on a single process/instance (e.g., admin worker),
-    or use a distributed job store.
-    """
-    global _scheduler
-    if _scheduler and _scheduler.running:
-        return _scheduler
-    _scheduler = BackgroundScheduler(daemon=True, job_defaults={"coalesce": True, "misfire_grace_time": 60})
-    _scheduler.start()
-    return _scheduler
-
-# Call at import time (safe if multiple imports in same process)
-_ensure_scheduler_started()
-
-# ---------- HELPERS ----------
+# --------- HELPERS ----------
 def _parse_date(dstr):
     if not dstr:
         return None
     try:
-        # Expect UTC naive (YYYY-MM-DD or YYYY-MM-DD HH:MM)
-        if len(dstr.strip()) <= 10:
-            return datetime.strptime(dstr.strip(), "%Y-%m-%d")
-        return datetime.strptime(dstr.strip(), "%Y-%m-%d %H:%M")
+        s = dstr.strip()
+        if len(s) <= 10:
+            return datetime.strptime(s, "%Y-%m-%d")
+        return datetime.strptime(s, "%Y-%m-%d %H:%M")
     except Exception:
         return None
 
@@ -129,8 +108,8 @@ def _money(x, default=0.0):
     except Exception:
         return default
 
-# ---------- CORE: apply status change (used by manual & scheduled) ----------
-def _apply_status_change(order_ids: list[ObjectId], new_status: str, reason: str = "manual", actor_admin_id=None):
+# ---------- CORE: apply status change (used by manual, bulk, scheduled) ----------
+def _apply_status_change(order_ids: List[ObjectId], new_status: str, reason: str = "manual", actor_admin_id=None) -> Tuple[int, List[str]]:
     """
     Idempotent per-order updates, including wallet credit for refunds.
     Returns (updated_count, errors)
@@ -187,7 +166,7 @@ def _apply_status_change(order_ids: list[ObjectId], new_status: str, reason: str
 
             res = orders_col.update_one({"_id": oid}, {"$set": update_doc})
             if res.modified_count:
-                # Optionally flip line_status in items from processing -> delivered when marking delivered
+                # Flip line_status in items from processing -> delivered when marking delivered
                 if new_status == "delivered":
                     try:
                         orders_col.update_one(
@@ -198,31 +177,89 @@ def _apply_status_change(order_ids: list[ObjectId], new_status: str, reason: str
                     except Exception:
                         pass
                 updated += 1
-            else:
-                # No-op is okay; still count as updated? keep strict.
-                pass
 
         except Exception as e:
             errors.append(f"{oid}: {e}")
 
     return updated, errors
 
-# ---------- SCHEDULED JOB HANDLER ----------
-def _scheduled_status_job(order_id_strs: list[str], new_status: str, actor_admin_id: str | None, note: str | None):
+# ---------- DB-backed scheduler utilities ----------
+def _enqueue_status_job(order_id_strs: List[str], new_status: str, run_time: datetime, admin_id: str | None, note: str | None):
     """
-    Executed by APScheduler in-process. Converts ids and calls _apply_status_change.
+    Persist a job document that can be executed later (Render-safe).
     """
-    try:
-        ids = []
-        for s in order_id_strs:
-            try:
-                ids.append(ObjectId(s))
-            except Exception:
-                pass
-        _apply_status_change(ids, new_status, reason="scheduled", actor_admin_id=actor_admin_id)
-    except Exception as e:
-        # In production, wire a structured logger
-        print("[SCHEDULED_JOB_ERROR]", str(e))
+    now = datetime.utcnow()
+    doc = {
+        "job_key": str(uuid.uuid4()),
+        "order_ids": order_id_strs,     # strings
+        "status": new_status,
+        "note": note or "",
+        "admin_id": admin_id,
+        "state": "scheduled",           # scheduled | running | done | error | cancelled
+        "attempts": 0,
+        "max_attempts": 3,
+        "created_at": now,
+        "run_at": run_time,             # UTC datetime
+        "started_at": None,
+        "finished_at": None,
+        "result": None,                 # {updated, errors:[], ...}
+        "lock_token": None,             # for cooperative locking
+        "locked_at": None
+    }
+    schedules_col.insert_one(doc)
+    return doc
+
+def _process_due_jobs(max_batch: int = 25):
+    """
+    Cooperatively process due jobs. Safe to call at the top of admin routes
+    and/or from a Render Cron ping.
+    """
+    now = datetime.utcnow()
+    # pick up to max_batch jobs that are due and not locked/running/cancelled
+    cursor = schedules_col.find({
+        "state": {"$in": ["scheduled", "error"]},
+        "run_at": {"$lte": now},
+        "$or": [{"lock_token": None}, {"locked_at": {"$lt": now - timedelta(minutes=5)}}]
+    }).sort([("run_at", 1)]).limit(max_batch)
+
+    for job in cursor:
+        lock_token = str(uuid.uuid4())
+        # try to acquire lock
+        claimed = schedules_col.update_one(
+            {"_id": job["_id"], "lock_token": job.get("lock_token")},
+            {"$set": {"lock_token": lock_token, "locked_at": now, "state": "running", "started_at": now}}
+        )
+        if not claimed.modified_count:
+            continue
+
+        # Execute
+        try:
+            ids = []
+            for s in (job.get("order_ids") or []):
+                try:
+                    ids.append(ObjectId(s))
+                except Exception:
+                    pass
+            updated, errors = _apply_status_change(ids, job.get("status"), reason="scheduled", actor_admin_id=job.get("admin_id"))
+            schedules_col.update_one(
+                {"_id": job["_id"], "lock_token": lock_token},
+                {"$set": {
+                    "state": "done" if not errors else "error",
+                    "finished_at": datetime.utcnow(),
+                    "attempts": (job.get("attempts", 0) + 1),
+                    "result": {"updated": updated, "error_count": len(errors), "errors": errors}
+                }}
+            )
+        except Exception as e:
+            schedules_col.update_one(
+                {"_id": job["_id"], "lock_token": lock_token},
+                {"$set": {
+                    "state": "error",
+                    "finished_at": datetime.utcnow(),
+                    "attempts": (job.get("attempts", 0) + 1),
+                    "result": {"updated": 0, "error_count": 1, "errors": [str(e)]}
+                }}
+            )
 
 # =========================================================
 #                       ROUTES
@@ -231,6 +268,12 @@ def _scheduled_status_job(order_id_strs: list[str], new_status: str, actor_admin
 def admin_view_orders():
     if not _require_admin():
         return redirect(url_for("login.login"))
+
+    # Opportunistically run any due jobs (cheap)
+    try:
+        _process_due_jobs(max_batch=10)
+    except Exception:
+        pass
 
     sort = (request.args.get("sort") or "newest").strip().lower()
     if sort not in ALLOWED_SORTS:
@@ -333,6 +376,9 @@ def update_order_status(order_id):
 
 @admin_orders_bp.route("/admin/orders/bulk-deliver", methods=["POST"])
 def bulk_deliver_orders():
+    """
+    Existing behavior: mark all orders that match CURRENT FILTERS and are processing -> delivered.
+    """
     if not _require_admin():
         return redirect(url_for("login.login"))
     args = request.args.to_dict(flat=True)
@@ -341,21 +387,19 @@ def bulk_deliver_orders():
 
     try:
         now = datetime.utcnow()
-        res = orders_col.update_many(
-            query,
-            {"$set": {"status": "delivered", "delivered_at": now, "updated_at": now}}
-        )
-        modified = getattr(res, "modified_count", 0)
-
-        try:
-            orders_col.update_many(
-                {"_id": {"$in": [o["_id"] for o in orders_col.find(query, {"_id": 1})]}},
-                {"$set": {"items.$[it].line_status": "delivered"}},
-                array_filters=[{"it.line_status": "processing"}]
-            )
-        except Exception:
-            pass
-
+        # Find ids first (so we can also update line_status)
+        ids = [o["_id"] for o in orders_col.find(query, {"_id": 1})]
+        if ids:
+            orders_col.update_many({"_id": {"$in": ids}}, {"$set": {"status": "delivered", "delivered_at": now, "updated_at": now}})
+            try:
+                orders_col.update_many(
+                    {"_id": {"$in": ids}},
+                    {"$set": {"items.$[it].line_status": "delivered"}},
+                    array_filters=[{"it.line_status": "processing"}]
+                )
+            except Exception:
+                pass
+        modified = len(ids)
         flash(f"✅ Marked {modified} processing order(s) as Delivered.", "success")
     except Exception:
         flash("❌ Bulk update failed.", "danger")
@@ -364,19 +408,62 @@ def bulk_deliver_orders():
     qs = _build_preserved_query(request.args)
     return redirect(f"{back_to}?{qs}" if qs else back_to)
 
-# =========================================================
-#            NEW: SCHEDULING ENDPOINTS (Admin)
-# =========================================================
+# NEW: mark SELECTED ids as delivered (from checkboxes / floating bar)
+@admin_orders_bp.route("/admin/orders/bulk-deliver-selected", methods=["POST"])
+def bulk_deliver_selected():
+    if not _require_admin():
+        return redirect(url_for("login.login"))
 
+    # Accept: order_ids (comma string) OR order_ids[] OR order_id[]
+    raw_list = []
+    if "order_ids" in request.form:
+        raw_list += [request.form.get("order_ids") or ""]
+    raw_list += request.form.getlist("order_ids[]")
+    raw_list += request.form.getlist("order_id[]")
+    raw_list = ",".join([s for s in raw_list if s]).split(",")
+
+    ids = []
+    for s in raw_list:
+        try:
+            ids.append(ObjectId((s or "").strip()))
+        except Exception:
+            pass
+
+    if not ids:
+        flash("Please select at least one order.", "warning")
+        return redirect(url_for("admin_orders.admin_view_orders"))
+
+    now = datetime.utcnow()
+    try:
+        orders_col.update_many({"_id": {"$in": ids}}, {"$set": {"status": "delivered", "delivered_at": now, "updated_at": now}})
+        try:
+            orders_col.update_many(
+                {"_id": {"$in": ids}},
+                {"$set": {"items.$[it].line_status": "delivered"}},
+                array_filters=[{"it.line_status": "processing"}]
+            )
+        except Exception:
+            pass
+        flash(f"✅ Marked {len(ids)} selected order(s) as Delivered.", "success")
+    except Exception:
+        flash("❌ Failed to bulk deliver selected.", "danger")
+
+    back_to = url_for("admin_orders.admin_view_orders")
+    qs = _build_preserved_query(request.args)
+    return redirect(f"{back_to}?{qs}" if qs else back_to)
+
+# =========================================================
+#            DB-BACKED SCHEDULING ENDPOINTS (Admin)
+# =========================================================
 @admin_orders_bp.route("/admin/orders/schedule-status", methods=["POST"])
 def schedule_status():
     """
-    Form fields (either style):
-      - order_ids: comma-separated string OR multiple order_ids[] fields
+    Form fields:
+      - order_ids: comma-separated string OR multiple order_ids[] fields OR order_id[]
       - status: one of ALLOWED_STATUSES
       - delay_minutes: int (optional)
       - run_at: "YYYY-MM-DD HH:MM" (UTC, optional)
-      - note: optional free text
+      - note: optional
     One of delay_minutes or run_at is required.
     """
     if not _require_admin():
@@ -387,13 +474,11 @@ def schedule_status():
         flash("Invalid status for scheduling.", "danger")
         return redirect(url_for("admin_orders.admin_view_orders"))
 
-    # collect order ids
+    # collect ids
     raw_list = []
     if "order_ids" in request.form:
         raw_list += [request.form.get("order_ids") or ""]
-    raw_list += request.form.getlist("order_ids[]")  # supports multi-select UIs
-
-    # Also support checkbox sets like order_id[]=... in your table if you add them later
+    raw_list += request.form.getlist("order_ids[]")
     raw_list += request.form.getlist("order_id[]")
     raw_list = ",".join([s for s in raw_list if s]).split(",")
 
@@ -440,27 +525,9 @@ def schedule_status():
 
     note = (request.form.get("note") or "").strip()
     admin_id = (session.get("user_id") or None)
+    job = _enqueue_status_job(order_id_strs, status, run_time, str(admin_id) if admin_id else None, note)
 
-    # Create the job
-    sched = _ensure_scheduler_started()
-    # Use a stable job id if you want dedupe per exact tuple; here we let it create unique ids
-    trigger = DateTrigger(run_date=run_time)
-
-    try:
-        job = sched.add_job(
-            func=_scheduled_status_job,
-            trigger=trigger,
-            args=[order_id_strs, status, str(admin_id) if admin_id else None, note],
-            replace_existing=False,
-            id=None,  # auto id; you can construct one if you want deterministic dedupe
-            max_instances=10,
-            misfire_grace_time=120,
-        )
-        flash(f"⏱️ Scheduled {len(order_id_strs)} order(s) → {status} at {run_time.strftime('%Y-%m-%d %H:%M')} UTC.", "success")
-    except ConflictingIdError:
-        flash("A similar schedule already exists.", "warning")
-    except Exception as e:
-        flash(f"Failed to create schedule: {e}", "danger")
+    flash(f"⏱️ Scheduled {len(order_id_strs)} order(s) → {status} at {run_time.strftime('%Y-%m-%d %H:%M')} UTC.", "success")
 
     back_to = url_for("admin_orders.admin_view_orders")
     qs = _build_preserved_query(request.args)
@@ -468,34 +535,54 @@ def schedule_status():
 
 @admin_orders_bp.route("/admin/orders/schedules", methods=["GET"])
 def list_schedules():
-    """Lightweight JSON list for now; you can render a template if you prefer."""
+    """Returns JSON of recent schedules (for the offcanvas in the UI)."""
     if not _require_admin():
         return redirect(url_for("login.login"))
-    sched = _ensure_scheduler_started()
+    # Also opportunistically process due jobs when viewing the list
+    try:
+        _process_due_jobs(max_batch=25)
+    except Exception:
+        pass
+
     jobs = []
-    for j in sched.get_jobs():
+    for j in schedules_col.find({}).sort([("created_at", -1)]).limit(100):
         jobs.append({
-            "id": j.id,
-            "next_run_time": j.next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC") if j.next_run_time else None,
-            "func": str(j.func),
-            "args": j.args,
+            "id": str(j.get("_id")),
+            "job_key": j.get("job_key"),
+            "next_run_time": j.get("run_at").strftime("%Y-%m-%d %H:%M:%S UTC") if j.get("run_at") else None,
+            "state": j.get("state"),
+            "status": j.get("status"),
+            "args": [j.get("order_ids"), j.get("status")],
+            "result": j.get("result"),
+            "attempts": j.get("attempts", 0),
         })
-    # You can also render to a page; returning JSON is simple for start.
     return jsonify({"jobs": jobs})
 
 @admin_orders_bp.route("/admin/orders/schedules/<job_id>/cancel", methods=["POST"])
 def cancel_schedule(job_id):
     if not _require_admin():
         return redirect(url_for("login.login"))
-    sched = _ensure_scheduler_started()
     try:
-        sched.remove_job(job_id)
-        flash("🗑️ Schedule cancelled.", "success")
-    except JobLookupError:
-        flash("Schedule not found.", "warning")
+        res = schedules_col.update_one({"_id": ObjectId(job_id)}, {"$set": {"state": "cancelled"}})
+        if res.modified_count:
+            flash("🗑️ Schedule cancelled.", "success")
+        else:
+            flash("Schedule not found.", "warning")
     except Exception as e:
         flash(f"Failed to cancel schedule: {e}", "danger")
 
     back_to = url_for("admin_orders.admin_view_orders")
     qs = _build_preserved_query(request.args)
     return redirect(f"{back_to}?{qs}" if qs else back_to)
+
+# Optional: endpoint you can ping from Render Cron every minute
+@admin_orders_bp.route("/admin/orders/schedules/run-due", methods=["POST", "GET"])
+def run_due_schedules():
+    if not _require_admin():
+        # If you want cron w/o session, you can protect via secret token instead
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    try:
+        _process_due_jobs(max_batch=50)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
