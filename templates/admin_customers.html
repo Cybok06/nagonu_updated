@@ -22,7 +22,7 @@
     .page-title{ display:flex; align-items:center; gap:.6rem; }
     .page-title i{ color:var(--sea-blue); }
 
-    .filter-card{ border:1px solid var(--border); border-radius:14px; }
+    .filter-card{ border:1px solid var(--border); border-radius:14px; background:#fff; }
     .filter-card .form-control, .filter-card .form-select{ border-radius:10px; }
 
     /* Card Grid */
@@ -123,10 +123,7 @@
       {% set st = (c.status or 'active') %}
       <div class="cust-card">
         <div class="card-top">
-          <div class="avatar" data-avatar-idx="{{ loop.index0 }}">
-            <!-- animal emoji injected by JS -->
-            🐾
-          </div>
+          <div class="avatar" data-avatar-idx="{{ loop.index0 }}">🐾</div>
           <div class="name-wrap">
             <div class="name text-truncate">
               {{ (c.first_name or '') ~ ' ' ~ (c.last_name or '') }}
@@ -191,7 +188,13 @@
                   onclick="openResetModal('{{ c._id|string }}')"
                   title="Generate one-time password reset link">
             <i class="bi bi-link-45deg me-1"></i> Reset
-          </button>
+          <button class="btn btn-danger flex-grow-1 open-delete"
+        data-id="{{ c._id }}"
+        data-name="{{ (c.first_name or '') ~ ' ' ~ (c.last_name or '') }}">
+  <i class="bi bi-trash me-1"></i> Delete
+</button>
+
+
         </div>
       </div>
       {% else %}
@@ -280,6 +283,34 @@
           </button>
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
             Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Confirm Modal -->
+  <div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true" aria-labelledby="deleteLabel">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header bg-danger text-white">
+          <h5 id="deleteLabel" class="modal-title"><i class="bi bi-exclamation-triangle"></i> Delete Customer</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="delete_user_id">
+          <p class="mb-2">Are you sure you want to delete <strong id="delete_user_name"></strong>?</p>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="hardDelete">
+            <label class="form-check-label" for="hardDelete">Delete permanently (cannot be undone)</label>
+          </div>
+          <div class="form-text mt-1">If unchecked, we’ll soft-delete the account so it won’t appear in the list.</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button id="confirmDeleteBtn" type="button" class="btn btn-danger">
+            <span class="label"><i class="bi bi-trash"></i> Delete</span>
+            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
           </button>
         </div>
       </div>
@@ -415,6 +446,66 @@
       label.classList.toggle('d-none', on);
     }
 
+    // ===== Delete Flow =====
+    const deleteModal = document.getElementById('deleteModal');
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+    let _pendingDeleteId = null;
+
+    function openDeleteModal(userId, name) {
+      _pendingDeleteId = userId;
+      document.getElementById('delete_user_id').value = userId;
+      document.getElementById('delete_user_name').textContent = name || 'this customer';
+      document.getElementById('hardDelete').checked = false;
+      new bootstrap.Modal(deleteModal).show();
+    }
+
+    confirmDeleteBtn.addEventListener('click', async () => {
+      const hard = document.getElementById('hardDelete').checked;
+      toggleDeleteLoading(true);
+      try {
+        const res = await fetch(`/admin/customers/delete/${_pendingDeleteId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hard })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          showToast(data.message || (hard ? 'Deleted permanently' : 'Deleted (soft)'));
+          // Reload to reflect removal from listing
+          location.reload();
+        } else {
+          showToast(data.message || 'No action taken', true);
+        }
+      } catch (e) {
+        showToast('Network error while deleting', true);
+      } finally {
+        toggleDeleteLoading(false);
+      }
+    });
+
+    function toggleDeleteLoading(on) {
+      const spinner = confirmDeleteBtn.querySelector('.spinner-border');
+      if (!spinner) {
+        // Create spinner lazily to keep markup clean
+        const sp = document.createElement('span');
+        sp.className = 'spinner-border spinner-border-sm d-none';
+        sp.setAttribute('role', 'status');
+        sp.setAttribute('aria-hidden', 'true');
+        confirmDeleteBtn.appendChild(sp);
+      }
+      const spn = confirmDeleteBtn.querySelector('.spinner-border');
+      const label = confirmDeleteBtn.querySelector('.label') || (function(){
+        const span = document.createElement('span');
+        span.className = 'label';
+        span.innerHTML = '<i class="bi bi-trash"></i> Delete';
+        confirmDeleteBtn.prepend(span);
+        return span;
+      })();
+      confirmDeleteBtn.disabled = on;
+      spn.classList.toggle('d-none', !on);
+      label.classList.toggle('d-none', on);
+    }
+
     // ===== Toast helper =====
     function showToast(msg, isError=false) {
       const toastEl = document.getElementById('mainToast');
@@ -424,6 +515,22 @@
       toastEl.classList.toggle('text-bg-primary', !isError);
       new bootstrap.Toast(toastEl, { delay: 2500 }).show();
     }
+
+    // Expose functions needed by inline handlers
+    window.toggleBlock = toggleBlock;
+    window.openResetModal = openResetModal;
+    window.openDeleteModal = openDeleteModal;
   </script>
+  <script>
+  // Hook delete buttons without inline JS
+  document.querySelectorAll('.open-delete').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      const name = btn.getAttribute('data-name') || 'this customer';
+      openDeleteModal(id, name);
+    });
+  });
+</script>
+
 </body>
 </html>
