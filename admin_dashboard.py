@@ -216,44 +216,49 @@ def compute_balance_flow_totals() -> Dict[str, float]:
 
 def compute_transaction_kpis() -> Dict[str, float]:
     """
-    Returns:
-      - txn_total_count:   all-time successful transactions
-      - txn_today_count:   today's successful transactions
-      - txn_total_amount:  sum(amount) all-time (success only)
-      - txn_today_amount:  sum(amount) today (success only)
-    Uses verified_at as the transaction timestamp.
+    Purchase-only KPIs (exclude Paystack deposits):
+      - txn_total_count:   count of successful purchase transactions (all-time)
+      - txn_today_count:   count of successful purchase transactions today
+      - txn_total_amount:  sum(amount) of successful purchase transactions (all-time)
+      - txn_today_amount:  sum(amount) of successful purchase transactions today
+
+    Uses verified_at as the transaction timestamp (inclusive of today).
     """
     today = datetime.utcnow().date()
     start = datetime.combine(today, datetime.min.time())
     end = start + timedelta(days=1)
 
-    # All-time count & sum
+    base_match = {"status": "success", "type": "purchase"}  # <-- filter to purchases only
+
+    # All-time count
     try:
-        txn_total_count = transactions_col.count_documents({"status": "success"})
+        txn_total_count = transactions_col.count_documents(base_match)
     except Exception:
         txn_total_count = 0
 
+    # All-time sum(amount)
     try:
         total_sum_doc = next(transactions_col.aggregate([
-            {"$match": {"status": "success"}},
+            {"$match": base_match},
             {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$amount", 0]}}}}
         ]), None)
         txn_total_amount = float((total_sum_doc or {}).get("total", 0) or 0)
     except Exception:
         txn_total_amount = 0.0
 
-    # Today's count & sum
+    # Today's count
     try:
         txn_today_count = transactions_col.count_documents({
-            "status": "success",
+            **base_match,
             "verified_at": {"$gte": start, "$lt": end}
         })
     except Exception:
         txn_today_count = 0
 
+    # Today's sum(amount)
     try:
         today_sum_doc = next(transactions_col.aggregate([
-            {"$match": {"status": "success", "verified_at": {"$gte": start, "$lt": end}}},
+            {"$match": {**base_match, "verified_at": {"$gte": start, "$lt": end}}},
             {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$amount", 0]}}}}
         ]), None)
         txn_today_amount = float((today_sum_doc or {}).get("total", 0) or 0)
