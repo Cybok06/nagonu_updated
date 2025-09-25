@@ -248,7 +248,7 @@
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div class="text-muted small">
           AFA Registration @
-          <strong>GHS {{ '%.2f'|format((afa.price if afa is defined and afa.price is not none else 2.00)) }}</strong>
+          <strong>GHS {{ '%.2f'|format((afa.price if afa is defined and afa.price is not none else 3.00)) }}</strong>
         </div>
         <div class="d-flex gap-2">
           <a href="{{ url_for('afa.afa_list_page') }}"
@@ -277,7 +277,7 @@
       <form id="afa-form" autocomplete="off" novalidate>
         <div class="modal-header">
           <h5 class="modal-title">
-            AFA Registration (GHS {{ '%.2f'|format((afa.price if afa is defined and afa.price is not none else 2.00)) }})
+            AFA Registration (GHS {{ '%.2f'|format((afa.price if afa is defined and afa.price is not none else 3.00)) }})
           </h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
@@ -1131,5 +1131,6 @@
 
 </body>
 </html>
+
 
 
