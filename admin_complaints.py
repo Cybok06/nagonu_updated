@@ -20,7 +20,7 @@ complaints_col = db["complaints"]
 users_col = db["users"]
 
 # ---- SMS config (same style as balances/payments) ----
-ARKESEL_API_KEY = "c1JKV21keG1DdnJZQW1zc2JpVks"  # move to env var in production
+ARKESEL_API_KEY = "b3dheEVqUWNyeVBuUGxDVWFxZ0E"  # move to env var in production
 SENDER_ID = "Nagonu"  # requested sender name
 
 
@@ -303,3 +303,4 @@ def update_complaint_status(complaint_id):
         start_date=request.args.get("start_date") or request.form.get("start_date") or "",
         end_date=request.args.get("end_date") or request.form.get("end_date") or ""
     ))
+
