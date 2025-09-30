@@ -14,7 +14,7 @@ users_col = db["users"]
 balance_logs_col = db["balance_logs"]  # audit trail
 
 # ---- SMS config (Arkesel-style) ----
-ARKESEL_API_KEY = "c1JKV21keG1DdnJZQW1zc2JpVks"  # replace with env var in production
+ARKESEL_API_KEY = "b3dheEVqUWNyeVBuUGxDVWFxZ0E"  # replace with env var in production
 SENDER_ID = "Nagonu"  # requested sender name
 
 
@@ -440,3 +440,4 @@ def balance_history(user_id):
             "created_at": lg.get("created_at").strftime("%Y-%m-%d %H:%M") if lg.get("created_at") else "",
         })
     return jsonify({"success": True, "logs": logs})
+
