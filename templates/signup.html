@@ -15,8 +15,6 @@
       --glass-bg: rgba(255,255,255,.12);
       --glass-border: rgba(255,255,255,.25);
     }
-
-    /* Blurred background (same vibe as login) */
     .bg-wrap{ position:fixed; inset:0; z-index:-2; overflow:hidden; }
     .bg-wrap::before{
       content:""; position:absolute; inset:0;
@@ -26,11 +24,9 @@
     }
     .bg-dim{ position:fixed; inset:0; z-index:-1; background: radial-gradient(1200px 800px at 70% 20%, rgba(0,0,0,.25), rgba(0,0,0,.55)); }
 
-    /* Layout */
     .auth-container{ min-height:100dvh; display:grid; place-items:center; padding:clamp(16px,3vw,32px); }
     .auth-inner{ width:min(96vw, 560px); }
 
-    /* Card */
     .auth-card{
       backdrop-filter: blur(10px);
       background: var(--glass-bg);
@@ -42,13 +38,11 @@
     @keyframes slideIn{ from{opacity:0; transform: translateY(12px) scale(.98);} to{opacity:1; transform:translateY(0) scale(1);} }
     @media (prefers-reduced-motion: reduce){ .auth-card{ animation:none; } }
 
-    /* Brand */
     .brand{ display:flex; align-items:center; gap:.6rem; justify-content:center; }
     .brand img{ width:48px; height:48px; object-fit:cover; border-radius:12px; border:2px solid #0ea5e9; background:#fff; }
     .brand .name{ font-weight:800; color:#fff; letter-spacing:.3px; }
     .brand .tag{ color:rgba(255,255,255,.85); font-size:.9rem; }
 
-    /* Forms */
     .form-label{ color:#e9eef6; }
     .form-text, .small-muted{ color:rgba(255,255,255,.8); }
     .form-control, .form-select{
@@ -69,10 +63,7 @@
       color:#fff;
     }
 
-    /* Password strength */
-    .strength{
-      height:8px; border-radius:6px; overflow:hidden; background:rgba(255,255,255,.15);
-    }
+    .strength{ height:8px; border-radius:6px; overflow:hidden; background:rgba(255,255,255,.15); }
     .strength-bar{ height:100%; width:0%; transition:width .25s; }
     .caps-hint{ display:none; color:#ffdf7e; }
     .caps-hint.show{ display:inline-flex; align-items:center; gap:.35rem; }
@@ -119,22 +110,30 @@
       <div class="auth-card p-4 p-md-4">
         <h1 class="h4 text-white text-center mb-3">Sign Up</h1>
 
+        <!-- NOTE: keep novalidate to use our custom messages, but fields are still required -->
         <form method="POST" action="/signup" id="signupForm" novalidate>
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label" for="first_name">First Name</label>
-              <input id="first_name" name="first_name" type="text" class="form-control" placeholder="First Name" required>
+              <input id="first_name" name="first_name" type="text" class="form-control"
+                     placeholder="First Name" required minlength="2" autocomplete="given-name"
+                     pattern=".*\S.*" />
             </div>
+
             <div class="col-md-6">
               <label class="form-label" for="last_name">Last Name</label>
-              <input id="last_name" name="last_name" type="text" class="form-control" placeholder="Last Name" required>
+              <input id="last_name" name="last_name" type="text" class="form-control"
+                     placeholder="Last Name" required minlength="2" autocomplete="family-name"
+                     pattern=".*\S.*" />
             </div>
 
             <div class="col-md-6">
               <label class="form-label" for="username">Username</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-person"></i></span>
-                <input id="username" name="username" type="text" class="form-control" placeholder="Username" required autocomplete="username">
+                <input id="username" name="username" type="text" class="form-control"
+                       placeholder="Username" required autocomplete="username" minlength="3"
+                       pattern="^[a-zA-Z0-9._-]{3,}$" />
               </div>
             </div>
 
@@ -142,7 +141,8 @@
               <label class="form-label" for="email">Email</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-envelope"></i></span>
-                <input id="email" name="email" type="email" class="form-control" placeholder="Email (optional)">
+                <input id="email" name="email" type="email" class="form-control"
+                       placeholder="you@example.com" required autocomplete="email" />
               </div>
             </div>
 
@@ -150,15 +150,20 @@
               <label class="form-label" for="phone">Phone</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-telephone"></i></span>
-                <input id="phone" name="phone" type="tel" class="form-control" placeholder="e.g., 0551234567" required>
+                <input id="phone" name="phone" type="tel" class="form-control"
+                       placeholder="e.g., 0551234567" required autocomplete="tel"
+                       pattern="^0\d{9}$" />
               </div>
+              <div class="form-text">Use a valid Ghana number (starts with 0, 10 digits).</div>
             </div>
 
             <div class="col-md-6">
               <label class="form-label" for="whatsapp">WhatsApp</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-whatsapp"></i></span>
-                <input id="whatsapp" name="whatsapp" type="tel" class="form-control" placeholder="WhatsApp Number">
+                <input id="whatsapp" name="whatsapp" type="tel" class="form-control"
+                       placeholder="WhatsApp Number" required autocomplete="tel"
+                       pattern="^0\d{9}$" />
               </div>
             </div>
 
@@ -166,7 +171,8 @@
               <label class="form-label" for="business_name">Business Name</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-briefcase"></i></span>
-                <input id="business_name" name="business_name" type="text" class="form-control" placeholder="Business Name (optional)">
+                <input id="business_name" name="business_name" type="text" class="form-control"
+                       placeholder="Business Name" required minlength="2" pattern=".*\S.*" />
               </div>
             </div>
 
@@ -174,7 +180,9 @@
               <label class="form-label" for="referral">Referral Code</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-gift"></i></span>
-                <input id="referral" name="referral" type="text" class="form-control" placeholder="Referral Code" value="{{ referral_code }}">
+                <input id="referral" name="referral" type="text" class="form-control"
+                       placeholder="Referral Code" required pattern=".*\S.*"
+                       value="{{ referral_code }}" />
               </div>
             </div>
 
@@ -185,18 +193,21 @@
               </label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-lock"></i></span>
-                <input id="password" name="password" type="password" class="form-control" placeholder="Create a strong password" required autocomplete="new-password">
+                <input id="password" name="password" type="password" class="form-control"
+                       placeholder="Create a strong password" required autocomplete="new-password"
+                       minlength="8" />
                 <button class="btn btn-outline-light" type="button" id="togglePw"><i class="bi bi-eye"></i></button>
               </div>
               <div class="strength mt-2"><div class="strength-bar" id="strengthBar"></div></div>
-              <div class="form-text">Use at least 8 characters, mixing letters, numbers & symbols.</div>
+              <div class="form-text">At least 8 characters. Mix letters, numbers & symbols.</div>
             </div>
 
             <div class="col-md-6">
               <label class="form-label" for="confirm_password">Confirm Password</label>
               <div class="input-group">
                 <span class="input-group-text"><i class="bi bi-shield-check"></i></span>
-                <input id="confirm_password" name="confirm_password" type="password" class="form-control" placeholder="Repeat password" required autocomplete="new-password">
+                <input id="confirm_password" name="confirm_password" type="password" class="form-control"
+                       placeholder="Repeat password" required autocomplete="new-password" minlength="8" />
                 <button class="btn btn-outline-light" type="button" id="togglePw2"><i class="bi bi-eye"></i></button>
               </div>
               <div class="form-text" id="matchText"></div>
@@ -219,7 +230,6 @@
             </div>
 
             <div class="col-12">
-              <!-- Login button below -->
               <a href="/login" class="btn btn-outline-light w-100">
                 <i class="bi bi-box-arrow-in-right me-1"></i> Already have an account? Log in
               </a>
@@ -240,6 +250,11 @@
       const spinner = btn.querySelector('.spinner-border');
       const btnText = btn.querySelector('.btn-text');
 
+      const fields = [
+        'first_name','last_name','username','email','phone','whatsapp',
+        'business_name','referral','password','confirm_password'
+      ].map(id => document.getElementById(id));
+
       const pw = document.getElementById('password');
       const pw2 = document.getElementById('confirm_password');
       const togglePw = document.getElementById('togglePw');
@@ -248,7 +263,6 @@
       const capsHint = document.getElementById('capsHint');
       const matchText = document.getElementById('matchText');
 
-      // Show/Hide
       function toggleVisibility(input, btn){
         const isPwd = input.type === 'password';
         input.type = isPwd ? 'text' : 'password';
@@ -258,11 +272,9 @@
       togglePw.addEventListener('click', () => toggleVisibility(pw, togglePw));
       togglePw2.addEventListener('click', () => toggleVisibility(pw2, togglePw2));
 
-      // Caps lock hint
       function caps(e){ const on = e.getModifierState && e.getModifierState('CapsLock'); capsHint.classList.toggle('show', !!on); }
       pw.addEventListener('keydown', caps); pw.addEventListener('keyup', caps);
 
-      // Password strength (simple heuristic)
       function scorePassword(p){
         let score = 0;
         if (!p) return 0;
@@ -277,38 +289,73 @@
       }
       function renderStrength(val){
         strengthBar.style.width = val + '%';
-        if (val < 30){ strengthBar.style.background = '#f87171'; }        // weak
-        else if (val < 60){ strengthBar.style.background = '#fbbf24'; }   // fair
-        else if (val < 85){ strengthBar.style.background = '#34d399'; }   // good
-        else { strengthBar.style.background = '#22c55e'; }                // strong
+        if (val < 30){ strengthBar.style.background = '#f87171'; }
+        else if (val < 60){ strengthBar.style.background = '#fbbf24'; }
+        else if (val < 85){ strengthBar.style.background = '#34d399'; }
+        else { strengthBar.style.background = '#22c55e'; }
       }
       pw.addEventListener('input', () => renderStrength(scorePassword(pw.value)));
 
-      // Match confirmation
       function checkMatch(){
         if (!pw2.value){ matchText.textContent = ''; return; }
         if (pw.value === pw2.value){
           matchText.textContent = 'Passwords match.';
           matchText.style.color = '#a7f3d0';
+          pw2.setCustomValidity('');
         } else {
           matchText.textContent = 'Passwords do not match.';
           matchText.style.color = '#fecaca';
+          pw2.setCustomValidity('Passwords do not match');
         }
       }
       pw.addEventListener('input', checkMatch);
       pw2.addEventListener('input', checkMatch);
 
-      // Submit
+      // Helper: trim on blur so "required" isn't satisfied by spaces
+      fields.forEach(el => {
+        el.addEventListener('blur', () => { if (el.value) el.value = el.value.trim(); });
+      });
+
+      // Custom friendly messages
+      const messages = {
+        first_name: 'First name is required.',
+        last_name: 'Last name is required.',
+        username: 'Username is required (min 3 chars, letters/digits/._-).',
+        email: 'A valid email is required.',
+        phone: 'Valid Ghana phone required (0 + 9 digits).',
+        whatsapp: 'Valid WhatsApp number required (0 + 9 digits).',
+        business_name: 'Business name is required.',
+        referral: 'Referral code is required.',
+        password: 'Password is required (min 8 chars).',
+        confirm_password: 'Please confirm your password (must match).'
+      };
+
       form.addEventListener('submit', function(e){
+        // Trim all values before validating
+        fields.forEach(el => { if (el.value) el.value = el.value.trim(); });
+
+        // Recheck password match
+        checkMatch();
+
+        // Set per-field custom messages
+        fields.forEach(el => {
+          el.setCustomValidity('');
+          if (!el.checkValidity()){
+            if (messages[el.id]) el.setCustomValidity(messages[el.id]);
+          }
+        });
+
         if (!form.checkValidity() || pw.value !== pw2.value){
           e.preventDefault();
           e.stopPropagation();
-          if (pw.value !== pw2.value){
-            pw2.focus();
-          }
           form.classList.add('was-validated');
+          // Focus first invalid
+          const firstInvalid = form.querySelector(':invalid');
+          if (firstInvalid) firstInvalid.focus();
           return;
         }
+
+        // Submit UX
         btn.disabled = true;
         spinner.classList.remove('d-none');
         btnText.textContent = 'Creating...';
