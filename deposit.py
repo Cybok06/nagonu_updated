@@ -10,10 +10,12 @@ balances_col = db["balances"]
 transactions_col = db["transactions"]
 users_col = db["users"]
 
-# Configurable fee rate (default 3%).
-DEPOSIT_FEE_RATE = float(os.getenv("DEPOSIT_FEE_RATE", "0.03"))
+# Default: 0.5% fee (override via env if needed)
+DEPOSIT_FEE_RATE = float(os.getenv("DEPOSIT_FEE_RATE", "0.005"))
 
-# 1) Deposit page
+def _r2(x: float) -> float:
+    return round(float(x or 0), 2)
+
 @deposit_bp.route("/deposit")
 def deposit_page():
     if session.get("role") != "customer" or "user_id" not in session:
@@ -31,11 +33,9 @@ def deposit_page():
         user_id=session["user_id"],
         email=email,
         paystack_pk=paystack_pk,
-        deposit_fee_rate=DEPOSIT_FEE_RATE,
+        deposit_fee_rate=DEPOSIT_FEE_RATE,  # 0.5% sent to UI
     )
 
-
-# 2) Verify Paystack transaction
 @deposit_bp.route("/verify_transaction")
 def verify_transaction():
     reference = request.args.get("reference", type=str)
@@ -66,10 +66,10 @@ def verify_transaction():
 
         data = result["data"]
 
-        # Paid amount & currency from Paystack (pesewas → GHS)
-        paid_gross_ghs = round((data.get("amount", 0) or 0) / 100.0, 2)
+        # Amount from Paystack is in pesewas → GHS
+        paid_gross_ghs = _r2((data.get("amount", 0) or 0) / 100.0)
         currency = data.get("currency", "GHS")
-        channel = data.get("channel", "")
+        channel  = data.get("channel", "")
         paid_ref = data.get("reference")
         metadata = data.get("metadata") or {}
 
@@ -78,40 +78,44 @@ def verify_transaction():
             return redirect(url_for("customer_dashboard.customer_dashboard"))
 
         # Idempotency
-        existing = transactions_col.find_one({"reference": paid_ref, "status": "success"})
-        if existing:
+        if transactions_col.find_one({"reference": paid_ref, "status": "success"}):
             flash("✅ Deposit already verified earlier.", "success")
             return redirect(url_for("customer_dashboard.customer_dashboard"))
 
-        # Figure out intended net credit (prefer what we sent in metadata)
+        # STRICT RULE: credit EXACTLY what the user entered (net_amount_ghs)
+        fee_rate = float(metadata.get("fee_rate", DEPOSIT_FEE_RATE) or 0.0)
+
         meta_net = metadata.get("net_amount_ghs")
-        meta_fee_rate = metadata.get("fee_rate")
         try:
-            meta_net = float(meta_net) if meta_net is not None else None
+            net_credit_ghs = _r2(float(meta_net)) if meta_net is not None else None
         except Exception:
-            meta_net = None
+            net_credit_ghs = None
 
-        try:
-            meta_fee_rate = float(meta_fee_rate) if meta_fee_rate is not None else None
-        except Exception:
-            meta_fee_rate = None
+        if net_credit_ghs is None:
+            # Fallback only if metadata is missing: derive net from gross
+            # (kept to avoid zero-credit if old clients don't send metadata)
+            net_credit_ghs = _r2(paid_gross_ghs / (1.0 + fee_rate))
 
-        fee_rate = meta_fee_rate if meta_fee_rate is not None else DEPOSIT_FEE_RATE
-        # If metadata not present, derive net by removing fee
-        net_credit_ghs = round(paid_gross_ghs / (1.0 + fee_rate), 2) if meta_net is None else round(float(meta_net), 2)
-        fee_ghs = round(paid_gross_ghs - net_credit_ghs, 2)
+        # Guardrails — never over-credit
+        if net_credit_ghs < 0:
+            net_credit_ghs = 0.0
+        if net_credit_ghs > paid_gross_ghs:
+            net_credit_ghs = paid_gross_ghs
 
-        # Update balance (credit NET)
+        # For records: compute fee for audit (what the user paid minus what we credit)
+        fee_ghs = _r2(paid_gross_ghs - net_credit_ghs)
+
+        # Credit NET to wallet
         balances_col.update_one(
             {"user_id": ObjectId(user_id)},
             {"$inc": {"amount": net_credit_ghs}, "$set": {"updated_at": datetime.utcnow()}},
             upsert=True,
         )
 
-        # Record transaction with meta
+        # Store full audit details
         transactions_col.insert_one({
             "user_id": ObjectId(user_id),
-            "amount": net_credit_ghs,              # credited to wallet (NET)
+            "amount": net_credit_ghs,          # NET credited (exact user entry)
             "reference": paid_ref,
             "status": "success",
             "type": "deposit",
@@ -122,15 +126,15 @@ def verify_transaction():
             "verified_at": datetime.utcnow(),
             "created_at": datetime.utcnow(),
             "meta": {
-                "paid_gross_ghs": paid_gross_ghs,
-                "net_credit_ghs": net_credit_ghs,
+                "paid_gross_ghs": paid_gross_ghs,         # actual charged
+                "net_credit_ghs": net_credit_ghs,         # what we credited
                 "fee_ghs": fee_ghs,
                 "fee_rate": fee_rate,
-                "source": "deposit_v2_fee_grossup"
+                "source": "deposit_fee_0p5_strict_net_credit"
             }
         })
 
-        flash(f"✅ Deposit successful! Credited ₵{net_credit_ghs:.2f} (fee: ₵{fee_ghs:.2f}).", "success")
+        flash(f"✅ Deposit successful! Credited ₵{net_credit_ghs:.2f}.", "success")
 
     except Exception as e:
         print("❌ Paystack Exception:", str(e))
