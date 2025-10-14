@@ -69,7 +69,7 @@
           <input type="number" inputmode="decimal" step="0.01" min="1" id="amount" class="form-control"
                  placeholder="e.g. 100.00" autocomplete="off" required>
           <div class="form-text mt-2">
-            Enter the **amount we will credit** to your wallet. A small processing fee applies.
+            Enter the <strong>amount we will credit</strong> to your wallet. A 0.5% processing fee applies.
           </div>
           <div class="form-text mt-2">
             Quick amounts:
@@ -87,7 +87,7 @@
             <div class="col-5 text-end"><strong id="netOut">₵0.00</strong></div>
           </div>
           <div class="row">
-            <div class="col-7">Processing fee (<span id="feeRateTxt">3%</span>)</div>
+            <div class="col-7">Processing fee (<span id="feeRateTxt">0.5%</span>)</div>
             <div class="col-5 text-end text-muted" id="feeOut">₵0.00</div>
           </div>
           <div class="row">
@@ -111,7 +111,7 @@
         </div>
 
         <div class="small text-muted mt-3">
-          By proceeding, you agree to Paystack’s payment processing. We add a 3% processing fee—e.g., to credit ₵100, you’ll pay ₵103.
+          Example: to credit <strong>₵100.00</strong>, you’ll pay <strong>₵100.50</strong>.
         </div>
       </form>
     </div>
@@ -133,7 +133,7 @@
     (function(){
       const email = "{{ email | default('') }}";
       const PAYSTACK_PK = "{{ PAYSTACK_PUBLIC_KEY | default(paystack_pk) | default('') }}";
-      const FEE_RATE = Number("{{ '%.6f'|format(deposit_fee_rate|default(0.03)) }}"); // 0.03
+      const FEE_RATE = Number("{{ '%.6f'|format(deposit_fee_rate|default(0.005)) }}"); // 0.5%
 
       const payBtn   = document.getElementById('payBtn');
       const btnText  = document.getElementById('payBtnText');
@@ -146,21 +146,27 @@
       const grossOut = document.getElementById('grossOut');
       const feeRateTxt = document.getElementById('feeRateTxt');
 
-      feeRateTxt.textContent = `${(FEE_RATE*100).toFixed(0)}%`;
+      feeRateTxt.textContent = `${(FEE_RATE*100).toFixed(1)}%`;
 
-      // Utility formatters
+      // Helpers (shared rounding with backend)
       const fmt = n => `₵${Number(n || 0).toFixed(2)}`;
-      const ceilPesewas = ghs => Math.ceil(Number(ghs) * 100); // never under-collect
+      const roundPesewas = ghs => Math.round(Number(ghs) * 100);   // nearest pesewa
       const toGhs = pesewas => (pesewas/100).toFixed(2);
 
-      // Quick chips
-      document.querySelectorAll('.amount-chip').forEach(chip=>{
-        chip.addEventListener('click', ()=>{
-          const v = parseFloat(chip.getAttribute('data-val') || '0');
-          amountEl.value = v.toFixed(2);
-          amountEl.dispatchEvent(new Event('input'));
-        });
-      });
+      function compute(gNet){
+        // Round net to pesewas (what we will credit)
+        const net_pes = roundPesewas(gNet);
+        // Fee = round(net * rate) to pesewas
+        const fee_pes = Math.round((gNet * FEE_RATE) * 100);
+        const gross_pes = net_pes + fee_pes;
+
+        return {
+          net_g: Number(toGhs(net_pes)),
+          fee_g: Number(toGhs(fee_pes)),
+          gross_g: Number(toGhs(gross_pes)),
+          gross_pes
+        };
+      }
 
       function showError(msg){
         const el = document.getElementById('toast');
@@ -180,14 +186,11 @@
           btnText.textContent = 'Pay Now';
           return;
         }
-        const grossPesewas = ceilPesewas(net * (1 + FEE_RATE));
-        const gross = Number(toGhs(grossPesewas));
-        const fee = (gross - net);
-
-        netOut.textContent = fmt(net);
-        feeOut.textContent = fmt(fee);
-        grossOut.textContent = fmt(gross);
-        btnText.textContent = `Pay ${fmt(gross)}`;
+        const { net_g, fee_g, gross_g } = compute(net);
+        netOut.textContent = fmt(net_g);
+        feeOut.textContent = fmt(fee_g);
+        grossOut.textContent = fmt(gross_g);
+        btnText.textContent = `Pay ${fmt(gross_g)}`;
         feeBox.style.display = '';
       }
 
@@ -214,27 +217,25 @@
           return;
         }
 
-        // Compute gross (pesewas, CEIL)
-        const grossPesewas = ceilPesewas(net * (1 + FEE_RATE));
+        const { net_g, gross_pes } = compute(net);
 
         disableBtn(true);
 
         const handler = PaystackPop.setup({
           key: PAYSTACK_PK,
           email: email,
-          amount: grossPesewas, // what customer pays
+          amount: gross_pes,                         // what customer pays (pesewas)
           currency: "GHS",
           metadata: {
-            net_amount_ghs: Number(net.toFixed(2)),
+            net_amount_ghs: Number(net_g.toFixed(2)),              // EXACT wallet credit
             fee_rate: Number(FEE_RATE.toFixed(6)),
-            gross_amount_ghs: Number((grossPesewas/100).toFixed(2)),
+            gross_amount_ghs: Number((gross_pes/100).toFixed(2)),  // for transparency/logs
             custom_fields: [{ display_name:"Platform", variable_name:"platform", value:"Nagonu Web" }]
           },
           callback: function(response){
             window.location.href = `/verify_transaction?reference=${encodeURIComponent(response.reference)}`;
           },
           onClose: function(){
-            showError('Transaction cancelled.');
             disableBtn(false);
           }
         });
