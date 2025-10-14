@@ -28,7 +28,7 @@
     .page-sub{ color:#446174; }
     .deposit-card{
       background:#fff; border:1px solid #e9eef6; border-radius:16px;
-      box-shadow:0 10px 30px rgba(5,48,71,.08); max-width:560px; margin-inline:auto;
+      box-shadow:0 10px 30px rgba(5,48,71,.08); max-width:620px; margin-inline:auto;
       animation: slideIn .45s ease both;
     }
     @keyframes slideIn{ from{opacity:0; transform: translateY(10px);} to{opacity:1; transform:none;} }
@@ -43,6 +43,8 @@
     .btn-primary{ background:#0ea5e9; border-color:#0ea5e9; border-radius:12px; }
     .btn-primary:hover{ filter:brightness(.96); }
     .btn-icon{ display:inline-flex; align-items:center; gap:.5rem; }
+    .breakdown { background:#f9fcff; border:1px dashed #cfe1ee; border-radius:12px; padding:12px 14px; }
+    .breakdown .row{ --bs-gutter-x: 0.75rem; }
     .toast-container{ position: fixed; top: 1rem; right: 1rem; z-index: 1080; }
   </style>
 </head>
@@ -63,15 +65,34 @@
     <div class="deposit-card p-4 p-md-5">
       <form id="depositForm" onsubmit="return false">
         <div class="mb-3">
-          <label for="amount" class="form-label">Amount (GHS)</label>
+          <label for="amount" class="form-label">Amount to Credit (GHS)</label>
           <input type="number" inputmode="decimal" step="0.01" min="1" id="amount" class="form-control"
-                 placeholder="e.g. 50.00" autocomplete="off" required>
+                 placeholder="e.g. 100.00" autocomplete="off" required>
+          <div class="form-text mt-2">
+            Enter the **amount we will credit** to your wallet. A small processing fee applies.
+          </div>
           <div class="form-text mt-2">
             Quick amounts:
             <span class="amount-chip" data-val="20">₵20</span>
             <span class="amount-chip" data-val="50">₵50</span>
             <span class="amount-chip" data-val="100">₵100</span>
             <span class="amount-chip" data-val="200">₵200</span>
+          </div>
+        </div>
+
+        <!-- Live breakdown -->
+        <div class="breakdown mb-3" id="feeBox" style="display:none;">
+          <div class="row">
+            <div class="col-7">We will credit</div>
+            <div class="col-5 text-end"><strong id="netOut">₵0.00</strong></div>
+          </div>
+          <div class="row">
+            <div class="col-7">Processing fee (<span id="feeRateTxt">3%</span>)</div>
+            <div class="col-5 text-end text-muted" id="feeOut">₵0.00</div>
+          </div>
+          <div class="row">
+            <div class="col-7">You’ll pay</div>
+            <div class="col-5 text-end"><strong id="grossOut">₵0.00</strong></div>
           </div>
         </div>
 
@@ -84,13 +105,13 @@
 
         <div class="d-grid">
           <button id="payBtn" class="btn btn-primary btn-lg btn-icon" type="button">
-            <span>Pay Now</span>
+            <span id="payBtnText">Pay Now</span>
             <span class="spinner-border spinner-border-sm ms-1 d-none" role="status" aria-hidden="true"></span>
           </button>
         </div>
 
         <div class="small text-muted mt-3">
-          By proceeding, you agree to Paystack’s payment processing.
+          By proceeding, you agree to Paystack’s payment processing. We add a 3% processing fee—e.g., to credit ₵100, you’ll pay ₵103.
         </div>
       </form>
     </div>
@@ -111,26 +132,34 @@
   <script>
     (function(){
       const email = "{{ email | default('') }}";
-      // Prefer app-wide injection: PAYSTACK_PUBLIC_KEY; fallback to view arg paystack_pk
       const PAYSTACK_PK = "{{ PAYSTACK_PUBLIC_KEY | default(paystack_pk) | default('') }}";
+      const FEE_RATE = Number("{{ '%.6f'|format(deposit_fee_rate|default(0.03)) }}"); // 0.03
 
-      const payBtn = document.getElementById('payBtn');
-      const spinner = payBtn.querySelector('.spinner-border');
-      const amountInput = document.getElementById('amount');
+      const payBtn   = document.getElementById('payBtn');
+      const btnText  = document.getElementById('payBtnText');
+      const spinner  = payBtn.querySelector('.spinner-border');
+      const amountEl = document.getElementById('amount');
+
+      const feeBox   = document.getElementById('feeBox');
+      const netOut   = document.getElementById('netOut');
+      const feeOut   = document.getElementById('feeOut');
+      const grossOut = document.getElementById('grossOut');
+      const feeRateTxt = document.getElementById('feeRateTxt');
+
+      feeRateTxt.textContent = `${(FEE_RATE*100).toFixed(0)}%`;
+
+      // Utility formatters
+      const fmt = n => `₵${Number(n || 0).toFixed(2)}`;
+      const ceilPesewas = ghs => Math.ceil(Number(ghs) * 100); // never under-collect
+      const toGhs = pesewas => (pesewas/100).toFixed(2);
 
       // Quick chips
       document.querySelectorAll('.amount-chip').forEach(chip=>{
         chip.addEventListener('click', ()=>{
           const v = parseFloat(chip.getAttribute('data-val') || '0');
-          amountInput.value = v.toFixed(2);
-          amountInput.dispatchEvent(new Event('input'));
+          amountEl.value = v.toFixed(2);
+          amountEl.dispatchEvent(new Event('input'));
         });
-      });
-
-      // Live validation
-      amountInput.addEventListener('input', ()=>{
-        const v = parseFloat(amountInput.value);
-        amountInput.classList.toggle('is-invalid', !(isFinite(v) && v >= 1));
       });
 
       function showError(msg){
@@ -143,6 +172,31 @@
         spinner.classList.toggle('d-none', !disabled);
       }
 
+      // Live breakdown
+      function updateBreakdown(){
+        const net = parseFloat((amountEl.value || '').replace(/,/g,''));
+        if (!isFinite(net) || net < 1){
+          feeBox.style.display = 'none';
+          btnText.textContent = 'Pay Now';
+          return;
+        }
+        const grossPesewas = ceilPesewas(net * (1 + FEE_RATE));
+        const gross = Number(toGhs(grossPesewas));
+        const fee = (gross - net);
+
+        netOut.textContent = fmt(net);
+        feeOut.textContent = fmt(fee);
+        grossOut.textContent = fmt(gross);
+        btnText.textContent = `Pay ${fmt(gross)}`;
+        feeBox.style.display = '';
+      }
+
+      amountEl.addEventListener('input', ()=>{
+        const v = parseFloat(amountEl.value);
+        amountEl.classList.toggle('is-invalid', !(isFinite(v) && v >= 1));
+        updateBreakdown();
+      });
+
       payBtn.addEventListener('click', ()=>{
         if (!email || email === 'None'){
           showError('Your email is not set. Please log in again.');
@@ -153,22 +207,27 @@
           return;
         }
 
-        const amount = parseFloat((amountInput.value || '').replace(/,/g,''));
-        if (!isFinite(amount) || amount < 1){
+        const net = parseFloat((amountEl.value || '').replace(/,/g,''));
+        if (!isFinite(net) || net < 1){
           showError('Enter a valid amount (GHS 1.00 or more).');
-          amountInput.focus();
+          amountEl.focus();
           return;
         }
 
-        const kobo = Math.round(amount * 100); // precision-safe
+        // Compute gross (pesewas, CEIL)
+        const grossPesewas = ceilPesewas(net * (1 + FEE_RATE));
+
         disableBtn(true);
 
         const handler = PaystackPop.setup({
-          key: PAYSTACK_PK,            // ← from ENV via Jinja
+          key: PAYSTACK_PK,
           email: email,
-          amount: kobo,
+          amount: grossPesewas, // what customer pays
           currency: "GHS",
           metadata: {
+            net_amount_ghs: Number(net.toFixed(2)),
+            fee_rate: Number(FEE_RATE.toFixed(6)),
+            gross_amount_ghs: Number((grossPesewas/100).toFixed(2)),
             custom_fields: [{ display_name:"Platform", variable_name:"platform", value:"Nagonu Web" }]
           },
           callback: function(response){
@@ -183,6 +242,9 @@
         try { handler.openIframe(); }
         catch (e) { console.error(e); showError('Unable to open payment window. Please retry.'); disableBtn(false); }
       });
+
+      // Initial state
+      updateBreakdown();
     })();
   </script>
 </body>
