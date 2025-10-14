@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash
 from bson import ObjectId
 from datetime import datetime
-import os, requests
+import os, requests, json
 
 from db import db
 
@@ -10,7 +10,10 @@ balances_col = db["balances"]
 transactions_col = db["transactions"]
 users_col = db["users"]
 
-# 1) Deposit page (now also passes paystack_pk from env as a fallback for the template)
+# Configurable fee rate (default 3%).
+DEPOSIT_FEE_RATE = float(os.getenv("DEPOSIT_FEE_RATE", "0.03"))
+
+# 1) Deposit page
 @deposit_bp.route("/deposit")
 def deposit_page():
     if session.get("role") != "customer" or "user_id" not in session:
@@ -21,13 +24,18 @@ def deposit_page():
         user = users_col.find_one({"_id": ObjectId(session["user_id"])})
         email = user.get("email", "") if user else ""
 
-    # Fallback pass-through (template prefers global PAYSTACK_PUBLIC_KEY if injected by app)
     paystack_pk = os.getenv("PAYSTACK_PUBLIC_KEY", "")
 
-    return render_template("deposit.html", user_id=session["user_id"], email=email, paystack_pk=paystack_pk)
+    return render_template(
+        "deposit.html",
+        user_id=session["user_id"],
+        email=email,
+        paystack_pk=paystack_pk,
+        deposit_fee_rate=DEPOSIT_FEE_RATE,
+    )
 
 
-# 2) Verify Paystack transaction (uses secret key from ENV)
+# 2) Verify Paystack transaction
 @deposit_bp.route("/verify_transaction")
 def verify_transaction():
     reference = request.args.get("reference", type=str)
@@ -37,7 +45,7 @@ def verify_transaction():
         flash("❌ Invalid deposit request", "danger")
         return redirect(url_for("customer_dashboard.customer_dashboard"))
 
-    paystack_sk = os.getenv("PAYSTACK_SECRET_KEY")  # ← from ENV
+    paystack_sk = os.getenv("PAYSTACK_SECRET_KEY")
     if not paystack_sk:
         flash("❌ Payment processor not configured. Contact support.", "danger")
         return redirect(url_for("customer_dashboard.customer_dashboard"))
@@ -48,7 +56,7 @@ def verify_transaction():
     try:
         r = requests.get(url, headers=headers, timeout=20)
         result = r.json()
-        print("🧾 Paystack Verification Response:", result)
+        print("🧾 Paystack Verification Response:", json.dumps(result, indent=2))
 
         ok = result.get("status") and result.get("data", {}).get("status") == "success"
         if not ok:
@@ -58,13 +66,14 @@ def verify_transaction():
 
         data = result["data"]
 
-        # Amount & currency from Paystack (kobo → GHS)
-        amount_ghs = round((data.get("amount", 0) or 0) / 100.0, 2)
+        # Paid amount & currency from Paystack (pesewas → GHS)
+        paid_gross_ghs = round((data.get("amount", 0) or 0) / 100.0, 2)
         currency = data.get("currency", "GHS")
         channel = data.get("channel", "")
         paid_ref = data.get("reference")
+        metadata = data.get("metadata") or {}
 
-        if amount_ghs <= 0 or currency != "GHS":
+        if paid_gross_ghs <= 0 or currency != "GHS":
             flash("❌ Invalid payment amount/currency.", "danger")
             return redirect(url_for("customer_dashboard.customer_dashboard"))
 
@@ -74,17 +83,35 @@ def verify_transaction():
             flash("✅ Deposit already verified earlier.", "success")
             return redirect(url_for("customer_dashboard.customer_dashboard"))
 
-        # Update balance
+        # Figure out intended net credit (prefer what we sent in metadata)
+        meta_net = metadata.get("net_amount_ghs")
+        meta_fee_rate = metadata.get("fee_rate")
+        try:
+            meta_net = float(meta_net) if meta_net is not None else None
+        except Exception:
+            meta_net = None
+
+        try:
+            meta_fee_rate = float(meta_fee_rate) if meta_fee_rate is not None else None
+        except Exception:
+            meta_fee_rate = None
+
+        fee_rate = meta_fee_rate if meta_fee_rate is not None else DEPOSIT_FEE_RATE
+        # If metadata not present, derive net by removing fee
+        net_credit_ghs = round(paid_gross_ghs / (1.0 + fee_rate), 2) if meta_net is None else round(float(meta_net), 2)
+        fee_ghs = round(paid_gross_ghs - net_credit_ghs, 2)
+
+        # Update balance (credit NET)
         balances_col.update_one(
             {"user_id": ObjectId(user_id)},
-            {"$inc": {"amount": amount_ghs}, "$set": {"updated_at": datetime.utcnow()}},
+            {"$inc": {"amount": net_credit_ghs}, "$set": {"updated_at": datetime.utcnow()}},
             upsert=True,
         )
 
-        # Record transaction
+        # Record transaction with meta
         transactions_col.insert_one({
             "user_id": ObjectId(user_id),
-            "amount": amount_ghs,
+            "amount": net_credit_ghs,              # credited to wallet (NET)
             "reference": paid_ref,
             "status": "success",
             "type": "deposit",
@@ -94,9 +121,16 @@ def verify_transaction():
             "raw": data,
             "verified_at": datetime.utcnow(),
             "created_at": datetime.utcnow(),
+            "meta": {
+                "paid_gross_ghs": paid_gross_ghs,
+                "net_credit_ghs": net_credit_ghs,
+                "fee_ghs": fee_ghs,
+                "fee_rate": fee_rate,
+                "source": "deposit_v2_fee_grossup"
+            }
         })
 
-        flash("✅ Deposit successful! Your balance has been updated.", "success")
+        flash(f"✅ Deposit successful! Credited ₵{net_credit_ghs:.2f} (fee: ₵{fee_ghs:.2f}).", "success")
 
     except Exception as e:
         print("❌ Paystack Exception:", str(e))
