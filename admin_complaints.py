@@ -1,4 +1,3 @@
-# admin_complaints.py
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash, send_file, jsonify
 from bson import ObjectId
 from datetime import datetime
@@ -23,14 +22,12 @@ users_col = db["users"]
 ARKESEL_API_KEY = "b3dheEVqUWNyeVBuUGxDVWFxZ0E"  # move to env var in production
 SENDER_ID = "Nagonu"  # requested sender name
 
-
 # ---------------- Helpers ----------------
 def _fmt_dt(dt):
     try:
         return dt.strftime("%Y-%m-%d %H:%M")
     except Exception:
         return ""
-
 
 def _safe(c, *path, default=None):
     """Safely traverse nested keys/attrs in dict-like objects."""
@@ -42,7 +39,6 @@ def _safe(c, *path, default=None):
             return default
     return cur
 
-
 def _normalize_phone(raw: str) -> str | None:
     """Normalize to 233XXXXXXXXX for Ghana MSISDN."""
     if not raw:
@@ -53,7 +49,6 @@ def _normalize_phone(raw: str) -> str | None:
     if p.startswith("233") and len(p) == 12:
         return p
     return None
-
 
 def _send_sms(msisdn: str, message: str) -> str:
     """Send SMS via Arkesel; returns 'sent'|'failed'|'error'."""
@@ -72,7 +67,6 @@ def _send_sms(msisdn: str, message: str) -> str:
     except Exception:
         return "error"
 
-
 def _service_offer_text(c: dict) -> str:
     """
     Build the label used in SMS like 'MTN 2GB' from service_name + offer.
@@ -87,7 +81,6 @@ def _service_offer_text(c: dict) -> str:
     if service:
         return service
     return "service"
-
 
 # ---------------- Routes ----------------
 @admin_complaints_bp.route("/admin/complaints", methods=["GET"])
@@ -155,7 +148,6 @@ def admin_view_complaints():
         end_date=end_date,
     )
 
-
 def _export_complaints_to_excel(complaints):
     data = []
     for c in complaints:
@@ -184,7 +176,6 @@ def _export_complaints_to_excel(complaints):
         df.to_excel(writer, index=False, sheet_name="Complaints")
     output.seek(0)
     return send_file(output, download_name="complaints.xlsx", as_attachment=True)
-
 
 def _export_complaints_to_pdf(complaints):
     output = BytesIO()
@@ -220,14 +211,14 @@ def _export_complaints_to_pdf(complaints):
     output.seek(0)
     return send_file(output, download_name="complaints.pdf", as_attachment=True)
 
-
 @admin_complaints_bp.route("/admin/complaints/<complaint_id>/update", methods=["POST"])
 def update_complaint_status(complaint_id):
     if session.get("role") != "admin":
         return redirect(url_for("login.login"))
 
     new_status = (request.form.get("status") or "").strip().lower()
-    allowed = {"pending", "resolved", "refund"}
+    # Added 'false' and 'rejected'
+    allowed = {"pending", "resolved", "refund", "false", "rejected"}
     if new_status not in allowed:
         flash("Invalid status selected.", "warning")
         return redirect(url_for(
@@ -270,7 +261,7 @@ def update_complaint_status(complaint_id):
     }
     complaints_col.update_one({"_id": _id}, {"$set": update_doc})
 
-    # ---- SMS on status transitions (resolved/refund) ----
+    # ---- SMS on status transitions (resolved/refund only) ----
     sms_status = None
     if new_status in {"resolved", "refund"}:
         # fetch user phone
@@ -303,4 +294,3 @@ def update_complaint_status(complaint_id):
         start_date=request.args.get("start_date") or request.form.get("start_date") or "",
         end_date=request.args.get("end_date") or request.form.get("end_date") or ""
     ))
-
