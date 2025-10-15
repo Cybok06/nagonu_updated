@@ -61,7 +61,11 @@
               </div>
               <div class="mt-2 mt-md-0 text-md-end">
                 <span class="badge rounded-pill bg-secondary me-1">{{ od.paid_from }}</span>
-                <span class="badge rounded-pill bg-info text-dark me-1">GHS {{ "%.2f"|format(od.charged_amount or 0) }}</span>
+
+                {# --- NEW: amount shown as round(nearest) + 1 --- #}
+                {% set shown_amt = ((od.charged_amount or 0)|round(0,'common')) + 1 %}
+                <span class="badge rounded-pill bg-info text-dark me-1">GHS {{ shown_amt|int }}</span>
+
                 {% set st = (od.status or '').lower() %}
                 {% if st == 'completed' %}
                   <span class="badge badge-status rounded-pill bg-success">Completed</span>
