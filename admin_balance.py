@@ -5,7 +5,6 @@ from db import db
 from datetime import datetime
 import requests
 from urllib.parse import quote  # for URL-encoding SMS
-import math
 
 admin_balance_bp = Blueprint("admin_balance", __name__)
 
@@ -75,10 +74,17 @@ def _send_sms(msisdn: str, message: str) -> str:
         return "error"
 
 
-def _fmt_money(x: float) -> str:
-    # Keep user's requested "ghc" wording exactly, no thousands separators unless you want them:
-    # You can switch to f"{x:,.2f}" if you want commas.
-    return f"ghc{float(x):.0f}" if float(x).is_integer() else f"ghc{float(x):.2f}"
+def _fmt_money(x: float, style: str = "GHS") -> str:
+    """
+    Format money for SMS.
+    Default uses ASCII-safe 'GHS' (avoids Unicode SMS quirks).
+    To switch to the cedi symbol, call _fmt_money(x, style="GH₵").
+    """
+    amt = f"{float(x):.0f}" if float(x).is_integer() else f"{float(x):.2f}"
+    if style == "GH₵":
+        return f"GH₵{amt}"
+    # Keep no space to match previous layout; change to "GHS {amt}" if you prefer a space.
+    return f"GHS{amt}"
 
 
 def _user_snapshot(u: dict) -> dict:
@@ -146,7 +152,7 @@ def view_balances():
 def update_balance(balance_id):
     """
     Set absolute amount. Writes a log entry with action='set'.
-    Sends SMS: "Your account balance has been updated to ghcXXX"
+    Sends SMS: "Your account balance has been updated to GHSXXX"
     """
     new_amount = request.form.get("amount")
     note = (request.form.get("note") or "").strip()
@@ -227,7 +233,7 @@ def update_balance(balance_id):
 def deposit_balance(balance_id):
     """
     Increment by a positive amount (deposit).
-    Sends SMS: "Your account has been credited with ghcX, balance: ghcY"
+    Sends SMS: "Your account has been credited with GHSX, balance: GHSY"
     """
     delta = request.form.get("amount")
     note = (request.form.get("note") or "").strip()
@@ -316,7 +322,7 @@ def withdraw_balance(balance_id):
     """
     Decrement by a positive amount (withdraw).
     Prevents negative balance (no overdraft).
-    Sends SMS: "Your account has been debited with ghcX, balance: ghcY"
+    Sends SMS: "Your account has been debited with GHSX, balance: GHSY"
     """
     delta = request.form.get("amount")
     note = (request.form.get("note") or "").strip()
@@ -440,4 +446,3 @@ def balance_history(user_id):
             "created_at": lg.get("created_at").strftime("%Y-%m-%d %H:%M") if lg.get("created_at") else "",
         })
     return jsonify({"success": True, "logs": logs})
-
