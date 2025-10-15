@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta
-from flask import Flask, render_template, send_from_directory, session
+from flask import Flask, send_from_directory, session, request
 
 # Load .env for non-secret things (e.g., Paystack keys)
 try:
@@ -41,6 +41,12 @@ from login_logs import login_logs_bp
 from reset import reset_bp
 from afa_routes import afa_bp
 from admin_afa import admin_afa_bp
+from cart_api import cart_api_bp
+from check_status import check_status_bp
+from shares import shares_bp
+
+# ✅ Use ABSOLUTE import (place index.py next to this file)
+from index import index_bp
 
 # === Collections ===
 visits_col = db["visits"]
@@ -73,6 +79,23 @@ def create_app():
     def _keep_permanent_sessions():
         if session.get("user_id"):
             session.permanent = True
+
+    # Count visits to "/" without adding a second route
+    @app.before_request
+    def _count_home_visits():
+        if request.path == "/":
+            try:
+                visits_col.update_one(
+                    {"_id": "global"},
+                    {
+                        "$inc": {"total": 1},
+                        "$set": {"updated_at": datetime.utcnow()},
+                        "$setOnInsert": {"created_at": datetime.utcnow()},
+                    },
+                    upsert=True,
+                )
+            except Exception as e:
+                print(f"[visits] increment failed: {e}")
 
     # --- File uploads ---
     app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -107,6 +130,10 @@ def create_app():
     app.register_blueprint(reset_bp)
     app.register_blueprint(afa_bp)
     app.register_blueprint(admin_afa_bp)
+    app.register_blueprint(cart_api_bp)  # no prefix; routes already start with /api/cart
+    app.register_blueprint(index_bp)     # serves "/" dynamically with offers & public buy
+    app.register_blueprint(check_status_bp)
+    app.register_blueprint(shares_bp)
 
     # --- Jinja env injection ---
     @app.context_processor
@@ -122,24 +149,7 @@ def create_app():
             ),
         }
 
-    # --- Routes ---
-    @app.route("/")
-    def home():
-        # increment a global visit counter safely
-        try:
-            visits_col.update_one(
-                {"_id": "global"},
-                {
-                    "$inc": {"total": 1},
-                    "$set": {"updated_at": datetime.utcnow()},
-                    "$setOnInsert": {"created_at": datetime.utcnow()},
-                },
-                upsert=True,
-            )
-        except Exception as e:
-            print(f"[visits] increment failed: {e}")
-        return render_template("index.html")
-
+    # --- Utility routes ---
     @app.route("/uploads/<path:filename>")
     def uploaded_file(filename):
         return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
