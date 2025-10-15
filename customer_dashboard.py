@@ -2,8 +2,8 @@ from flask import Blueprint, render_template, session, redirect, url_for, reques
 from bson import ObjectId
 from db import db
 import json, ast, re
-from datetime import datetime
-from typing import Optional, Any, Dict, List  # <-- for Python < 3.10 union hints
+from datetime import datetime, date, timedelta
+from typing import Optional, Any, Dict, List, Tuple  # add Tuple for 3.8/3.9
 
 customer_dashboard_bp = Blueprint("customer_dashboard", __name__)
 services_col = db["services"]
@@ -11,7 +11,8 @@ balances_col = db["balances"]
 orders_col = db["orders"]
 service_profits_col = db["service_profits"]  # per-customer overrides
 users_col = db["users"]                      # for display name
-settings_col = db["settings"]                # <-- NEW: for AFA settings (price/open/stock)
+settings_col = db["settings"]                # legacy AFA settings (price/open/stock)
+afa_settings_col = db["afa_settings"]        # primary AFA settings (price/open/stock)
 
 # ---------- helpers ----------
 _NUM = re.compile(r"^\s*-?\d+(\.\d+)?\s*$", re.IGNORECASE)
@@ -101,38 +102,51 @@ def _extract_volume(value: Any, unit: str) -> Optional[float]:
         vol_s = str(vol)
         if unit == "minutes":
             m = _MIN.search(vol_s)
-            if m: return float(m.group(1))
-            if _NUM.match(vol_s): return float(vol_s)
+            if m:
+                return float(m.group(1))
+            if _NUM.match(vol_s):
+                return float(vol_s)
             return None
         else:
             m = _GB.search(vol_s)
-            if m: return float(m.group(1)) * 1000.0
+            if m:
+                return float(m.group(1)) * 1000.0
             m = _MB.search(vol_s)
-            if m: return float(m.group(1))
-            if _NUM.match(vol_s): return float(vol_s)  # assume MB
+            if m:
+                return float(m.group(1))
+            if _NUM.match(vol_s):
+                return float(vol_s)  # assume MB
             return None
 
     if isinstance(value, str):
         s = value
         if unit == "minutes":
             m = _MIN.search(s)
-            if m: return float(m.group(1))
-            if _NUM.match(s): return float(s)
+            if m:
+                return float(m.group(1))
+            if _NUM.match(s):
+                return float(s)
             s2 = _PKG_TAIL.sub("", s)
             m = _MIN.search(s2)
-            if m: return float(m.group(1))
+            if m:
+                return float(m.group(1))
             return None
         else:
             m = _GB.search(s)
-            if m: return float(m.group(1)) * 1000.0
+            if m:
+                return float(m.group(1)) * 1000.0
             m = _MB.search(s)
-            if m: return float(m.group(1))
+            if m:
+                return float(m.group(1))
             s2 = _PKG_TAIL.sub("", s)
             m = _GB.search(s2)
-            if m: return float(m.group(1)) * 1000.0
+            if m:
+                return float(m.group(1)) * 1000.0
             m = _MB.search(s2)
-            if m: return float(m.group(1))
-            if _NUM.match(s2): return float(s2)  # assume MB
+            if m:
+                return float(m.group(1))
+            if _NUM.match(s2):
+                return float(s2)  # assume MB
             return None
     return None
 
@@ -226,7 +240,7 @@ def _display_name(user_doc: Optional[Dict[str, Any]]) -> str:
         return str(user_doc["email"]).split("@", 1)[0]
     return "Customer"
 
-# ---- new: service-state helper ------------------------------------------------
+# ---- service-state helper ----------------------------------------------------
 
 def _service_state(svc: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -262,10 +276,11 @@ def _service_state(svc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 # ---------- AFA settings loader (price / open / stock) ----------
+
 def _load_afa_settings() -> Dict[str, Any]:
     """
-    Reads configurable AFA price/open/stock from db.settings.
-    Falls back to defaults and to flags on 'AFA TALKTIME' service if present.
+    Reads configurable AFA price/open/stock from afa_settings (primary),
+    with a legacy fallback to db.settings. Does NOT mirror from any service.
     """
     defaults: Dict[str, Any] = {
         "price": 2.00,
@@ -275,32 +290,114 @@ def _load_afa_settings() -> Dict[str, Any]:
         "availability": "AVAILABLE",
         "disabled_reason": "This service is currently unavailable."
     }
-    doc = settings_col.find_one({"key": "afa_settings"}) or settings_col.find_one({"key": "afa"})
+
+    # Preferred single-record document created/managed by admin_afa.py
+    doc = afa_settings_col.find_one({"_id": "AFA_SETTINGS"})
+
+    # Legacy fallback for older deployments
+    if not doc:
+        doc = settings_col.find_one({"key": "afa_settings"}) or settings_col.find_one({"key": "afa"})
+
     if doc:
         price = _to_float(doc.get("price"))
         if price is not None:
             defaults["price"] = price
+
         is_open = bool(doc.get("is_open", True))
         in_stock = bool(doc.get("in_stock", True))
         defaults["is_open"] = is_open
         defaults["in_stock"] = in_stock
         defaults["status"] = "OPEN" if is_open else "CLOSED"
         defaults["availability"] = "AVAILABLE" if in_stock else "OUT_OF_STOCK"
+
         if doc.get("disabled_reason"):
             defaults["disabled_reason"] = str(doc["disabled_reason"])
 
-    # Optional: reflect flags from a service named AFA TALKTIME
-    svc = services_col.find_one({"name": {"$regex": r"^\s*AFA\s+TALKTIME\s*$", "$options": "i"}})
-    if svc:
-        st = _service_state(svc)
-        defaults["status"] = st["status"]
-        defaults["availability"] = st["availability"]
-        defaults["is_open"] = (st["status"] == "OPEN")
-        defaults["in_stock"] = (st["availability"] == "AVAILABLE")
-        if st.get("disabled_reason"):
-            defaults["disabled_reason"] = st["disabled_reason"]
-
+    # IMPORTANT: No reflection from 'AFA TALKTIME' or any other service.
     return defaults
+
+# ---------- NEW: customer daily sales (today + last 5) ----------
+
+def _day_range(d: date) -> Tuple[datetime, datetime]:
+    start = datetime.combine(d, datetime.min.time())
+    end = start + timedelta(days=1)
+    return start, end
+
+def compute_user_daily_sales(user_oid: ObjectId, days_back: int = 6) -> Dict[str, Any]:
+    """
+    Customer 'sales' = sum of their order totals (customer-facing price).
+    Uses orders.total_amount per day.
+    If you prefer charged-only, switch "$total_amount" to "$charged_amount" below.
+    Returns labels, values, today_sales, yesterday_sales, change_pct, trend, statement.
+    """
+    today = datetime.utcnow().date()
+    # previous 5 days + today, in chronological order
+    days = [today - timedelta(days=i) for i in range(days_back)][::-1]
+
+    window_start, _ = _day_range(days[0])
+    _, window_end = _day_range(days[-1])  # end-of-today
+
+    pipeline = [
+        {"$match": {
+            "user_id": user_oid,
+            "created_at": {"$gte": window_start, "$lt": window_end},
+            # If needed: "status": "completed",
+        }},
+        {"$project": {
+            "d": {"$dateTrunc": {"date": "$created_at", "unit": "day"}},
+            "amt": {"$ifNull": ["$total_amount", 0]},
+        }},
+        {"$group": {"_id": "$d", "sales": {"$sum": "$amt"}}},
+    ]
+
+    try:
+        agg = list(orders_col.aggregate(pipeline))
+    except Exception:
+        agg = []
+
+    by_day: Dict[date, float] = {}
+    for row in agg:
+        dt = row.get("_id")
+        if isinstance(dt, datetime):
+            by_day[dt.date()] = float(row.get("sales", 0) or 0)
+
+    labels: List[str] = []
+    values: List[float] = []
+    for d in days:
+        labels.append("Today" if d == today else d.strftime("%b %d"))
+        values.append(round(by_day.get(d, 0.0), 2))
+
+    today_sales = values[-1] if values else 0.0
+    yesterday_sales = values[-2] if len(values) >= 2 else 0.0
+
+    if yesterday_sales == 0:
+        change_pct = 100.0 if today_sales > 0 else 0.0
+    else:
+        change_pct = ((today_sales - yesterday_sales) / abs(yesterday_sales)) * 100.0
+
+    if abs(today_sales - yesterday_sales) < 1e-9:
+        trend = "flat"
+        statement = "Today’s purchases are the same as yesterday."
+    elif today_sales > yesterday_sales:
+        trend = "up"
+        diff = round(today_sales - yesterday_sales, 2)
+        pct = round(change_pct, 2)
+        statement = f"Today’s purchases have risen by {pct}% compared to yesterday (up GHS {diff:,.2f})."
+    else:
+        trend = "down"
+        diff = round(yesterday_sales - today_sales, 2)
+        pct = round(abs(change_pct), 2)
+        statement = f"Today’s purchases have fallen by {pct}% compared to yesterday (down GHS {diff:,.2f})."
+
+    return {
+        "labels": labels,
+        "values": values,
+        "today_sales": round(today_sales, 2),
+        "yesterday_sales": round(yesterday_sales, 2),
+        "change_pct": round(change_pct, 2),
+        "trend": trend,
+        "statement": statement,
+    }
 
 # ---------- globals ----------
 @customer_dashboard_bp.app_context_processor
@@ -402,8 +499,11 @@ def customer_dashboard():
     express_services = [s for s in services if _is_express(s)]
     regular_services = [s for s in services if not _is_express(s)]
 
-    # NEW: AFA settings (price / open / stock) for template
+    # AFA settings (price / open / stock) — decoupled from services
     afa = _load_afa_settings()
+
+    # NEW: the customer’s own sales trend (today + last 5 days)
+    ds = compute_user_daily_sales(user_oid, days_back=6)
 
     return render_template(
         "customer_dashboard.html",
@@ -413,4 +513,13 @@ def customer_dashboard():
         recent_orders=recent_orders,
         customer_name=customer_name,
         afa=afa,                           # pass settings for the AFA block in your HTML
+
+        # sales KPIs for the hero section
+        today_sales=ds["today_sales"],
+        yesterday_sales=ds["yesterday_sales"],
+        sales_change_pct=ds["change_pct"],
+        sales_trend=ds["trend"],
+        sales_statement=ds["statement"],
+        daily_sales_labels=ds["labels"],
+        daily_sales_values=ds["values"],
     )
