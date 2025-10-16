@@ -1274,55 +1274,56 @@
   })();
 </script>
 <script>
-/* --- Server Cart Sync (fixed: no recursion / no duplication) ---------------- */
+/* --- Server Cart Sync (fixed to keep cart visible after "Proceed") ---------------- */
 (function(){
   if (!window.fetch) return;
 
   // Guards to avoid loops
   let CART_SYNCING = false;   // prevent concurrent /replace calls
-  let CART_MUTE = false;      // suppress saveCart side-effects during programmatic updates
+  let CART_MUTE    = false;   // suppress saveCart side-effects during programmatic updates
+  let CART_LOCKED  = false;   // prevent edits after checkout_start
+  let lockedCart   = null;    // server-locked snapshot
 
-  // 1) Pull server cart on load and merge into the existing client cart
-  // 1) Pull server cart on load and reconcile with local safely (no dupes)
-async function pullServerCart() {
-  try {
-    const r = await fetch("/api/cart", { credentials: "same-origin" });
-    const j = await r.json();
-    if (!j.success || !Array.isArray(j.items)) return;
+  // ---------- 1) Pull server cart on load and reconcile with local safely ----------
+  async function pullServerCart() {
+    try {
+      const r = await fetch("/api/cart", { credentials: "same-origin" });
+      const j = await r.json();
+      if (!j.success || !Array.isArray(j.items)) return;
 
-    const serverHas = j.items.length > 0;
-    const localHas  = Array.isArray(window.cart) && window.cart.length > 0;
+      const serverHas = j.items.length > 0;
+      const localHas  = Array.isArray(window.cart) && window.cart.length > 0;
 
-    if (!serverHas && localHas) {
-      // Server empty, local has items -> make LOCAL the source of truth (replace, not add_bulk)
-      await fetch("/api/cart/replace", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: window.cart })
-      });
+      if (!serverHas && localHas) {
+        // Server empty, local has items -> push local up as the source of truth
+        await fetch("/api/cart/replace", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ items: window.cart })
+        });
 
-      // Re-fetch canonical server copy (now includes _id for each item)
-      const r2 = await fetch("/api/cart", { credentials: "same-origin" });
-      const j2 = await r2.json();
-      if (j2.success && Array.isArray(j2.items)) {
-        CART_MUTE = true;
-        window.cart = j2.items.map(stripServerItemForClient);
-        if (typeof updateCartUI === "function") updateCartUI(); // updates localStorage once
-        CART_MUTE = false;
+        // Re-fetch canonical server copy (now includes _id for each item)
+        const r2 = await fetch("/api/cart", { credentials: "same-origin" });
+        const j2 = await r2.json();
+        if (j2.success && Array.isArray(j2.items)) {
+          CART_MUTE = true;
+          window.cart = j2.items.map(stripServerItemForClient);
+          if (typeof updateCartUI === "function") updateCartUI(); // updates localStorage once
+          CART_MUTE = false;
+        }
+        return;
       }
-      return;
+
+      // If server has items (with or without local), prefer SERVER as source of truth
+      CART_MUTE = true;
+      window.cart = j.items.map(stripServerItemForClient);
+      if (typeof updateCartUI === "function") updateCartUI();     // overwrites localStorage with server snapshot
+      CART_MUTE = false;
+    } catch (e) {
+      // ignore network hiccups; UI still works with localStorage
     }
-
-    // If server has items (with or without local), prefer SERVER as source of truth
-    CART_MUTE = true;
-    window.cart = j.items.map(stripServerItemForClient);
-    if (typeof updateCartUI === "function") updateCartUI();     // overwrites localStorage with server snapshot
-    CART_MUTE = false;
-  } catch (e) {
-    // ignore network hiccups; UI still works with localStorage
   }
-}
-
 
   function stripServerItemForClient(it){
     return {
@@ -1338,19 +1339,20 @@ async function pullServerCart() {
     };
   }
 
-  // 2) Wrap existing saveCart() to also sync to server WITHOUT calling updateCartUI (prevents recursion)
+  // ---------- 2) Wrap existing saveCart() to also sync to server (no UI recursion) ----------
   if (typeof saveCart === "function") {
     const _saveCartOrig = saveCart;
     window.saveCart = async function(){
       try { _saveCartOrig(); } catch(e) {}
 
-      if (CART_MUTE || CART_SYNCING) return;   // don't sync during programmatic UI updates or concurrent call
+      if (CART_MUTE || CART_SYNCING || CART_LOCKED) return;   // don't sync during programmatic updates / lock
 
       try {
         CART_SYNCING = true;
         const r = await fetch("/api/cart/replace", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({ items: (window.cart || []) })
         });
         const j = await r.json();
@@ -1368,110 +1370,127 @@ async function pullServerCart() {
     };
   }
 
-  // 3) Enhance "Remove" buttons: remove on server too (no duplicate UI handlers)
+  // ---------- 3) Enhance "Remove" buttons: also remove on server (best-effort) ----------
   const cartModalEl = document.getElementById("cartModal");
   if (cartModalEl) {
     cartModalEl.addEventListener("click", async function(e){
       const btn = e.target.closest ? e.target.closest("button[data-remove]") : null;
-      if (!btn) return;
+      if (!btn || CART_LOCKED) return;
 
-      const idx = Number(btn.getAttribute("data-remove"));
+      const idx  = Number(btn.getAttribute("data-remove"));
       const item = (Array.isArray(window.cart) && !isNaN(idx)) ? window.cart[idx] : null;
 
-      // First let your original handler run (it splices and calls updateCartUI->saveCart)
-      // Then call server remove (best-effort)
+      // Let original handler run (it splices & calls updateCartUI->saveCart), then server remove
       try {
         if (item && item._id) {
           await fetch("/api/cart/remove", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
             body: JSON.stringify({ item_id: item._id })
           });
-        } else {
-          // If no _id yet (very first sync), rely on saveCart->replace to apply new list to server
         }
       } catch(e) {}
     });
   }
 
-  // 4) Clear cart button should clear server too (UI already clears and triggers saveCart)
+  // ---------- 4) Clear cart button should clear server too (UI already clears + saveCart) ----------
   const clearBtn = document.getElementById("clear-cart-btn");
   if (clearBtn) {
-    clearBtn.addEventListener("click", async function(){
-      try { await fetch("/api/cart/clear", { method: "POST" }); } catch(e){}
+    // Guard: do nothing when locked
+    clearBtn.addEventListener("click", async function(e){
+      if (CART_LOCKED) { e.preventDefault(); e.stopPropagation(); return; }
+      try { await fetch("/api/cart/clear", { method: "POST", credentials: "same-origin" }); } catch(e){}
     });
   }
 
-  // 5) Proceed to checkout: LOCK + CLEAR server cart, then clear client cart without re-sync loops
-  let lockedCart = null;
+  // ---------- helpers to freeze UI when locked ----------
+  function freezeCartUI() {
+    CART_LOCKED = true;
+
+    // Disable Clear button
+    const clearBtn = document.getElementById("clear-cart-btn");
+    if (clearBtn) {
+      clearBtn.disabled = true;
+      clearBtn.classList.add("disabled");
+    }
+
+    // Disable all "Remove" buttons
+    document.querySelectorAll('#cart-list button[data-remove]').forEach(btn => {
+      btn.disabled = true;
+      btn.classList.add("disabled");
+    });
+  }
+
+  // ---------- 5) Proceed to checkout: LOCK server cart, but KEEP client cart visible ----------
   const checkoutBtn = document.getElementById("checkout-btn");
   if (checkoutBtn) {
-    const _oldClick = checkoutBtn.onclick; // safety
+    // Keep any existing onclick a/k/a your earlier handler
+    const _oldClick = checkoutBtn.onclick;
     checkoutBtn.addEventListener("click", async function(evt){
-      if (typeof _oldClick === "function") try { _oldClick.call(this, evt); } catch(e){}
+      if (typeof _oldClick === "function") {
+        try { _oldClick.call(this, evt); } catch(e){}
+      }
 
       if (!Array.isArray(window.cart) || window.cart.length === 0) return;
 
       try {
-        const r = await fetch("/api/cart/checkout_start", { method: "POST" });
+        const r = await fetch("/api/cart/checkout_start", { method: "POST", credentials: "same-origin" });
         const j = await r.json();
         if (j.success) {
           lockedCart = Array.isArray(j.locked) ? j.locked : [];
 
-          // Clear client cart silently (no saveCart loop)
-          CART_MUTE = true;
-          window.cart = [];
-          try { localStorage.removeItem("nndata_cart_v1"); } catch(e){}
-          if (typeof updateCartUI === "function") updateCartUI();
-          CART_MUTE = false;
+          // Keep items visible; just freeze edits and show server total if provided
+          freezeCartUI();
 
           const totalEl = document.getElementById("checkout-total");
-          if (totalEl) totalEl.textContent = (Number(j.total || 0)).toFixed(2);
+          if (totalEl) totalEl.textContent = Number(j.total || 0).toFixed(2);
         }
       } catch (e) {
-        // if lock fails, keep client-only behavior
+        // if lock fails, keep client-only behavior (still not clearing UI)
       }
     });
   }
 
-  // 6) On Confirm Payment, prefer the lockedCart snapshot if present
+  // ---------- 6) On Confirm Payment, prefer the lockedCart snapshot if present ----------
   const confirmBtn = document.getElementById("confirm-payment-btn");
   if (confirmBtn) {
     confirmBtn.addEventListener("click", function(){
-      if (lockedCart && lockedCart.length) {
-        const _fetch = window.fetch;
-        let injectedOnce = false;
+      if (!lockedCart || !lockedCart.length) return;
 
-        window.fetch = function(input, init) {
-          try {
-            if (!injectedOnce && typeof input === "string" && input.indexOf("/checkout") === 0 && init && init.body) {
-              const orig = JSON.parse(init.body);
-              orig.cart = lockedCart.map(function(it){
-                return {
-                  serviceId: it.serviceId,
-                  serviceName: it.serviceName,
-                  phone: it.phone,
-                  value: it.value,
-                  value_obj: it.value_obj,
-                  base_amount: Number(it.base_amount || 0),
-                  amount: Number(it.amount || it.total || 0),
-                  total: Number(it.total || it.amount || 0)
-                };
-              });
-              init.body = JSON.stringify(orig);
-              injectedOnce = true;
-            }
-          } catch(e) {}
-          return _fetch(input, init);
-        };
-      }
+      const _fetch = window.fetch;
+      let injectedOnce = false;
+
+      window.fetch = function(input, init) {
+        try {
+          if (!injectedOnce && typeof input === "string" && input.indexOf("/checkout") === 0 && init && init.body) {
+            const orig = JSON.parse(init.body);
+            orig.cart = lockedCart.map(function(it){
+              return {
+                serviceId: it.serviceId,
+                serviceName: it.serviceName,
+                phone: it.phone,
+                value: it.value,
+                value_obj: it.value_obj,
+                base_amount: Number(it.base_amount || 0),
+                amount: Number(it.amount || it.total || 0),
+                total: Number(it.total || it.amount || 0)
+              };
+            });
+            init.body = JSON.stringify(orig);
+            injectedOnce = true;
+          }
+        } catch(e) {}
+        return _fetch(input, init);
+      };
     });
   }
 
-  // 7) Initial server pull
+  // ---------- 7) Initial server pull ----------
   pullServerCart();
 })();
 </script>
+
 
 
 </body>
