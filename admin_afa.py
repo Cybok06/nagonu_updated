@@ -154,6 +154,7 @@ def admin_afa_list():
         return jsonify(success=False, error="Unauthorized"), 401
 
     s = _get_settings()
+    # Single source of truth: settings price
     current_price = float(s.get("price", AMOUNT_DEFAULT))
 
     q = (request.args.get("q") or "").strip()
@@ -201,8 +202,8 @@ def admin_afa_list():
 
     total = afa_col.count_documents(query)
 
-    # status counts + total amount (for current filter)
-    # Use the stored amount if present; else fall back to current_price
+    # Status counts + total amount (ALWAYS using settings price)
+    # sum_amount = count * current_price
     agg = list(
         afa_col.aggregate(
             [
@@ -211,15 +212,7 @@ def admin_afa_list():
                     "$group": {
                         "_id": "$status",
                         "count": {"$sum": 1},
-                        "sum_amount": {
-                            "$sum": {
-                                "$cond": [
-                                    {"$gt": ["$amount", None]},
-                                    "$amount",
-                                    current_price,
-                                ]
-                            }
-                        },
+                        "sum_amount": {"$sum": current_price},
                     }
                 },
             ]
@@ -258,9 +251,9 @@ def admin_afa_list():
         created = d.get("created_at")
         cid = d.get("customer_id")
         uinfo = users_map.get(cid) if isinstance(cid, ObjectId) else None
-        # prefer stored amount; else use current admin-set price
-        amount = d.get("amount")
-        amount = float(amount if amount is not None else current_price)
+
+        # Always show settings price
+        amount = float(current_price)
 
         out_items.append(
             {
@@ -285,9 +278,7 @@ def admin_afa_list():
                 "amount": amount,
                 "status": (d.get("status") or "pending"),
                 "charged": bool(d.get("charged", False)),
-                "created_at_display": created.strftime("%d %b %Y, %I:%M %p")
-                if created
-                else "",
+                "created_at_display": created.strftime("%d %b %Y, %I:%M %p") if created else "",
             }
         )
 
@@ -324,7 +315,7 @@ def admin_afa_update_status(reg_id):
 
     return jsonify(success=True, message="Status updated.")
 
-# ------------- CHARGE CUSTOMER (uses current settings price as fallback) -------------
+# ------------- CHARGE CUSTOMER (ALWAYS use settings price) -------------
 
 @admin_afa_bp.route("/admin/api/afa/<reg_id>/charge", methods=["POST"])
 def admin_afa_charge(reg_id):
@@ -343,12 +334,15 @@ def admin_afa_charge(reg_id):
         return jsonify(success=False, error="Already charged"), 400
 
     settings = _get_settings()
-    current_price = float(settings.get("price", AMOUNT_DEFAULT))
+    try:
+        current_price = float(settings.get("price", AMOUNT_DEFAULT))
+    except Exception:
+        current_price = AMOUNT_DEFAULT
 
-    # prefer stored amount; otherwise charge the current admin-set price
-    amount = float(reg.get("amount", current_price))
+    # Always charge the current settings price
+    amount = current_price
     if amount < 0:
-        amount = current_price
+        amount = AMOUNT_DEFAULT
 
     customer_id = reg.get("customer_id")
 
@@ -391,7 +385,7 @@ def admin_afa_charge(reg_id):
     }
     log_res = balance_logs_col.insert_one(log_doc)
 
-    # mark registration as charged (also store the amount actually charged)
+    # mark registration as charged and persist the settings price used
     afa_col.update_one(
         {"_id": oid},
         {
@@ -401,8 +395,7 @@ def admin_afa_charge(reg_id):
                 "charged_at": _now(),
                 "charged_by": actor_name,
                 "charge_log_id": log_res.inserted_id,
-                # if the registration didn't have an amount, persist the price used now
-                "amount": reg.get("amount", amount),
+                "amount": amount,  # normalize to settings price for UI/reporting consistency
                 "updated_at": _now(),
             }
         },
