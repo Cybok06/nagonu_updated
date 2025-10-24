@@ -44,6 +44,9 @@ from admin_afa import admin_afa_bp
 from cart_api import cart_api_bp
 from check_status import check_status_bp
 from shares import shares_bp
+from routes.stores import stores_bp
+from routes.customer_store import customer_store_bp
+from routes.admin_store import admin_store_bp
 
 # ✅ Use ABSOLUTE import (place index.py next to this file)
 from index import index_bp
@@ -134,6 +137,9 @@ def create_app():
     app.register_blueprint(index_bp)     # serves "/" dynamically with offers & public buy
     app.register_blueprint(check_status_bp)
     app.register_blueprint(shares_bp)
+    app.register_blueprint(stores_bp)
+    app.register_blueprint(customer_store_bp)
+    app.register_blueprint(admin_store_bp)
 
     # --- Jinja env injection ---
     @app.context_processor
