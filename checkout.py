@@ -1,7 +1,7 @@
 # checkout.py — Toppily shared-bundle + Express (second API)  [NO SCHEDULER VERSION]
 from flask import Blueprint, request, jsonify, session
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 import os, uuid, random, requests, certifi, traceback, json, hashlib, pathlib, shutil, ast
 
 # NOTE: Removed: from apscheduler.schedulers.background import BackgroundScheduler
@@ -476,6 +476,43 @@ def _service_unavailability_reason(svc_doc: dict):
 
     return False, ""
 
+
+# ===== Duplicate-in-processing guard =========================================
+DUP_WINDOW_MINUTES = 45  # tune as desired (e.g., 20–60)
+
+def _has_processing_conflict(phone: str, service_id_raw: str | None, svc_name: str | None) -> bool:
+    """
+    True if a recent order (status='processing') already contains this phone
+    for the same service (prefer serviceId match; fallback to serviceName).
+    """
+    if not phone:
+        return False
+
+    window_start = datetime.utcnow() - timedelta(minutes=DUP_WINDOW_MINUTES)
+
+    # Strict: serviceId match
+    if service_id_raw:
+        q = {
+            "status": "processing",
+            "created_at": {"$gte": window_start},
+            "items": {"$elemMatch": {"phone": phone, "serviceId": service_id_raw}}
+        }
+        if orders_col.find_one(q, {"_id": 1}):
+            return True
+
+    # Fallback: serviceName match
+    if svc_name:
+        q2 = {
+            "status": "processing",
+            "created_at": {"$gte": window_start},
+            "items": {"$elemMatch": {"phone": phone, "serviceName": svc_name}}
+        }
+        if orders_col.find_one(q2, {"_id": 1}):
+            return True
+
+    return False
+
+
 # ===== Route (NO background auto-update) =====================================
 @checkout_bp.route("/checkout", methods=["POST"])
 def process_checkout():
@@ -566,6 +603,29 @@ def process_checkout():
                         "reason": reason_text
                     }
                 }), 400
+
+            # ----- DUPLICATE-IN-PROCESSING GUARD ---------------------------------------
+            is_dup = _has_processing_conflict(phone, service_id_raw, svc_name)
+            if is_dup:
+                results.append({
+                    "phone": phone,
+                    "base_amount": 0.0,
+                    "amount": 0.0,  # not charged
+                    "originally_requested_amount": amt_total,  # for audit
+                    "profit_amount": 0.0,
+                    "profit_percent_used": 0.0,
+                    "value": item.get("value"),
+                    "value_obj": value_obj,
+                    "serviceId": service_id_raw,
+                    "serviceName": svc_name,
+                    "service_type": svc_type if svc_type else ("unknown" if not svc_doc else None),
+                    "line_status": "skipped_duplicate_processing",
+                    "api_status": "skipped",
+                    "api_response": {
+                        "note": "Phone already has a processing order for this service; skipping to avoid duplicate."
+                    }
+                })
+                continue
 
             # --- Compute base_amount & profit_amount (ABSOLUTE) ---
             base_hint = _to_float(item.get("base_amount"))
@@ -695,63 +755,35 @@ def process_checkout():
         # Charge now for: ALL processing lines (which includes all successful provider hits)
         total_to_charge_now = round(total_delivered_api_amount + total_processing_amount, 2)
 
-        # ==== If nothing counted yet → charge full cart and mark processing ====
+        # ==== Nothing to charge now (e.g., all lines were skipped as duplicates) ====
         if total_to_charge_now <= 0:
-            status = "processing"
-
-            balances_col.update_one(
-                {"user_id": user_id},
-                {"$inc": {"amount": -total_requested}, "$set": {"updated_at": datetime.utcnow()}},
-                upsert=True
-            )
-
             orders_col.insert_one({
                 "user_id": user_id,
                 "order_id": order_id,
-                "items": results,
-                "total_amount": total_requested,
-                "charged_amount": total_requested,
-                "profit_amount_total": round(profit_amount_total, 2),
-                "status": status,                       # processing
+                "items": results,                    # contains skipped_duplicate lines (amount 0)
+                "total_amount": 0.0,
+                "charged_amount": 0.0,
+                "profit_amount_total": 0.0,
+                "status": "skipped",
                 "paid_from": method,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow(),
                 "debug": {"events": debug_events}
             })
 
-            transactions_col.insert_one({
-                "user_id": user_id,
-                "amount": total_requested,
-                "reference": order_id,
-                "status": "success",
-                "type": "purchase",
-                "gateway": "Wallet",
-                "currency": "GHS",
-                "created_at": datetime.utcnow(),
-                "verified_at": datetime.utcnow(),
-                "meta": {
-                    "order_status": status,
-                    "api_delivered_amount": 0.0,
-                    "processing_amount": round(total_requested, 2),
-                    "profit_amount_total": round(profit_amount_total, 2)
-                }
-            })
-
-            friendly_msg = (
-                f"✅ We’ve received your order. It’s now processing and will be delivered soon. "
-                f"Order ID: {order_id}"
-            )
+            skipped_count = sum(1 for it in results if it.get("line_status") == "skipped_duplicate_processing")
 
             return jsonify({
                 "success": True,
-                "message": friendly_msg,
+                "message": ("No charge taken. {n} item(s) were skipped because the same phone already "
+                            "has an order in processing for that service.").format(n=skipped_count),
                 "order_id": order_id,
-                "status": status,
-                "charged_amount": total_requested,
-                "profit_amount_total": round(profit_amount_total, 2),
+                "status": "skipped",
+                "charged_amount": 0.0,
+                "profit_amount_total": 0.0,
+                "skipped_count": skipped_count,
                 "items": results
             }), 200
-        # ==== END extreme case ====
 
         # Deduct balance for the amount we are charging now
         balances_col.update_one(
@@ -797,6 +829,9 @@ def process_checkout():
             }
         })
 
+        skipped_count = sum(1 for it in results if it.get("line_status") == "skipped_duplicate_processing")
+        processing_count = sum(1 for it in results if it.get("line_status") == "processing")
+
         # Response message (always processing to frontend)
         msg = ("📝 Order received and is processing. "
                "We’ve charged your wallet. Order ID: {oid}").format(oid=order_id)
@@ -808,6 +843,8 @@ def process_checkout():
             "status": status,
             "charged_amount": total_to_charge_now,
             "profit_amount_total": round(profit_amount_total, 2),
+            "processing_count": processing_count,
+            "skipped_count": skipped_count,
             "items": results
         }), 200
 
