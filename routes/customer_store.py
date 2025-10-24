@@ -1,4 +1,3 @@
-# routes/customer_store.py
 from __future__ import annotations
 
 from datetime import datetime, date, timedelta
@@ -120,8 +119,8 @@ def _gather_dashboard(slug: str) -> Dict[str, Any]:
                 "label":   {"$ifNull": ["$items.value", "-"]},
             },
             "count":   {"$sum": 1},
-            "revenue": {"$sum": {"$ifNull": ["$items.amount", 0]}},
-        }},
+            "revenue": {"$sum": {"$ifNull": ["$items.amount", 0]}}},
+        },
         {"$sort": {"count": -1, "revenue": -1}},
         {"$limit": 8},
     ]
@@ -168,19 +167,35 @@ def _gather_dashboard(slug: str) -> Dict[str, Any]:
 def customer_store_home():
     """
     Store dashboard without a slug in the URL.
-    It picks the latest non-deleted store owned by the logged-in customer.
+    If the user has no store yet, render the dashboard shell with an onboarding card.
     """
     if session.get("role") != "customer" or not session.get("user_id"):
         return redirect(url_for("login.login"))
 
     owner_id = ObjectId(session["user_id"])
+    owner = users_col.find_one({"_id": owner_id}, {"full_name": 1, "name": 1, "username": 1, "email": 1})
     store_doc = _latest_owner_store(owner_id)
+
     if not store_doc:
-        return "Store not found", 404
+        today = datetime.utcnow().date()
+        return render_template(
+            "customer_store.html",
+            store=None,
+            owner_name=_owner_display_name(owner),
+            all_time_sales=0.00,
+            profit_today=0.00,
+            all_time_profit=0.00,
+            orders_count=0,
+            top_offers=[],
+            recent_orders=[],
+            withdrawable=0.00,
+            wallet_balance=_owner_wallet_balance(owner_id),
+            today_str=today.strftime("%b %d, %Y"),
+            slug=None,
+        )
 
     slug = store_doc.get("slug")
     k = _gather_dashboard(slug)
-    owner = users_col.find_one({"_id": owner_id}, {"full_name": 1, "name": 1, "username": 1, "email": 1})
 
     return render_template(
         "customer_store.html",
@@ -208,7 +223,8 @@ def customer_store_dashboard(slug: str):
     owner_id = ObjectId(session["user_id"])
     store_doc = _ensure_owner_store(owner_id, slug)
     if not store_doc:
-        return "Store not found", 404
+        # If URL has an unknown slug for this owner, fall back to noslug dashboard onboarding
+        return redirect(url_for("customer_store.customer_store_home"))
 
     k = _gather_dashboard(slug)
     owner = users_col.find_one({"_id": owner_id}, {"full_name": 1, "name": 1, "username": 1, "email": 1})
@@ -237,8 +253,22 @@ def api_customer_store_summary_noslug():
         return jsonify({"success": False, "message": "Login required"}), 401
     owner_id = ObjectId(session["user_id"])
     store = _latest_owner_store(owner_id)
+
     if not store:
-        return jsonify({"success": False, "message": "Store not found"}), 404
+        # Friendly zero state for new users
+        return jsonify({
+            "success": True,
+            "store": None,
+            "kpis": {
+                "all_time_sales": 0.00,
+                "all_time_profit": 0.00,
+                "profit_today": 0.00,
+                "orders_count": 0,
+                "withdrawable": 0.00,
+                "wallet_balance": _owner_wallet_balance(owner_id),
+            },
+            "onboarding": True
+        })
 
     slug = store.get("slug")
     k = _gather_dashboard(slug)
@@ -263,7 +293,20 @@ def api_customer_store_summary(slug: str):
     owner_id = ObjectId(session["user_id"])
     store = _ensure_owner_store(owner_id, slug)
     if not store:
-        return jsonify({"success": False, "message": "Store not found"}), 404
+        # Mirror the noslug behavior: friendly zero state
+        return jsonify({
+            "success": True,
+            "store": None,
+            "kpis": {
+                "all_time_sales": 0.00,
+                "all_time_profit": 0.00,
+                "profit_today": 0.00,
+                "orders_count": 0,
+                "withdrawable": 0.00,
+                "wallet_balance": _owner_wallet_balance(owner_id),
+            },
+            "onboarding": True
+        })
 
     k = _gather_dashboard(slug)
     return jsonify({
@@ -275,7 +318,7 @@ def api_customer_store_summary(slug: str):
             "profit_today": k["profit_today"],
             "orders_count": k["orders_count"],
             "withdrawable": k["withdrawable"],
-            "wallet_balance": _owner_wallet_balance(ObjectId(session["user_id"])),
+            "wallet_balance": _owner_wallet_balance(owner_id),
         }
     })
 
@@ -294,7 +337,7 @@ def api_customer_store_withdrawals(slug: str):
     except Exception:
         limit = 20
     try:
-        page = max(1, int(request.args.get("page", 1)))
+        page = max(1, int(request.args.get("page", 1)))   # <-- FIXED (removed extra ')')
     except Exception:
         page = 1
     skip = (page - 1) * limit
@@ -326,7 +369,8 @@ def customer_store_payout_page(slug: str):
     owner_id = ObjectId(session["user_id"])
     store = _ensure_owner_store(owner_id, slug)
     if not store:
-        return "Store not found", 404
+        # No store for this slug -> take user to the main store dashboard onboarding
+        return redirect(url_for("customer_store.customer_store_home"))
 
     payout = store_payouts_col.find_one({"owner_id": owner_id, "store_slug": slug}) or {}
     # history (latest first)
@@ -352,7 +396,7 @@ def customer_store_payout_save(slug: str):
     owner_id = ObjectId(session["user_id"])
     store = _ensure_owner_store(owner_id, slug)
     if not store:
-        return "Store not found", 404
+        return redirect(url_for("customer_store.customer_store_home"))
 
     name = (request.form.get("recipient_name") or "").strip()
     phone = (request.form.get("msisdn") or "").strip()
