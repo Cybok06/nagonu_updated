@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Nagonu Data Services — Affordable, Reliable Data • MTN • AirtelTigo • Telecel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Primary SEO -->
+  <meta name="description" content="Nagonu Data Services — buy affordable, reliable data bundles for MTN, AirtelTigo, and Telecel. Fund once, order instantly, and track everything in your dashboard." />
+  <meta name="keywords" content="Nagonu, data bundles Ghana, MTN data, AirtelTigo data, Telecel data, AFA registration, WASSCE checker, BECE checker" />
+  <meta name="author" content="Nagonu Data Services" />
+  <link rel="canonical" href="{{ request.url_root | trim('/') if request else '/' }}" />
+  <meta name="robots" content="index,follow" />
+  <meta name="theme-color" content="#0ea5e9" />
+  <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+<link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Nagonu Data Services" />
+  <meta property="og:description" content="Buy affordable, reliable data for MTN, AirtelTigo & Telecel. Get started in minutes." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="{{ request.url_root | trim('/') if request else '/' }}" />
+  <meta property="og:site_name" content="Nagonu Data Services" />
+  <meta property="og:image" content="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg" />
+  <meta property="og:locale" content="en_GH" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Nagonu Data Services" />
+  <meta name="twitter:description" content="Affordable, reliable data bundles. Fund once, buy instantly, track easily." />
+  <meta name="twitter:image" content="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg" />
+
+  <!-- JSON-LD -->
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"Organization",
+    "name":"Nagonu Data Services",
+    "url":"{{ request.url_root | trim('/') if request else '/' }}",
+    "logo":"https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg",
+    "email":"mailto:nagosenu4@gmail.com",
+    "telephone":"+233553226196",
+    "sameAs":[]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"WebSite",
+    "name":"Nagonu Data Services",
+    "url":"{{ request.url_root | trim('/') if request else '/' }}",
+    "potentialAction":{
+      "@type":"SearchAction",
+      "target":"{{ request.url_root | trim('/') if request else '' }}/search?q={query}",
+      "query-input":"required name=query"
+    }
+  }
+  </script>
+
+  <!-- Preloads -->
+  <link rel="preload" as="image" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754393415/two_people_tewigi.webp" />
+  <link rel="preload" as="image" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754393109/two_people_ipa1rb.webp" />
+
+  <!-- Bootstrap + Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/jpeg" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg" />
+
+  <style>
+    :root{ --sea:#0ea5e9; --sea-deep:#0b6fa1; }
+
+    /* Navbar */
+    .navbar{ background: linear-gradient(90deg, var(--sea-deep), var(--sea)); }
+    .navbar-brand img{ height:52px; width:52px; border-radius:12px; object-fit:cover; border:2px solid #fff3; }
+    .nav-link{ color:#eaf7ff !important; font-weight:500; }
+    .nav-link:hover{ opacity:.9; }
+    .btn-cta{ border-radius:999px; }
+
+    /* Hero */
+    .hero-wrap{ position:relative; min-height:72vh; color:#fff; overflow:hidden; }
+    .hero-content{ position:absolute; inset:0; z-index:2; display:grid; place-items:center; text-align:center; padding:1.5rem; animation:fadeIn 1.2s both; }
+    @keyframes fadeIn{ from{opacity:0; transform:translateY(18px);} to{opacity:1; transform:none;} }
+    .carousel, .carousel-item, .carousel-item img{ height:72vh; }
+    .carousel-item img{ width:100%; object-fit:cover; filter:brightness(80%) blur(2px); }
+
+    /* Services */
+    .services-section{ background:#f7fbfe; scroll-margin-top: 90px; }
+    .section-title{ font-weight:800; letter-spacing:.2px; color:#0b6fa1; }
+    .service-card{ border:none; border-radius:16px; overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,.06); transition:transform .25s, box-shadow .25s; background:#fff; }
+    .service-card:hover{ transform:translateY(-6px); box-shadow:0 12px 28px rgba(0,0,0,.10); }
+    .service-thumb{ height:160px; display:flex; align-items:center; justify-content:center; background:linear-gradient(90deg,#e9f7ff,#f3fbff); }
+    .service-thumb img{ width:100%; height:100%; object-fit:cover; }
+    .service-body{ padding:14px 16px 18px; }
+    .service-title{ font-size:1.05rem; font-weight:700; color:#06354a; margin:0 0 6px; }
+
+    /* Inline Quick Form */
+    .quick-form{ display:none; background:#f8fbff; border:1px dashed #cfe8f8; border-radius:12px; padding:12px; margin-top:10px; }
+    .quick-form.show{ display:block; animation:fadeIn .2s ease-in; }
+    .quick-form .form-control, .quick-form .form-select{ border-radius:10px; }
+    .quick-form .form-control-lg{ font-size:1.15rem; padding:.8rem 1rem; }
+    .quick-form .btn{ border-radius:999px; }
+    .min-note{ font-size:.85rem; color:#6b7280; }
+
+    .reveal-up{ opacity:0; transform:translateY(22px) scale(.98); transition:opacity .6s, transform .6s; }
+    .reveal-in{ opacity:1 !important; transform:none !important; }
+
+    /* Grid: mobile 1 per row, large screens 2 per row */
+    /* We’ll control with Bootstrap: col-12 col-lg-6 below */
+
+    /* Floating Cart */
+    .floating-cart{ position:fixed; bottom:25px; right:25px; z-index:9999; background:#ffffff; border-radius:50%; padding:14px; box-shadow:0 4px 12px rgba(0,0,0,.15); transition:transform .3s; }
+    .floating-cart:hover{ transform:scale(1.06); }
+    .floating-cart i{ font-size:1.6rem; color:#0b6fa1; position:relative; }
+    .floating-cart .badge{ position:absolute; top:-8px; right:-10px; background:#ef4444; color:#fff; font-size:.7rem; padding:2px 5px; border-radius:999px; }
+
+    /* WhatsApp Pill */
+    .whats-app{ position:fixed; left:20px; bottom:22px; z-index:9999; }
+    .whats-app a{ display:inline-flex; align-items:center; gap:.5rem; background:#25d366; color:#fff; padding:.6rem .9rem; border-radius:999px; text-decoration:none; box-shadow:0 6px 16px rgba(37,211,102,.35); }
+    .whats-app a:hover{ filter:brightness(.95); }
+
+    /* Footer */
+    .site-footer{ background:linear-gradient(90deg,#0b6fa1,#0ea5e9); color:#eaf7ff; }
+    .site-footer a{ color:#eaf7ff; text-decoration:none; }
+    .site-footer a:hover{ color:#fff; opacity:.95; }
+    .footer-title{ font-weight:800; letter-spacing:.2px; }
+    .footer-social a{ display:inline-flex; align-items:center; justify-content:center; width:42px; height:42px; border-radius:50%; background:rgba(255,255,255,.12); margin-right:.5rem; transition:transform .2s, background .2s; }
+    .footer-social a:hover{ transform:translateY(-2px); background:rgba(255,255,255,.2); }
+    .footer-credits{ border-top:1px solid rgba(255,255,255,.18); margin-top:1.25rem; padding-top:1rem; font-size:.95rem; }
+    .footer-reveal{ opacity:0; transform:translateY(16px); transition:opacity .6s, transform .6s; }
+    .footer-reveal.in{ opacity:1; transform:none; }
+
+    /* Modal tweaks */
+    .modal-body{ max-height: 65vh; overflow:auto; }
+    .modal-header .modal-title{ font-weight:800; letter-spacing:.2px; }
+
+    /* Toasts */
+    .toast-container{ z-index:11000; }
+
+    /* Status section */
+    .status-card{ border:none; border-radius:16px; box-shadow:0 8px 20px rgba(0,0,0,.06); }
+  </style>
+
+  <!-- Paystack Inline -->
+  <script src="https://js.paystack.co/v1/inline.js"></script>
+
+  <!-- Provide your Paystack Public Key from Flask (preferred) -->
+  <script>
+    window.PAYSTACK_PUBLIC_KEY = "{{ paystack_pk | default('') }}";
+  </script>
+</head>
+<body data-auth="{{ '1' if session and session.get('user_id') else '0' }}">
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-dark px-3">
+    <a class="navbar-brand d-flex align-items-center" href="/">
+      <img src="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg" alt="Nagonu Logo" loading="eager">
+      <span class="ms-2 fw-semibold text-white">Nagonu</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div id="navMain" class="collapse navbar-collapse">
+      <ul class="navbar-nav ms-auto align-items-lg-center">
+        <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
+        <li class="nav-item"><a class="nav-link" href="#services">Services</a></li>
+        <li class="nav-item"><a class="nav-link" href="#check-status">Check Status</a></li>
+        <li class="nav-item">
+          <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#aboutModal">About</a>
+        </li>
+        <li class="nav-item ms-lg-3 my-2 my-lg-0">
+          <a href="/login" class="btn btn-outline-light btn-cta">Login</a>
+        </li>
+        <li class="nav-item ms-lg-2 me-lg-2">
+          <a href="/signup" class="btn btn-light btn-cta text-primary">Get Started</a>
+        </li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero-wrap position-relative">
+    <div id="heroCarousel" class="carousel slide carousel-fade" data-bs-ride="carousel" data-bs-interval="5000" aria-label="Hero carousel">
+      <div class="carousel-inner">
+        <div class="carousel-item active">
+          <img src="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754393109/two_people_ipa1rb.webp" alt="Welcome to Nagonu">
+        </div>
+        <div class="carousel-item">
+          <img src="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754393415/two_people_tewigi.webp" alt="Easy data purchase">
+        </div>
+        <div class="carousel-item">
+          <img src="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754393605/custome_pic_qwrcig.jpg" alt="Customer first">
+        </div>
+      </div>
+    </div>
+
+    <div class="hero-content container">
+      <div>
+        <h1 class="display-5 fw-bold">Affordable, Reliable Data—Anytime</h1>
+        <p class="lead mt-2 mb-4">Fund once, order instantly, and track everything in your dashboard.</p>
+        <div class="d-flex gap-2 justify-content-center flex-wrap">
+          <a href="#services" class="btn btn-primary btn-lg px-4" id="ctaBuyNow">Buy Now</a>
+          <a href="/signup" class="btn btn-outline-light btn-lg px-4">Get Started</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Floating Cart (auth-only) -->
+  <a href="/cart" class="floating-cart require-auth d-none" data-next="/cart" aria-label="Shopping Cart">
+    <i class="bi bi-cart3 position-relative"><span class="badge">0</span></i>
+  </a>
+
+  <!-- WhatsApp -->
+  <div class="whats-app">
+    <a href="http://wa.me/233553226196" target="_blank" rel="noopener">
+      <i class="bi bi-whatsapp"></i> Chat on WhatsApp
+    </a>
+  </div>
+
+  <!-- Services -->
+  <section id="services" class="services-section py-5">
+    <div class="container">
+      <h2 class="section-title text-center mb-4">Services</h2>
+      <p class="text-center text-muted mb-4">Pick a service and buy instantly. No account needed.</p>
+
+      {% macro service_card(svc) -%}
+        {% set is_closed = svc.status != 'OPEN' %}
+        {% set is_oos    = svc.availability != 'AVAILABLE' %}
+        {% set can_order = (not is_closed) and (not is_oos) and (svc.type == 'API') %}
+        <div class="card service-card h-100">
+          <div class="service-thumb">
+            {% if svc.image_url %}
+              <img src="{{ svc.image_url }}" alt="{{ svc.name }}" loading="lazy">
+            {% else %}
+              <img src="https://via.placeholder.com/640x360?text={{ svc.name | urlencode }}" alt="{{ svc.name }}" loading="lazy">
+            {% endif %}
+          </div>
+          <div class="service-body d-flex flex-column">
+            <h3 class="service-title">{{ svc.name }}</h3>
+            {% if is_closed or is_oos %}
+              <div class="small text-danger mb-2">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                {{ svc.disabled_reason or 'Unavailable' }}
+              </div>
+            {% endif %}
+
+            <div class="mt-auto d-grid service-actions">
+              <button class="btn btn-primary select-service-btn"
+                      data-service='{{ {"_id_str":svc._id_str,"name":svc.name,"offers":svc.offers or []} | tojson }}'
+                      data-can-order="{{ 1 if can_order else 0 }}"
+                      data-disabled-reason="{{ (svc.disabled_reason or 'Unavailable') | e }}">
+                Buy
+              </button>
+            </div>
+
+            <!-- Inline quick form mounts here -->
+            <div class="quick-form" aria-hidden="true"></div>
+          </div>
+        </div>
+      {%- endmacro %}
+
+      <div class="row g-4">
+        {% set all_services = (services or []) + (express_services or []) %}
+        {% if not all_services %}
+          <div class="col-12 text-center text-muted">No services available.</div>
+        {% else %}
+          {% for svc in all_services %}
+            <!-- Mobile: 1 per row (col-12). Large screens: 2 per row (col-lg-6) -->
+            <div class="col-12 col-lg-6 reveal-up">
+              {{ service_card(svc) }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <!-- Check Order Status (homepage quick check) -->
+  <section id="check-status" class="py-5">
+    <div class="container">
+      <div class="card status-card p-3 p-md-4">
+        <div class="d-md-flex align-items-center justify-content-between">
+          <div class="mb-3 mb-md-0">
+            <h3 class="mb-1">Check your order status</h3>
+            <p class="text-muted mb-0">Enter the phone number used when placing the order.</p>
+          </div>
+          <form class="d-flex gap-2 flex-column flex-sm-row" action="/check-status" method="get" onsubmit="return gotoStatus(event)">
+            <input type="tel" name="phone" id="statusPhone" class="form-control form-control-lg"
+                   placeholder="0xxxxxxxxx" inputmode="numeric" maxlength="14" required />
+            <button class="btn btn-primary btn-lg px-4" type="submit">Check Status</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer pt-5 pb-4 mt-5">
+    <div class="container footer-reveal" id="footerBlock">
+      <div class="row g-4">
+        <div class="col-12 col-md-6">
+          <h5 class="footer-title mb-3">Nagonu</h5>
+          <p class="mb-2">Email: <a href="mailto:nagosenu4@gmail.com">nagosenu4@gmail.com</a></p>
+          <p class="mb-2">Phone: <a href="tel:+233553226196"><strong>+233 55 322 6196</strong></a></p>
+          <p class="mb-0">WhatsApp: <a href="http://wa.me/233553226196" target="_blank" rel="noopener">Chat Now</a></p>
+        </div>
+
+        <div class="col-12 col-md-6">
+          <h5 class="footer-title mb-3">Follow Us</h5>
+          <div class="footer-social d-flex align-items-center mb-3">
+            <a href="#" aria-label="Facebook"><i class="bi bi-facebook fs-5"></i></a>
+            <a href="#" aria-label="YouTube"><i class="bi bi-youtube fs-5"></i></a>
+            <a href="#" aria-label="TikTok"><i class="bi bi-tiktok fs-5"></i></a>
+            <a href="#" aria-label="Instagram"><i class="bi bi-instagram fs-5"></i></a>
+          </div>
+          <div class="small">
+            <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms of Service</a> ·
+            <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Policy</a> ·
+            <a href="#" data-bs-toggle="modal" data-bs-target="#aboutModal">About</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-credits d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center">
+        <div>© <span id="yearNow"></span> Nagonu. All rights reserved.</div>
+        <div class="mt-2 mt-md-0">Developed by <strong>CYTECH</strong> — <a href="mailto:cytech76@gmail.com">cytech76@gmail.com</a></div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ===== Modals ===== -->
+  <div class="modal fade" id="aboutModal" tabindex="-1" aria-hidden="true" aria-labelledby="aboutModalLabel">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 id="aboutModalLabel" class="modal-title">About Us</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body"><p><strong>Team Nagonu</strong> …</p></div>
+        <div class="modal-footer">
+          <a href="mailto:nagosenu4@gmail.com" class="btn btn-primary">Contact Us</a>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="termsModal" tabindex="-1" aria-hidden="true" aria-labelledby="termsModalLabel">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 id="termsModalLabel" class="modal-title">Terms of Service</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body"><ol><li>By placing an order …</li></ol></div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+          <a class="btn btn-primary" href="http://wa.me/233553226196" target="_blank" rel="noopener">Chat on WhatsApp</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="privacyModal" tabindex="-1" aria-hidden="true" aria-labelledby="privacyModalLabel">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 id="privacyModalLabel" class="modal-title">Privacy Policy</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body"><p>Welcome to our website …</p></div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+          <a class="btn btn-primary" href="mailto:nagosenu4@gmail.com">Email Support</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Public Cart Modal -->
+  <div class="modal fade" id="publicCartModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Your Cart</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="pcart-empty" class="text-muted">Your cart is empty.</div>
+          <div id="pcart-wrap" class="d-none">
+            <div class="table-responsive">
+              <table class="table align-middle">
+                <thead>
+                  <tr>
+                    <th>Service</th>
+                    <th>Phone</th>
+                    <th>Offer</th>
+                    <th>Pay (GHS)</th>
+                    <th style="width:80px"></th>
+                  </tr>
+                </thead>
+                <tbody id="pcart-list"></tbody>
+              </table>
+            </div>
+
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-2">
+              <div class="d-flex gap-2">
+                <button id="pcart-clear" class="btn btn-outline-danger btn-sm">Clear Cart</button>
+              </div>
+              <div class="text-end">
+                <div class="fw-bold">Cart Total: GHS <span id="pcart-paytotal">0.00</span></div>
+              </div>
+            </div>
+
+            <!-- Payment + Checkout -->
+            <div class="text-end d-flex flex-wrap gap-2 justify-content-end">
+              <button id="pcart-paystack" class="btn btn-primary">
+                <span class="btn-text">Pay Now</span>
+                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+              </button>
+
+              <button id="pcart-checkout" class="btn btn-success" disabled>
+                <span class="btn-text">Process Order</span>
+                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+              </button>
+            </div>
+            <div class="small text-muted mt-2" id="payment-status-note">
+              Payment required before processing. Click “Pay Now”.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Cart (public) -->
+  <button type="button" class="floating-cart" data-bs-toggle="modal" data-bs-target="#publicCartModal" aria-label="Cart">
+    <i class="bi bi-cart3 position-relative"><span class="badge" id="pcart-count">0</span></i>
+  </button>
+
+  <!-- Toasts -->
+  <div class="toast-container position-fixed top-0 end-0 p-3">
+    <div id="appToast" class="toast align-items-center text-bg-dark border-0" role="status" aria-live="polite" aria-atomic="true">
+      <div class="d-flex">
+        <div class="toast-body" id="toastBody">Done.</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Public Buy + Cart + Paystack Inline (no redirect) -->
+  <script>
+  (function(){
+    var CART_KEY = "public_cart_v1";
+    var PAY_CONFIRMED_KEY = "ps_confirmed_v1_inline"; // inline flow
+    var PHONE_RE = /^0[0-9]{9}$/;
+
+    // Fixed Paystack autofill info
+    var PS_EMAIL = "cytech76@gmail.com";
+    var PS_FIRST = "CYTECH";
+    var PS_LAST  = "CYBOK";
+
+    var cart = [];
+    var toastInst = null;
+
+    function money(n){ return Number(n || 0).toFixed(2); }
+    function pesewas(n){ return Math.round(Number(n || 0) * 100); }
+
+    // Paystack charge rule for items: round to nearest whole + 1 GHS
+    function paystackPrice(n){
+      var base = Number(n || 0);
+      return Math.round(base) + 1;
+    }
+
+    function toast(msg){
+      var el = document.getElementById("appToast");
+      var body = document.getElementById("toastBody");
+      if (!el || !body) return;
+      body.textContent = msg || "Done.";
+      if (!toastInst) toastInst = new bootstrap.Toast(el, { delay: 2200 });
+      toastInst.show();
+    }
+
+    function loadCart(){
+      try { cart = JSON.parse(localStorage.getItem(CART_KEY) || "[]"); if(!Array.isArray(cart)) cart=[]; } catch(e){ cart=[]; }
+    }
+    function saveCart(){ try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch(e){} }
+
+    function getPaystackTotal(){ // rounded+1 per item (customer pays)
+      var t=0; cart.forEach(function(i){ t+=Number(i.pay_amount!=null?i.pay_amount:paystackPrice(i.amount||0)); }); return t;
+    }
+
+    function formatVolumeLabel(v){
+      if (v && typeof v === "string") return v;
+      if (v && typeof v === "object") {
+        var vol = Number(v.volume || 0);
+        return vol >= 1000 ? String(vol/1000).replace(/\.0+$/,'') + "GB" : (vol + "MB");
+      }
+      return "-";
+    }
+
+    function setBtnLoading(btn, loading){
+      if (!btn) return;
+      var text = btn.querySelector(".btn-text");
+      var spin = btn.querySelector(".spinner-border");
+      if (loading){
+        btn.setAttribute("disabled", "disabled");
+        if (text) text.classList.add("d-none");
+        if (spin) spin.classList.remove("d-none");
+      } else {
+        btn.removeAttribute("disabled");
+        if (text) text.classList.remove("d-none");
+        if (spin) spin.classList.add("d-none");
+      }
+    }
+
+    function normalizePhone(raw){
+      var d = String(raw || '').replace(/\D+/g, '');
+      if (d.startsWith('233')) d = '0' + d.slice(3);
+      if (d.length > 10) d = d.slice(-10);
+      return d;
+    }
+
+    // ---------- Inline quick form (Offer first, then Phone; responsive) ----------
+    function buildFormHTML(uid, offers){
+      var opts = offers || [];
+      var options = '<option value="">Choose offer</option>';
+      for (var i=0;i<opts.length;i++){
+        var o = opts[i]; if (!o || o.total==null) continue;
+        var label = o.value_text ? o.value_text : formatVolumeLabel(o.value);
+        var displayPay = paystackPrice(Number(o.total || 0));
+        options += '<option value="'+i+'" data-total="'+(o.total!=null?o.total:'')+'" data-base="'+(o.amount!=null?o.amount:'')+'">GHS '+money(displayPay)+' - '+label+'</option>';
+      }
+      return ''
+        + '<div class="row g-2 align-items-end">'
+        + '  <div class="col-12"><div class="min-note">Choose an offer, then enter phone (starts with 0)</div></div>'
+        + '  <div class="col-12 col-lg-6">'
+        + '    <label class="form-label mb-1" for="qf_offer_'+uid+'">Offer (Pay amount)</label>'
+        + '    <select class="form-select form-select-lg" id="qf_offer_'+uid+'">'+options+'</select>'
+        + '  </div>'
+        + '  <div class="col-12 col-lg-6">'
+        + '    <label class="form-label mb-1" for="qf_phone_'+uid+'">Phone</label>'
+        + '    <input type="tel" inputmode="numeric" pattern="[0-9]{10}" title="Enter 10 digits e.g. 0530393625" maxlength="14" class="form-control form-control-lg" id="qf_phone_'+uid+'" placeholder="0xxxxxxxxx" />'
+        + '  </div>'
+        + '  <div class="col-12 d-flex gap-2 mt-1">'
+        + '    <button class="btn btn-primary" id="qf_add_'+uid+'">'
+        + '      <span class="btn-text">Add to Cart</span>'
+        + '      <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>'
+        + '    </button>'
+        + '    <button class="btn btn-outline-secondary" id="qf_cancel_'+uid+'">Cancel</button>'
+        + '  </div>'
+        + '</div>';
+    }
+
+    function mountQuickForm(container, service){
+      var uid = String(Date.now()) + String(Math.floor(Math.random()*1000));
+      container.innerHTML = buildFormHTML(uid, service.offers || []);
+      container.classList.add("show");
+      container.setAttribute("aria-hidden","false");
+      var phoneEl = container.querySelector("#qf_phone_"+uid);
+      var offerEl = container.querySelector("#qf_offer_"+uid);
+      var addBtn  = container.querySelector("#qf_add_"+uid);
+      var cancelBtn=container.querySelector("#qf_cancel_"+uid);
+
+      if (phoneEl){
+        phoneEl.addEventListener("input", function(){
+          phoneEl.value = normalizePhone(phoneEl.value);
+        });
+      }
+      if (addBtn){
+        addBtn.addEventListener("click", function(){
+          var phone = normalizePhone(phoneEl ? phoneEl.value : '');
+          if (!PHONE_RE.test(phone)){ toast("Phone must be 10 digits, e.g. 0530393625"); phoneEl && phoneEl.focus(); return; }
+          var idx = Number(offerEl ? offerEl.value : "");
+          if (isNaN(idx) || idx<0 || !service.offers || !service.offers[idx]){ toast("Please select a valid offer."); offerEl && offerEl.focus(); return; }
+          var of = service.offers[idx];
+
+          setBtnLoading(addBtn,true);
+          setTimeout(function(){
+            var original = Number(of.total || 0);          // system price (not shown to user)
+            var payAmt   = paystackPrice(original);        // displayed pay price
+
+            cart.push({
+              serviceId: service._id_str,
+              serviceName: service.name,
+              phone: phone,
+              value: of.value_text || formatVolumeLabel(of.value),
+              value_obj: of.value || null,
+              base_amount: Number(of.amount || 0),
+              amount: original,          // kept for server calc; not displayed
+              pay_amount: payAmt
+            });
+            updateCartUI();
+            setBtnLoading(addBtn,false);
+            toast("Added to cart");
+            container.classList.remove("show"); container.setAttribute("aria-hidden","true"); container.innerHTML="";
+          },180);
+        });
+      }
+      if (cancelBtn){
+        cancelBtn.addEventListener("click", function(){
+          container.classList.remove("show"); container.setAttribute("aria-hidden","true"); container.innerHTML="";
+        });
+      }
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll(".select-service-btn"), function(btn){
+      btn.addEventListener("click", function(){
+        var can = btn.getAttribute("data-can-order") === "1";
+        if (!can){ toast(btn.getAttribute("data-disabled-reason") || "This service is unavailable."); return; }
+        var svc = null; try { svc = JSON.parse(btn.getAttribute("data-service") || "{}"); } catch(e){}
+        if (!svc) return;
+        var card = btn.closest(".service-card"); if (!card) return;
+        var qf   = card.querySelector(".quick-form"); if (!qf) return;
+        Array.prototype.forEach.call(document.querySelectorAll(".quick-form.show"), function(el){
+          if (el !== qf){ el.classList.remove("show"); el.setAttribute("aria-hidden","true"); el.innerHTML=""; }
+        });
+        if (qf.classList.contains("show")){ qf.classList.remove("show"); qf.setAttribute("aria-hidden","true"); qf.innerHTML=""; }
+        else { mountQuickForm(qf, svc); }
+      });
+    });
+
+    // ---------- Cart UI ----------
+    function updateCartUI(){
+      var list = document.getElementById("pcart-list");
+      var count= document.getElementById("pcart-count");
+      var empty= document.getElementById("pcart-empty");
+      var wrap = document.getElementById("pcart-wrap");
+      var payTotalEl = document.getElementById("pcart-paytotal");
+      if (!list||!count||!empty||!wrap||!payTotalEl) return;
+
+      list.innerHTML = "";
+      cart.forEach(function(item,i){
+        var tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>"+item.serviceName+"</td>"+
+          "<td>"+item.phone+"</td>"+
+          "<td>"+item.value+"</td>"+
+          "<td><strong>GHS "+money(item.pay_amount||paystackPrice(item.amount))+"</strong></td>"+
+          '<td><button class="btn btn-sm btn-outline-danger" data-rm="'+i+'">Remove</button></td>';
+        list.appendChild(tr);
+      });
+      count.textContent = String(cart.length);
+      payTotalEl.textContent = money(getPaystackTotal());
+      empty.classList.toggle("d-none", cart.length!==0);
+      wrap.classList.toggle("d-none", cart.length===0);
+      saveCart();
+
+      lockCheckoutUntilPayment(); // reset when cart changes
+    }
+
+    var pcartList = document.getElementById("pcart-list");
+    if (pcartList){
+      pcartList.addEventListener("click", function(e){
+        var btn = e.target.closest("button[data-rm]"); if (!btn) return;
+        var idx = Number(btn.getAttribute("data-rm")); if (!isNaN(idx)){ cart.splice(idx,1); updateCartUI(); toast("Removed"); }
+      });
+    }
+    var pcartClear = document.getElementById("pcart-clear");
+    if (pcartClear){
+      pcartClear.addEventListener("click", function(){
+        if (!cart.length) return;
+        if (confirm("Clear all items?")){ cart=[]; updateCartUI(); toast("Cart cleared"); }
+      });
+    }
+
+    // ---------- Paystack Inline ----------
+    var payBtn = document.getElementById("pcart-paystack");
+    var checkoutBtn = document.getElementById("pcart-checkout");
+    var paymentNote = document.getElementById("payment-status-note");
+
+    function saveConfirmedPayment(obj){ try{ localStorage.setItem(PAY_CONFIRMED_KEY, JSON.stringify(obj||{})); }catch(e){} }
+    function getConfirmedPayment(){ try{ return JSON.parse(localStorage.getItem(PAY_CONFIRMED_KEY)||"{}"); }catch(e){ return {}; } }
+    function clearConfirmedPayment(){ try{ localStorage.removeItem(PAY_CONFIRMED_KEY); }catch(e){} }
+
+    function isPaidEnough(confirmedAmtGhs, requiredGhs){
+      return Number(confirmedAmtGhs || 0) + 1e-2 >= Number(requiredGhs || 0);
+    }
+
+    function lockCheckoutUntilPayment(){
+      if (!checkoutBtn) return;
+      var payTotal = getPaystackTotal();
+      var confirmed = getConfirmedPayment();
+      var ok = confirmed && confirmed.amount_ghs!=null && isPaidEnough(confirmed.amount_ghs, payTotal);
+      checkoutBtn.disabled = !ok;
+      if (paymentNote){
+        paymentNote.textContent = ok
+          ? ("Payment confirmed (Ref: " + (confirmed.reference||"") + "). Processing your order…")
+          : "Payment required before processing. Click “Pay Now”.";
+      }
+    }
+
+    function genRef(){ return "PS-" + Date.now() + "-" + Math.floor(Math.random()*1e6); }
+
+    // Triggered after payment – auto submit order
+    function proceedCheckoutAuto(){
+      var confirmed = getConfirmedPayment();
+      if (!cart.length){ toast("Cart is empty."); return; }
+      var payNow = getPaystackTotal();
+
+      if (!confirmed || confirmed.amount_ghs == null){
+        toast("Please pay first."); return;
+      }
+      if (!isPaidEnough(confirmed.amount_ghs, payNow)){
+        toast("Amount paid is less than required. Please complete full payment.");
+        checkoutBtn && (checkoutBtn.disabled = true);
+        return;
+      }
+
+      // send checkout
+      setBtnLoading(checkoutBtn, true);
+      fetch("/public-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cart: cart,
+          method: "paystack_inline",
+          paystack: {
+            reference: confirmed.reference || "",
+            amount_pesewas: Math.round(payNow*100),
+            amount_ghs: payNow,
+            via_inline: true,
+            payer: { email: PS_EMAIL, first_name: PS_FIRST, last_name: PS_LAST }
+          }
+        })
+      }).then(function(r){
+        return r.json().then(function(j){ return { ok:r.ok, data:j }; });
+      }).then(function(res){
+        setBtnLoading(checkoutBtn,false);
+        if (res.ok && res.data && res.data.success){
+          toast("Order received. ID: " + (res.data.order_id || ""));
+          cart = []; updateCartUI();
+          clearConfirmedPayment();
+          var modalEl = document.getElementById("publicCartModal");
+          var inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+          if (inst) inst.hide();
+          // optionally bounce to status page prefilled
+          var phone = (res.data && res.data.items && res.data.items[0] && res.data.items[0].phone) || "";
+          if (phone){ window.location.href = "/check-status?phone="+encodeURIComponent(phone); }
+        } else {
+          var msg = res.data && (res.data.message || res.data.error) || "Checkout failed.";
+          toast(msg);
+        }
+      }).catch(function(){
+        setBtnLoading(checkoutBtn,false);
+        toast("Network error.");
+      });
+    }
+
+    if (payBtn){
+      payBtn.addEventListener("click", function(){
+        if (!cart.length){ toast("Cart is empty."); return; }
+        var pk = (window.PAYSTACK_PUBLIC_KEY || "").trim();
+        if (!pk){ toast("Payment is not configured. Contact support."); return; }
+
+        var payTotalGhs = getPaystackTotal();
+        var amountPesewas = pesewas(payTotalGhs);
+        var ref = genRef();
+
+        // Build a light snapshot for metadata (compact)
+        var items = cart.map(function(c){
+          return {
+            s: c.serviceName, p: c.phone, v: c.value,
+            a: Number(c.amount||0), pa: Number(c.pay_amount||paystackPrice(c.amount||0))
+          };
+        });
+
+        setBtnLoading(payBtn,true);
+
+        var handler = PaystackPop.setup({
+          key: pk,
+          email: PS_EMAIL,
+          amount: amountPesewas,
+          currency: "GHS",
+          firstname: PS_FIRST,
+          lastname: PS_LAST,
+          reference: ref,
+          metadata: {
+            payer: { email: PS_EMAIL, first_name: PS_FIRST, last_name: PS_LAST },
+            cart_snapshot: items,
+            pay_total_ghs: Number(payTotalGhs.toFixed(2)),
+            source: "nagonu_public_inline_checkout"
+          },
+          callback: function(response){
+            var confirmedObj = {
+              reference: response.reference || ref,
+              amount_pesewas: amountPesewas,
+              amount_ghs: payTotalGhs,
+              confirmed_at: new Date().toISOString(),
+              via_inline: true
+            };
+            try{ saveConfirmedPayment(confirmedObj); }catch(e){}
+            setBtnLoading(payBtn,false);
+            lockCheckoutUntilPayment();
+            proceedCheckoutAuto();
+          },
+          onClose: function(){
+            setBtnLoading(payBtn,false);
+          }
+        });
+
+        try { handler.openIframe(); } catch(e){ setBtnLoading(payBtn,false); toast("Unable to open payment window."); }
+      });
+    }
+
+    // Manual Process Order (safety net)
+    var checkoutBtn = document.getElementById("pcart-checkout");
+    if (checkoutBtn){
+      checkoutBtn.addEventListener("click", function(){
+        proceedCheckoutAuto();
+      });
+    }
+
+    // Smooth scroll for Buy Now
+    var buyNow = document.getElementById('ctaBuyNow');
+    if (buyNow){
+      buyNow.addEventListener('click', function(e){
+        e.preventDefault();
+        var target = document.getElementById('services');
+        if (target) target.scrollIntoView({behavior:'smooth'});
+      });
+    }
+
+    // Status form helper (homepage)
+    window.gotoStatus = function(ev){
+      ev.preventDefault();
+      var inp = document.getElementById('statusPhone');
+      if (!inp) return false;
+      var d = (inp.value||'').replace(/\D+/g,'');
+      if (d.startsWith('233')) d = '0'+d.slice(3);
+      if (d.length > 10) d = d.slice(-10);
+      window.location.href = '/check-status?phone='+encodeURIComponent(d);
+      return false;
+    };
+
+    // Footer year & animations / auth gate
+    var y=document.getElementById('yearNow'); if(y) y.textContent=new Date().getFullYear();
+
+    var container=document.querySelector('#services');
+    if(container){
+      var els=container.querySelectorAll('.reveal-up');
+      if(!('IntersectionObserver' in window) || !els.length){
+        Array.prototype.forEach.call(els, function(el){ el.classList.add('reveal-in'); });
+      }else{
+        var io=new IntersectionObserver(function(entries){
+          entries.forEach(function(entry){
+            if(entry.isIntersecting){
+              var idx=Array.prototype.indexOf.call(els, entry.target);
+              entry.target.style.transitionDelay=(idx%6)*60+'ms';
+              entry.target.classList.add('reveal-in');
+              io.unobserve(entry.target);
+            }
+          });
+        },{threshold:.15});
+        Array.prototype.forEach.call(els,function(el){ io.observe(el); });
+      }
+    }
+
+    var fb=document.getElementById('footerBlock');
+    if(fb){
+      var io2=new IntersectionObserver(function(entries){
+        entries.forEach(function(e){
+          if(e.isIntersecting){ fb.classList.add('in'); io2.unobserve(fb); }
+        });
+      },{threshold:.1});
+      io2.observe(fb);
+    }
+
+    var authed = document.body.getAttribute('data-auth') === '1';
+    Array.prototype.forEach.call(document.querySelectorAll('.require-auth'), function(a){
+      a.addEventListener('click', function(e){
+        if(authed) return;
+        e.preventDefault();
+        var next = a.getAttribute('data-next') || a.getAttribute('href') || '/';
+        var url = '/login?next=' + encodeURIComponent(next);
+        window.location.href = url;
+      });
+    });
+
+    // Init
+    loadCart(); updateCartUI(); lockCheckoutUntilPayment();
+  })();
+  </script>
+</body>
+</html>

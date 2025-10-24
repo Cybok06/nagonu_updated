@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>{{ store.name }} — Payout Settings</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+    <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+
+  <style>
+    :root{ --ring:#e6eef7 }
+    .cardx{ border:1px solid var(--ring); border-radius:16px; }
+    .kpi{ border:1px solid var(--ring); border-radius:12px; padding:12px; }
+    .kpi .lbl{ color:#6b7b8c; text-transform:uppercase; font-size:.78rem; letter-spacing:.06rem }
+    .kpi .val{ font-weight:800; font-size:1.4rem }
+    .hist-item{ border-bottom:1px dashed var(--ring); padding:.6rem 0 }
+  </style>
+</head>
+<body>
+  {% include 'customer_sidebar.html' %}
+
+  <div class="container py-4">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h4 class="mb-0"><i class="bi bi-wallet2 me-2"></i>Payout Settings</h4>
+      <a class="btn btn-outline-secondary" href="{{ url_for('customer_store.customer_store_dashboard', slug=store.slug) }}">
+        <i class="bi bi-arrow-left"></i> Back to Dashboard
+      </a>
+    </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col-12 col-md-4">
+        <div class="kpi h-100">
+          <div class="lbl">Withdrawable</div>
+          <div class="val">GHS {{ '%.2f'|format(withdrawable or 0) }}</div>
+          <div class="small text-muted">Not yet credited to your wallet</div>
+        </div>
+      </div>
+      <div class="col-12 col-md-4">
+        <div class="kpi h-100">
+          <div class="lbl">Wallet Balance</div>
+          <div class="val">GHS {{ '%.2f'|format(wallet_balance or 0) }}</div>
+          <div class="small text-muted">Available to withdraw to MoMo</div>
+        </div>
+      </div>
+    </div>
+
+    {% if error %}
+      <div class="alert alert-warning">{{ error }}</div>
+    {% endif %}
+
+    <div class="row g-4">
+      <div class="col-12 col-lg-6">
+        <div class="cardx p-3">
+          <h6 class="fw-bold mb-3">Mobile Money Account</h6>
+          <form method="post" action="{{ url_for('customer_store.customer_store_payout_save', slug=store.slug) }}">
+            <div class="mb-3">
+              <label class="form-label">Recipient Name</label>
+              <input type="text" class="form-control" name="recipient_name"
+                     required maxlength="120"
+                     value="{{ (current.recipient_name or '') if current else '' }}">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Phone Number (MSISDN)</label>
+              <input type="tel" class="form-control" name="msisdn"
+                     placeholder="e.g. 024XXXXXXX or 23324XXXXXXX"
+                     required maxlength="20"
+                     value="{{ (current.msisdn or '') if current else '' }}">
+              <div class="form-text">Will be normalized to Ghana format where possible.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Network</label>
+              <select name="network" class="form-select" required>
+                {% set cur_net = (current.network or '') if current else '' %}
+                <option value="">Select network</option>
+                <option value="MTN"       {% if cur_net=='MTN' %}selected{% endif %}>MTN</option>
+                <option value="VODAFONE"  {% if cur_net=='VODAFONE' %}selected{% endif %}>Vodafone</option>
+                <option value="AIRTELTIGO"{% if cur_net=='AIRTELTIGO' %}selected{% endif %}>AirtelTigo</option>
+              </select>
+            </div>
+            <div class="d-grid">
+              <button class="btn btn-primary"><i class="bi bi-save2 me-1"></i> Save Changes</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-6">
+        <div class="cardx p-3">
+          <h6 class="fw-bold mb-3">Change History</h6>
+          {% if not history %}
+            <div class="text-muted">No changes recorded yet.</div>
+          {% else %}
+            <div class="list-group">
+              {% for h in history %}
+                <div class="hist-item">
+                  <div class="small text-muted">{{ h.created_at.strftime('%Y-%m-%d %H:%M') if h.created_at }}</div>
+                  <div class="small">
+                    {% for k,chg in (h.changes or {}).items() %}
+                      <div><strong>{{ k|replace('_',' ')|title }}:</strong>
+                        <span class="text-muted">{{ chg.from or '-' }}</span> → <span class="text-success">{{ chg.to or '-' }}</span>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="cardx p-3 mt-3">
+          <h6 class="fw-bold mb-3">Withdrawals History</h6>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Reference</th>
+                  <th class="text-end">Amount (GHS)</th>
+                  <th>Verified</th>
+                </tr>
+              </thead>
+              <tbody id="wTable">
+                <tr><td colspan="3" class="text-muted">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // load withdrawals for this store
+    (async () => {
+      try{
+        const r = await fetch("{{ url_for('customer_store.api_customer_store_withdrawals', slug=store.slug) }}?limit=50");
+        const j = await r.json();
+        const body = document.getElementById('wTable');
+        if (!j.success || !j.items || !j.items.length){
+          body.innerHTML = '<tr><td colspan="3" class="text-muted">No withdrawals yet.</td></tr>';
+          return;
+        }
+        body.innerHTML = j.items.map(it => `
+          <tr>
+            <td>${it.reference || '-'}</td>
+            <td class="text-end">${Number(it.amount||0).toFixed(2)}</td>
+            <td>${it.verified_at || '-'}</td>
+          </tr>
+        `).join('');
+      }catch(e){
+        document.getElementById('wTable').innerHTML = '<tr><td colspan="3" class="text-danger">Failed to load.</td></tr>';
+      }
+    })();
+  </script>
+</body>
+</html>
