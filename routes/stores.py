@@ -64,10 +64,38 @@ except Exception:  # pragma: no cover
     )
 
 # -----------------------------------------------------------------------------
-# Paystack keys (HARDCODED — NOT FROM .env)
+# Config (ENV) — no hardcoded secrets
 # -----------------------------------------------------------------------------
-PAYSTACK_PUBLIC_KEY: str = "pk_live_4c909336372002195e900f36649a37c56d0b8cdb"
-PAYSTACK_SECRET_KEY: str = "sk_live_4316292a9beb8d5e619f6f97864bed7ed7f19fb7"
+PAYSTACK_PUBLIC_KEY: str = os.getenv("PAYSTACK_PUBLIC_KEY", "")
+PAYSTACK_SECRET_KEY: str = os.getenv("PAYSTACK_SECRET_KEY", "")
+
+# Force public store surfaces to a dedicated host (Render → Environment)
+TARGET_STORE_HOST: str = os.getenv("STORE_PUBLIC_HOST", "nagmart.store")
+# Add more prefixes here if you want them pinned to nagmart.store too (e.g., "/media/")
+STORE_PATH_PREFIXES: Tuple[str, ...] = ("/s/", "/store-checkout/")
+
+# -----------------------------------------------------------------------------
+# Domain pinning for store pages (runs before requests hit handlers)
+# -----------------------------------------------------------------------------
+@stores_bp.before_app_request
+def _force_store_pages_to_nagmart():
+    """
+    Force selected public store routes to live under nagmart.store.
+    Only triggers for paths matching STORE_PATH_PREFIXES.
+    """
+    try:
+        path = (request.path or "/")
+        if any(path.startswith(p) for p in STORE_PATH_PREFIXES):
+            req_host = (request.host or "").split(":")[0]
+            if req_host and req_host.lower() != TARGET_STORE_HOST.lower():
+                # Preserve path + querystring; handle Flask '?' quirk when no query
+                full_path = request.full_path or path
+                if full_path.endswith("?"):
+                    full_path = full_path[:-1]
+                return redirect(f"https://{TARGET_STORE_HOST}{full_path}", code=301)
+    except Exception:
+        # Fail open — never block the request on redirect errors
+        pass
 
 # ---------- small utils ----------
 def _norm(s: str) -> str:
@@ -434,8 +462,18 @@ def store_public_page(slug: str):
     percent_default, per_map = _build_pricing_map(store_doc.get("pricing") or {})
     priced = [_apply_store_pricing_to_service(s, percent_default, per_map) for s in services]
 
-    # Pass Paystack PK for inline checkout on the store page (hardcoded above)
-    return render_template("store_page.html", store=store_doc, services=priced, paystack_pk=PAYSTACK_PUBLIC_KEY)
+    # Build canonical URL (use in template <link rel="canonical" ...> if you want)
+    q = request.query_string.decode("utf-8")
+    canonical_url = f"https://{TARGET_STORE_HOST}{request.path}" + (f"?{q}" if q else "")
+
+    # Pass Paystack PK for inline checkout on the store page
+    return render_template(
+        "store_page.html",
+        store=store_doc,
+        services=priced,
+        paystack_pk=PAYSTACK_PUBLIC_KEY,
+        canonical_url=canonical_url
+    )
 
 # ============================================================================ API: media (GridFS)
 @stores_bp.route("/api/media", methods=["POST"])
