@@ -10,6 +10,7 @@ admin_dashboard_bp = Blueprint("admin_dashboard", __name__)
 orders_col = db["orders"]
 users_col = db["users"]
 balance_logs_col = db["balance_logs"]          # audit logs to compute deposits/deductions
+balances_col = db["balances"]                  # <-- for USER ACCOUNT BALANCE total
 afa_col = db["afa_registrations"]
 transactions_col = db["transactions"]          # for transaction KPIs
 
@@ -17,20 +18,24 @@ transactions_col = db["transactions"]          # for transaction KPIs
 # Helpers
 # ----------------------------
 
-def _users_display_map(user_ids: List[ObjectId]) -> Dict[ObjectId, str]:
-    users_map: Dict[ObjectId, str] = {}
+def _users_display_map(user_ids: List[ObjectId]) -> Dict[str, str]:
+    out: Dict[str, str] = {}
     if not user_ids:
-        return users_map
-    for u in users_col.find({"_id": {"$in": user_ids}}, {"username": 1, "name": 1, "phone": 1}):
-        display = u.get("username") or u.get("name") or u.get("phone")
-        if not display:
-            display = f"User {str(u['_id'])[:6].upper()}"
-        users_map[u["_id"]] = display
-    return users_map
+        return out
+    try:
+        for u in users_col.find({"_id": {"$in": user_ids}}, {"username": 1, "name": 1, "phone": 1}):
+            disp = (u.get("username") or u.get("name") or u.get("phone") or "").strip()
+            if not disp:
+                disp = f"User {str(u['_id'])[:6].upper()}"
+            out[str(u["_id"])] = disp
+    except Exception:
+        pass
+    return out
 
 
 def top_customers_by_orders(limit: int = 10) -> Tuple[List[str], List[int]]:
     pipeline = [
+        {"$match": {"user_id": {"$ne": None}}},
         {"$group": {"_id": "$user_id", "order_count": {"$sum": 1}}},
         {"$sort": {"order_count": -1}},
         {"$limit": int(limit)},
@@ -40,14 +45,17 @@ def top_customers_by_orders(limit: int = 10) -> Tuple[List[str], List[int]]:
     except Exception:
         agg = []
 
-    user_ids = [doc["_id"] for doc in agg if isinstance(doc.get("_id"), ObjectId)]
-    users_map = _users_display_map(user_ids)
+    obj_ids = [oid for oid in (doc.get("_id") for doc in agg) if isinstance(oid, ObjectId)]
+    users_map = _users_display_map(obj_ids)
 
     labels, values = [], []
     for doc in agg:
         uid = doc["_id"]
         count = int(doc.get("order_count", 0))
-        label = users_map.get(uid) or (f"User {str(uid)[:6].upper()}" if isinstance(uid, ObjectId) else "Unknown")
+        if isinstance(uid, ObjectId):
+            label = users_map.get(str(uid), f"User {str(uid)[:6].upper()}")
+        else:
+            label = "Unknown"
         labels.append(label)
         values.append(count)
     return labels, values
@@ -55,9 +63,10 @@ def top_customers_by_orders(limit: int = 10) -> Tuple[List[str], List[int]]:
 
 def top_customers_by_profit(limit: int = 10) -> Tuple[List[str], List[float]]:
     pipeline = [
+        {"$match": {"user_id": {"$ne": None}}},
         {"$group": {
             "_id": "$user_id",
-            "profit_sum": {"$sum": {"$ifNull": ["$profit_amount_total", 0]}}
+            "profit_sum": {"$sum": {"$convert": {"input": "$profit_amount_total", "to": "double", "onError": 0, "onNull": 0}}}
         }},
         {"$sort": {"profit_sum": -1}},
         {"$limit": int(limit)},
@@ -67,42 +76,25 @@ def top_customers_by_profit(limit: int = 10) -> Tuple[List[str], List[float]]:
     except Exception:
         agg = []
 
-    user_ids = [doc["_id"] for doc in agg if isinstance(doc.get("_id"), ObjectId)]
-    users_map = _users_display_map(user_ids)
+    obj_ids = [oid for oid in (doc.get("_id") for doc in agg) if isinstance(oid, ObjectId)]
+    users_map = _users_display_map(obj_ids)
 
     labels, values = [], []
     for doc in agg:
         uid = doc["_id"]
         profit = float(doc.get("profit_sum", 0) or 0)
-        label = users_map.get(uid) or (f"User {str(uid)[:6].upper()}" if isinstance(uid, ObjectId) else "Unknown")
+        if isinstance(uid, ObjectId):
+            label = users_map.get(str(uid), f"User {str(uid)[:6].upper()}")
+        else:
+            label = "Unknown"
         labels.append(label)
         values.append(profit)
     return labels, values
 
 
 def top_offers_by_purchases(limit: int = 10) -> List[Dict[str, Any]]:
-    """
-    Rank most-purchased offers across all orders by counting each order line.
-    Ignores order status entirely (counts processing, completed, etc).
-
-    Offer label resolution priority:
-      1) items.value_obj.label
-      2) items.value_obj.volume
-      3) items.value_obj.id
-      4) items.value  (stringified if needed)
-      5) items.shared_bundle
-      else "N/A"
-
-    Additional formatting:
-      - If the final offer label is a number:
-          * >= 1000 and a clean multiple of 1000  → show as "XGB" (1000→1GB, 2000→2GB, ...)
-          * 0 < number < 1000 and integer        → show as "XMB"
-        Otherwise keep as-is.
-    """
     pipeline: List[Dict[str, Any]] = [
         {"$unwind": "$items"},
-
-        # Build a raw candidate for offer, handling both scalars and embedded objects
         {"$project": {
             "service": {"$ifNull": ["$items.serviceName", "Unknown"]},
             "offer_raw": {
@@ -113,7 +105,7 @@ def top_offers_by_purchases(limit: int = 10) -> List[Dict[str, Any]]:
                         {"$ifNull": [
                             "$items.value_obj.id",
                             {"$ifNull": [
-                                "$items.value",        # can be scalar or object
+                                "$items.value",
                                 {"$ifNull": ["$items.shared_bundle", "N/A"]}
                             ]}
                         ]}
@@ -121,90 +113,40 @@ def top_offers_by_purchases(limit: int = 10) -> List[Dict[str, Any]]:
                 ]
             }
         }},
-
-        # If offer_raw is an object, try label > volume > id; else stringify
         {"$addFields": {
             "offer": {
                 "$cond": [
                     {"$eq": [{"$type": "$offer_raw"}, "object"]},
-                    {"$ifNull": [
-                        "$offer_raw.label",
-                        {"$ifNull": [
-                            "$offer_raw.volume",
-                            {"$ifNull": ["$offer_raw.id", "N/A"]}
-                        ]}
-                    ]},
+                    {"$ifNull": ["$offer_raw.label", {"$ifNull": ["$offer_raw.volume", {"$ifNull": ["$offer_raw.id", "N/A"]}]}]},
                     {"$toString": "$offer_raw"}
                 ]
             }
         }},
-
-        # Normalize again in case we still have an object
         {"$addFields": {
-            "offer": {
-                "$cond": [
-                    {"$eq": [{"$type": "$offer"}, "object"]},
-                    {"$toString": "$offer"},
-                    "$offer"
-                ]
-            }
+            "offer": {"$cond": [{"$eq": [{"$type": "$offer"}, "object"]}, {"$toString": "$offer"}, "$offer"]}
         }},
-
-        # Try to parse offer as a number (double). If not numeric, offer_num will be null.
-        {"$addFields": {
-            "offer_num": {
-                "$convert": {"input": "$offer", "to": "double", "onError": None, "onNull": None}
-            }
-        }},
-
-        # Format MB/GB:
-        # - if offer_num is not null AND >= 1000 AND divisible by 1000 -> "<offer_num/1000>GB" (integer GB)
-        # - elif offer_num is not null AND 0 < offer_num < 1000 and integer -> "<offer_num>MB"
-        # - else keep original "offer"
+        {"$addFields": {"offer_num": {"$convert": {"input": "$offer", "to": "double", "onError": None, "onNull": None}}}},
         {"$addFields": {
             "offer_fmt": {
                 "$cond": [
                     {"$ne": ["$offer_num", None]},
-                    {
-                        "$cond": [
-                            {"$and": [
-                                {"$gte": ["$offer_num", 1000]},
-                                {"$eq": [{"$mod": ["$offer_num", 1000]}, 0]}
-                            ]},
-                            {
-                                "$concat": [
-                                    {"$toString": {
-                                        "$toInt": {"$divide": ["$offer_num", 1000]}
-                                    }},
-                                    "GB"
-                                ]
-                            },
-                            {
-                                "$cond": [
-                                    {"$and": [
-                                        {"$gt": ["$offer_num", 0]},
-                                        {"$lt": ["$offer_num", 1000]},
-                                        {"$eq": [{"$mod": ["$offer_num", 1]}, 0]}
-                                    ]},
-                                    {"$concat": [
-                                        {"$toString": {"$toInt": "$offer_num"}},
-                                        "MB"
-                                    ]},
-                                    "$offer"
-                                ]
-                            }
-                        ]
-                    },
+                    {"$cond": [
+                        {"$and": [{"$gte": ["$offer_num", 1000]}, {"$eq": [{"$mod": ["$offer_num", 1000]}, 0]}]},
+                        {"$concat": [{"$toString": {"$toInt": {"$divide": ["$offer_num", 1000]}}}, "GB"]},
+                        {"$cond": [
+                            {"$and": [{"$gt": ["$offer_num", 0]}, {"$lt": ["$offer_num", 1000]}, {"$eq": [{"$mod": ["$offer_num", 1]}, 0]}]},
+                            {"$concat": [{"$toString": {"$toInt": "$offer_num"}}, "MB"]},
+                            "$offer"
+                        ]}
+                    ]},
                     "$offer"
                 ]
             }
         }},
-
         {"$group": {"_id": {"service": "$service", "offer": "$offer_fmt"}, "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": int(limit)},
     ]
-
     try:
         agg = list(orders_col.aggregate(pipeline))
     except Exception:
@@ -214,7 +156,7 @@ def top_offers_by_purchases(limit: int = 10) -> List[Dict[str, Any]]:
     for doc in agg:
         _id = doc.get("_id") or {}
         results.append({
-            "service": _id.get("service", "Unknown"),
+            "service": (_id.get("service") or "Unknown") or "Unknown",
             "offer": _id.get("offer", "N/A"),
             "count": int(doc.get("count", 0)),
         })
@@ -225,9 +167,9 @@ def compute_totals() -> Dict[str, float]:
     pipeline = [{
         "$group": {
             "_id": None,
-            "sum_total_amount": {"$sum": {"$ifNull": ["$total_amount", 0]}},
-            "sum_charged_amount": {"$sum": {"$ifNull": ["$charged_amount", 0]}},
-            "sum_profit_amount": {"$sum": {"$ifNull": ["$profit_amount_total", 0]}},
+            "sum_total_amount": {"$sum": {"$convert": {"input": "$total_amount", "to": "double", "onError": 0, "onNull": 0}}},
+            "sum_charged_amount": {"$sum": {"$convert": {"input": "$charged_amount", "to": "double", "onError": 0, "onNull": 0}}},
+            "sum_profit_amount": {"$sum": {"$convert": {"input": "$profit_amount_total", "to": "double", "onError": 0, "onNull": 0}}},
         }
     }]
     try:
@@ -243,20 +185,12 @@ def compute_totals() -> Dict[str, float]:
 
 
 def compute_customer_counts() -> Dict[str, int]:
-    """Return counts for customers by status."""
     try:
         total_customers = users_col.count_documents({"role": "customer"})
         blocked_customers = users_col.count_documents({"role": "customer", "status": "blocked"})
-        active_customers = users_col.count_documents({
-            "role": "customer",
-            "$or": [
-                {"status": {"$exists": False}},
-                {"status": {"$ne": "blocked"}}
-            ]
-        })
+        active_customers = users_col.count_documents({"role": "customer", "$or": [{"status": {"$exists": False}}, {"status": {"$ne": "blocked"}}]})
     except Exception:
         total_customers = blocked_customers = active_customers = 0
-
     return {
         "total_customers": int(total_customers),
         "blocked_customers": int(blocked_customers),
@@ -265,13 +199,6 @@ def compute_customer_counts() -> Dict[str, int]:
 
 
 def compute_balance_flow_totals() -> Dict[str, float]:
-    """
-    Uses balance_logs:
-      action = 'deposit' (positive delta)
-      action = 'withdraw' (negative delta)
-    Ignores 'set' actions.
-    Returns overall + today's totals (UTC).
-    """
     today = datetime.utcnow().date()
     start = datetime.combine(today, datetime.min.time())
     end = start + timedelta(days=1)
@@ -285,22 +212,22 @@ def compute_balance_flow_totals() -> Dict[str, float]:
 
     deposits_overall = _sum([
         {"$match": {"action": "deposit"}},
-        {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$delta", 0]}}}},
+        {"$group": {"_id": None, "total": {"$sum": {"$convert": {"input": "$delta", "to": "double", "onError": 0, "onNull": 0}}}}}
     ])
 
     withdrawals_overall = _sum([
         {"$match": {"action": "withdraw"}},
-        {"$group": {"_id": None, "total": {"$sum": {"$abs": {"$ifNull": ["$delta", 0]}}}}},  # abs of negative deltas
+        {"$group": {"_id": None, "total": {"$sum": {"$abs": {"$convert": {"input": "$delta", "to": "double", "onError": 0, "onNull": 0}}}}}}
     ])
 
     deposits_today = _sum([
         {"$match": {"action": "deposit", "created_at": {"$gte": start, "$lt": end}}},
-        {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$delta", 0]}}}},
+        {"$group": {"_id": None, "total": {"$sum": {"$convert": {"input": "$delta", "to": "double", "onError": 0, "onNull": 0}}}}}
     ])
 
     withdrawals_today = _sum([
         {"$match": {"action": "withdraw", "created_at": {"$gte": start, "$lt": end}}},
-        {"$group": {"_id": None, "total": {"$sum": {"$abs": {"$ifNull": ["$delta", 0]}}}}}
+        {"$group": {"_id": None, "total": {"$sum": {"$abs": {"$convert": {"input": "$delta", "to": "double", "onError": 0, "onNull": 0}}}}}}
     ])
 
     return {
@@ -312,14 +239,6 @@ def compute_balance_flow_totals() -> Dict[str, float]:
 
 
 def compute_transaction_kpis() -> Dict[str, float]:
-    """
-    Purchase-only KPIs:
-      - txn_total_count  (all-time)
-      - txn_today_count
-      - txn_total_amount (all-time)
-      - txn_today_amount
-    Uses verified_at as timestamp.
-    """
     today = datetime.utcnow().date()
     start = datetime.combine(today, datetime.min.time())
     end = start + timedelta(days=1)
@@ -334,24 +253,21 @@ def compute_transaction_kpis() -> Dict[str, float]:
     try:
         total_sum_doc = next(transactions_col.aggregate([
             {"$match": base_match},
-            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$amount", 0]}}}}
+            {"$group": {"_id": None, "total": {"$sum": {"$convert": {"input": "$amount", "to": "double", "onError": 0, "onNull": 0}}}}}
         ]), None)
         txn_total_amount = float((total_sum_doc or {}).get("total", 0) or 0)
     except Exception:
         txn_total_amount = 0.0
 
     try:
-        txn_today_count = transactions_col.count_documents({
-            **base_match,
-            "verified_at": {"$gte": start, "$lt": end}
-        })
+        txn_today_count = transactions_col.count_documents({**base_match, "verified_at": {"$gte": start, "$lt": end}})
     except Exception:
         txn_today_count = 0
 
     try:
         today_sum_doc = next(transactions_col.aggregate([
             {"$match": {**base_match, "verified_at": {"$gte": start, "$lt": end}}},
-            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$amount", 0]}}}}
+            {"$group": {"_id": None, "total": {"$sum": {"$convert": {"input": "$amount", "to": "double", "onError": 0, "onNull": 0}}}}}
         ]), None)
         txn_today_amount = float((today_sum_doc or {}).get("total", 0) or 0)
     except Exception:
@@ -364,8 +280,33 @@ def compute_transaction_kpis() -> Dict[str, float]:
         "txn_today_amount": txn_today_amount,
     }
 
+# ===== NEW: User balances summary (for KPI card) ==============================
 
-# ===== NEW: Profit by day (today + last 5 full days) ==========================
+def compute_user_balances_summary() -> Dict[str, float | int]:
+    """
+    Sums balances.amount across all users.
+    Also returns total balance docs and how many are > 0.
+    """
+    try:
+        doc = next(balances_col.aggregate([
+            {"$group": {
+                "_id": None,
+                "total_balance_amount": {"$sum": {"$convert": {"input": "$amount", "to": "double", "onError": 0, "onNull": 0}}},
+                "doc_count": {"$sum": 1},
+                "positive_count": {"$sum": {"$cond": [
+                    {"$gt": [{"$convert": {"input": "$amount", "to": "double", "onError": 0, "onNull": 0}}, 0]}, 1, 0
+                ]}}
+            }}
+        ]), None)
+    except Exception:
+        doc = None
+    return {
+        "total_balance_amount": float((doc or {}).get("total_balance_amount", 0) or 0.0),
+        "balance_doc_count": int((doc or {}).get("doc_count", 0) or 0),
+        "positive_balance_count": int((doc or {}).get("positive_count", 0) or 0),
+    }
+
+# ===== Profit by day (today + last 5 full days) ===============================
 
 def _day_range(d: datetime.date):
     start = datetime.combine(d, datetime.min.time())
@@ -373,45 +314,30 @@ def _day_range(d: datetime.date):
     return start, end
 
 def compute_daily_profits(days_back: int = 6) -> Dict[str, Any]:
-    """
-    Returns:
-      labels:   ["Oct 10", ..., "Today"]
-      values:   [profit_per_day...]
-      today_profit
-      yesterday_profit
-      change_pct      (float, +/-)
-      trend           ("up" | "down" | "flat")
-      statement       (string for UI)
-    Uses orders.profit_amount_total summed by created_at day.
-    """
-    # Build date buckets: last (days_back) days ending today (inclusive of today)
     today = datetime.utcnow().date()
-    days = [today - timedelta(days=i) for i in range(days_back)][::-1]  # chronological
+    days = [today - timedelta(days=i) for i in range(days_back)][::-1]
+    if not days:
+        return {"labels": [], "values": [], "today_profit": 0.0, "yesterday_profit": 0.0, "change_pct": 0.0, "trend": "flat", "statement": "No data."}
 
-    # Query just once for the window
     window_start, _ = _day_range(days[0])
-    _, window_end = _day_range(days[-1])  # end of today
+    _, window_end = _day_range(days[-1])
+
     pipeline = [
         {"$match": {"created_at": {"$gte": window_start, "$lt": window_end}}},
-        {"$project": {
-            "d": {"$dateTrunc": {"date": "$created_at", "unit": "day"}},
-            "p": {"$ifNull": ["$profit_amount_total", 0]}
-        }},
-        {"$group": {"_id": "$d", "profit": {"$sum": "$p"}}}
+        {"$project": {"d": {"$dateTrunc": {"date": "$created_at", "unit": "day"}}, "p": {"$ifNull": ["$profit_amount_total", 0]}}},
+        {"$group": {"_id": "$d", "profit": {"$sum": {"$convert": {"input": "$p", "to": "double", "onError": 0, "onNull": 0}}}}}
     ]
     try:
         agg = list(orders_col.aggregate(pipeline))
     except Exception:
         agg = []
 
-    # Map aggregation by date (date-only)
     by_day = {}
     for row in agg:
         dt = row.get("_id")
         if isinstance(dt, datetime):
             by_day[dt.date()] = float(row.get("profit", 0) or 0)
 
-    # Build aligned series
     labels, values = [], []
     for d in days:
         labels.append("Today" if d == today else d.strftime("%b %d"))
@@ -420,25 +346,21 @@ def compute_daily_profits(days_back: int = 6) -> Dict[str, Any]:
     today_profit = values[-1] if values else 0.0
     yesterday_profit = values[-2] if len(values) >= 2 else 0.0
 
-    # Compute change %
     if yesterday_profit == 0:
         change_pct = 100.0 if today_profit > 0 else 0.0
     else:
         change_pct = ((today_profit - yesterday_profit) / abs(yesterday_profit)) * 100.0
 
-    # Trend + human statement
     if abs(today_profit - yesterday_profit) < 1e-9:
         trend = "flat"
         statement = "Today’s profit is the same as yesterday."
     elif today_profit > yesterday_profit:
         trend = "up"
-        diff = round(today_profit - yesterday_profit, 2)
-        pct = round(change_pct, 2)
+        diff = round(today_profit - yesterday_profit, 2); pct = round(change_pct, 2)
         statement = f"Today’s profit has risen by {pct}% compared to yesterday (up GHS {diff:,.2f})."
     else:
         trend = "down"
-        diff = round(yesterday_profit - today_profit, 2)
-        pct = round(abs(change_pct), 2)
+        diff = round(yesterday_profit - today_profit, 2); pct = round(abs(change_pct), 2)
         statement = f"Today’s profit has fallen by {pct}% compared to yesterday (down GHS {diff:,.2f})."
 
     return {
@@ -450,6 +372,100 @@ def compute_daily_profits(days_back: int = 6) -> Dict[str, Any]:
         "trend": trend,
         "statement": statement,
     }
+
+# ===== Accumulative Sales by Agent (with customer fallback) ===================
+
+def _display_for_actor(actor_id: str, users_map: Dict[str, str], source: str) -> str:
+    label = None
+    try:
+        oid = ObjectId(actor_id)
+        label = users_map.get(str(oid))
+    except Exception:
+        pass
+    if not label:
+        prefix = "Agent" if source == "agent" else "Customer"
+        label = f"{prefix} {actor_id[:6].upper()}"
+    return label
+
+
+def agents_cumulative_sales(limit: int = 10) -> Tuple[List[str], List[float], List[Dict[str, Any]]]:
+    pipeline: List[Dict[str, Any]] = [
+        {"$unwind": "$items"},
+        {"$addFields": {
+            "amount_num": {"$convert": {"input": {"$ifNull": ["$items.amount", 0]}, "to": "double", "onError": 0, "onNull": 0}},
+            "agent1": {"$ifNull": ["$items.agent_id", None]},
+            "agent2": {"$ifNull": ["$items.agentId", None]},
+            "agent3": {"$ifNull": ["$items.value_obj.agent_id", None]},
+            "agent4": {"$ifNull": ["$items.value_obj.agentId", None]},
+        }},
+        {"$addFields": {
+            "agent_coalesced": {
+                "$let": {
+                    "vars": {"a1": "$agent1", "a2": "$agent2", "a3": "$agent3", "a4": "$agent4"},
+                    "in": {"$ifNull": [
+                        {"$cond": [{"$ne": ["$$a1", ""]}, "$$a1", None]},
+                        {"$ifNull": [
+                            {"$cond": [{"$ne": ["$$a2", ""]}, "$$a2", None]},
+                            {"$ifNull": [
+                                {"$cond": [{"$ne": ["$$a3", ""]}, "$$a3", None]},
+                                {"$cond": [{"$ne": ["$$a4", ""]}, "$$a4", None]}
+                            ]}
+                        ]}
+                    ]}
+                }
+            }
+        }},
+        {"$addFields": {
+            "actor_id": {"$toString": {"$ifNull": ["$agent_coalesced", "$user_id"]}},
+            "actor_source": {"$cond": [{"$ne": ["$agent_coalesced", None]}, "agent", "customer"]}
+        }},
+        {"$match": {"amount_num": {"$gt": 0}}},
+        {"$group": {
+            "_id": {"actor_id": "$actor_id", "actor_source": "$actor_source"},
+            "total_sales": {"$sum": "$amount_num"},
+            "line_count": {"$sum": 1}
+        }},
+        {"$sort": {"total_sales": -1}},
+        {"$limit": int(limit)},
+    ]
+
+    try:
+        agg = list(orders_col.aggregate(pipeline))
+    except Exception:
+        agg = []
+
+    to_resolve: List[ObjectId] = []
+    for doc in agg:
+        actor_id = (doc.get("_id") or {}).get("actor_id")
+        try:
+            to_resolve.append(ObjectId(actor_id))
+        except Exception:
+            pass
+    users_map = _users_display_map(to_resolve)
+
+    labels: List[str] = []
+    values: List[float] = []
+    table_rows: List[Dict[str, Any]] = []
+
+    for doc in agg:
+        _id = doc.get("_id") or {}
+        actor_id = str(_id.get("actor_id"))
+        actor_source = _id.get("actor_source")
+        total_sales = float(doc.get("total_sales", 0) or 0)
+        line_count = int(doc.get("line_count", 0) or 0)
+
+        label = _display_for_actor(actor_id, users_map, actor_source)
+
+        labels.append(label)
+        values.append(round(total_sales, 2))
+        table_rows.append({
+            "agent_id": actor_id,
+            "agent": label if actor_source == "agent" else f"{label} (Customer)",
+            "sales": round(total_sales, 2),
+            "lines": line_count
+        })
+
+    return labels, values, table_rows
 
 # ----------------------------
 # Route
@@ -471,20 +487,29 @@ def admin_dashboard():
     sum_charged_amount = totals["sum_charged_amount"]
     sum_profit_amount = totals["sum_profit_amount"]
 
-    # NEW: daily profits (today + previous 5)
+    # NEW: Total amount at USER ACCOUNT BALANCE
+    bal_summary = compute_user_balances_summary()
+    total_user_balance_amount = bal_summary["total_balance_amount"]
+    balance_doc_count = bal_summary["balance_doc_count"]
+    positive_balance_count = bal_summary["positive_balance_count"]
+
+    # Daily profits (today + previous 5)
     dp = compute_daily_profits(days_back=6)
 
     # Top customers (orders & profit)
     chart_labels, chart_values = top_customers_by_orders(limit=10)
     profit_chart_labels, profit_chart_values = top_customers_by_profit(limit=10)
 
-    # Top offers (service + offer) — use ALL orders, no status filter, Top 10
+    # Top offers
     top_offers = top_offers_by_purchases(limit=10)
+
+    # Accumulative sales (agent first, fallback to customer)
+    agent_sales_labels, agent_sales_values, top_agents_rows = agents_cumulative_sales(limit=10)
 
     # Customer counts
     cust_counts = compute_customer_counts()
 
-    # Wallet flows (overall + today)
+    # Balance flows (overall + today)
     flow = compute_balance_flow_totals()
 
     # AFA registration KPIs
@@ -509,7 +534,12 @@ def admin_dashboard():
         sum_charged_amount=sum_charged_amount,
         sum_profit_amount=sum_profit_amount,
 
-        # NEW: Profit trend + last 5 days (plus today)
+        # NEW: user balances KPI
+        total_user_balance_amount=total_user_balance_amount,
+        balance_doc_count=balance_doc_count,
+        positive_balance_count=positive_balance_count,
+
+        # Profit trend + last 5 days (plus today)
         today_profit=dp["today_profit"],
         yesterday_profit=dp["yesterday_profit"],
         profit_change_pct=dp["change_pct"],
@@ -523,6 +553,11 @@ def admin_dashboard():
         chart_values=chart_values,
         profit_chart_labels=profit_chart_labels,
         profit_chart_values=profit_chart_values,
+
+        # Accumulative sales (chart + table)
+        agent_sales_labels=agent_sales_labels,
+        agent_sales_values=agent_sales_values,
+        top_agents_rows=top_agents_rows,
 
         # Lists
         top_offers=top_offers,
@@ -543,7 +578,7 @@ def admin_dashboard():
         afa_pending=afa_pending,
         afa_today=afa_today,
 
-        # Transactions KPIs (counts + sums)
+        # Transactions KPIs
         txn_total_count=tx["txn_total_count"],
         txn_today_count=tx["txn_today_count"],
         txn_total_amount=tx["txn_total_amount"],
