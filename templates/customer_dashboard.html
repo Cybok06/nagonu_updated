@@ -103,18 +103,8 @@
               <div class="balance-label text-white-50">Wallet Balance</div>
               <div class="balance-amount text-white">GHS {{ '%.2f'|format(balance) }}</div>
 
-              {% if sales_statement %}
-                <div class="pill d-inline-block mt-2 small">{{ sales_statement }}</div>
-              {% endif %}
-            </div>
-
-            <!-- Mini Line Chart -->
-            <div class="col-12 col-md-5">
-              <div style="height:120px;">
-                <canvas id="custDailySalesChart"></canvas>
-              </div>
-            </div>
-          </div>
+            
+          
 
           <!-- JSON blob for the mini chart -->
           <script id="cust-daily-sales-data" type="application/json">
