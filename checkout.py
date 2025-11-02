@@ -178,7 +178,6 @@ def _effective_profit_percent(service_doc, customer_id_obj):
 
 def _pick_offer_base_amount_from_service(svc_doc, value_obj, raw_value):
     try:
-        offers = svc_doc.get("offers") or {}
         offers = svc_doc.get("offers") or []
         vid = (value_obj or {}).get("id")
         vvol = (value_obj or {}).get("volume")
@@ -225,7 +224,7 @@ def _derive_base_profit(amount_total, base_amount_hint, eff_percent):
         base = a
     return base, profit
 
-# ===== Field resolvers ========================================================
+# ===== Field resolvers =======================================================
 def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
     """General network_id resolver for both providers."""
     nid = (item or {}).get("network_id") or (value_obj or {}).get("network_id")
@@ -476,42 +475,97 @@ def _service_unavailability_reason(svc_doc: dict):
 
     return False, ""
 
-
 # ===== Duplicate-in-processing guard =========================================
-DUP_WINDOW_MINUTES = 45  # tune as desired (e.g., 20–60)
+# “Few minutes” window — tweak as needed.
+DUP_WINDOW_MINUTES = 30
 
-def _has_processing_conflict(phone: str, service_id_raw: str | None, svc_name: str | None) -> bool:
+def _normalize_amount_key(v):
+    """Use a stable numeric value for matching the requested line amount."""
+    try:
+        return float(f"{float(v):.2f}")
+    except Exception:
+        return 0.0
+
+### Bundle-key builder (what defines “same GB”)
+def _build_bundle_key(is_express: bool, shared_bundle, value_obj: dict):
     """
-    True if a recent order (status='processing') already contains this phone
-    for the same service (prefer serviceId match; fallback to serviceName).
+    Returns a normalized key describing the exact bundle chosen.
+    - Express: key = ("offer", <offer_id>)
+    - Toppily: key = ("vol", <MB volume>)
+    Falls back to value_obj.id / value_obj.volume if shared_bundle is None.
     """
-    if not phone:
-        return False
+    if is_express:
+        val = shared_bundle
+        if val is None:
+            val = (value_obj or {}).get("id")
+        try:
+            return ("offer", int(val)) if val is not None else None
+        except Exception:
+            return None
+    else:
+        val = shared_bundle
+        if val is None:
+            val = (value_obj or {}).get("volume")
+        try:
+            return ("vol", int(val)) if val is not None else None
+        except Exception:
+            return None
+
+### STRICT conflict based on (phone, network_id, bundle_key, amount)
+def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_name: str | None,
+                                    network_id: int | None, bundle_key: tuple | None, amount_key: float) -> bool:
+    """
+    True if there exists an order in 'processing' (within window) for:
+      - same phone
+      - same network_id
+      - same bundle_key (('offer', id) or ('vol', mb))
+      - same amount (line amount the customer pays)
+    Optionally narrowed by same serviceId when available.
+    """
+    if not phone or network_id is None or bundle_key is None:
+        return False  # cannot assert strict duplicate without the triad
 
     window_start = datetime.utcnow() - timedelta(minutes=DUP_WINDOW_MINUTES)
+    kind, bval = bundle_key
 
-    # Strict: serviceId match
+    # Preferred match: documents that already store network_id/bundle_key/amount in items
+    elem = {
+        "phone": phone,
+        "network_id": network_id,
+        "bundle_key.kind": kind,
+        "bundle_key.value": bval,
+        "amount": amount_key,
+    }
     if service_id_raw:
-        q = {
-            "status": "processing",
-            "created_at": {"$gte": window_start},
-            "items": {"$elemMatch": {"phone": phone, "serviceId": service_id_raw}}
-        }
-        if orders_col.find_one(q, {"_id": 1}):
-            return True
+        elem["serviceId"] = service_id_raw
 
-    # Fallback: serviceName match
-    if svc_name:
-        q2 = {
-            "status": "processing",
-            "created_at": {"$gte": window_start},
-            "items": {"$elemMatch": {"phone": phone, "serviceName": svc_name}}
-        }
-        if orders_col.find_one(q2, {"_id": 1}):
-            return True
+    q = {
+        "status": "processing",
+        "created_at": {"$gte": window_start},
+        "items": {"$elemMatch": elem}
+    }
+    if orders_col.find_one(q, {"_id": 1}):
+        return True
 
-    return False
+    # Fallback compatibility for older orders (match via value_obj and amount)
+    alt = {
+        "phone": phone,
+        "network_id": network_id,
+        "amount": amount_key,
+    }
+    if kind == "offer":
+        alt["value_obj.id"] = bval
+    else:
+        alt["value_obj.volume"] = bval
+    if service_id_raw:
+        alt["serviceId"] = service_id_raw
 
+    q2 = {
+        "status": "processing",
+        "created_at": {"$gte": window_start},
+        "items": {"$elemMatch": alt}
+    }
+    return bool(orders_col.find_one(q2, {"_id": 1}))
 
 # ===== Route (NO background auto-update) =====================================
 @checkout_bp.route("/checkout", methods=["POST"])
@@ -560,10 +614,15 @@ def process_checkout():
         # Rollup profit
         profit_amount_total = 0.0
 
+        # Prevent same-cart duplicates for (phone, network_id, bundle_key, amount)
+        seen_keys = set()  # (phone, network_id, bundle_value, kind, amount_key)
+
         for idx, item in enumerate(cart, start=1):
             phone = (item.get("phone") or "").strip()
             value_obj = _coerce_value_obj(item.get("value_obj") or item.get("value"))
             amt_total = _money(item.get("amount"))  # customer-facing total (base + profit)
+            amount_key = _normalize_amount_key(amt_total)
+
             service_id_raw = item.get("serviceId")
             svc_doc = None
             svc_type = None
@@ -604,9 +663,50 @@ def process_checkout():
                     }
                 }), 400
 
-            # ----- DUPLICATE-IN-PROCESSING GUARD ---------------------------------------
-            is_dup = _has_processing_conflict(phone, service_id_raw, svc_name)
-            if is_dup:
+            # ---------- Decide provider (needed early for duplicate key building) ----------
+            is_express = (service_category == "express services")
+
+            # ---------- Resolve API-needed fields early (for duplicate key) ----------
+            network_id = _resolve_network_id(item, value_obj, svc_doc)
+            if is_express:
+                shared_bundle = _resolve_shared_bundle_express(item, value_obj)   # USE OFFER ID
+            else:
+                shared_bundle = _resolve_shared_bundle_toppily(item, value_obj)   # USE VOLUME (MB)
+
+            bundle_key = _build_bundle_key(is_express, shared_bundle, value_obj)   # e.g., ('offer', 123) or ('vol', 2048)
+
+            # ----- IN-CART duplicate guard (same number + same network + same bundle + same amount) -----
+            if phone and (network_id is not None) and (bundle_key is not None):
+                cart_key = (phone, int(network_id), int(bundle_key[1]), bundle_key[0], amount_key)
+                if cart_key in seen_keys:
+                    results.append({
+                        "phone": phone,
+                        "base_amount": 0.0,
+                        "amount": 0.0,  # not charged
+                        "originally_requested_amount": amt_total,
+                        "profit_amount": 0.0,
+                        "profit_percent_used": 0.0,
+                        "value": item.get("value"),
+                        "value_obj": value_obj,
+                        "serviceId": service_id_raw,
+                        "serviceName": svc_name,
+                        "service_type": svc_type if svc_type else ("unknown" if not svc_doc else None),
+                        "network_id": network_id,
+                        "bundle_key": {"kind": bundle_key[0], "value": bundle_key[1]},
+                        "line_amount_key": amount_key,
+                        "line_status": "skipped_duplicate_in_cart",
+                        "api_status": "skipped",
+                        "api_response": {"note": "Duplicate line in this cart (same number, network, bundle, amount)"}
+                    })
+                    continue
+                seen_keys.add(cart_key)
+
+            # ----- DUPLICATE-IN-PROCESSING GUARD (strict + amount) -------------------------
+            # Only block if the same phone + same network + same bundle + same amount is already processing.
+            is_dup_strict = _has_processing_conflict_strict(
+                phone, service_id_raw, svc_name, network_id, bundle_key, amount_key
+            )
+            if is_dup_strict:
                 results.append({
                     "phone": phone,
                     "base_amount": 0.0,
@@ -619,10 +719,13 @@ def process_checkout():
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
                     "service_type": svc_type if svc_type else ("unknown" if not svc_doc else None),
+                    "network_id": network_id,
+                    "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                    "line_amount_key": amount_key,
                     "line_status": "skipped_duplicate_processing",
                     "api_status": "skipped",
                     "api_response": {
-                        "note": "Phone already has a processing order for this service; skipping to avoid duplicate."
+                        "note": "Same number + same network + same bundle + same amount already processing; skipping."
                     }
                 })
                 continue
@@ -652,6 +755,9 @@ def process_checkout():
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
                     "service_type": svc_type if svc_type else ("unknown" if not svc_doc else None),
+                    "network_id": network_id,
+                    "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                    "line_amount_key": amount_key,
                     "line_status": "processing",                    # never 'failed'
                     "api_status": "not_applicable",
                     "api_response": {"note": "Service not API; queued for processing"}
@@ -661,18 +767,8 @@ def process_checkout():
             # ---------- API path ----------
             api_requested_total += amt_total
 
-            # Decide provider
-            is_express = (service_category == "express services")
-
-            # Validate fields for API call
-            network_id = _resolve_network_id(item, value_obj, svc_doc)
-            if is_express:
-                shared_bundle = _resolve_shared_bundle_express(item, value_obj)   # USE OFFER ID
-            else:
-                shared_bundle = _resolve_shared_bundle_toppily(item, value_obj)   # USE VOLUME (MB)
-
-            if not phone or network_id is None or shared_bundle is None:
-                # Missing API fields → treat as processing and CHARGE
+            # If missing fields for API → treat as processing and charge (keep previous behavior)
+            if not phone or network_id is None or bundle_key is None:
                 has_processing = True
                 total_processing_amount += amt_total
                 results.append({
@@ -686,22 +782,28 @@ def process_checkout():
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
                     "service_type": svc_type,
+                    "network_id": network_id,
+                    "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                    "line_amount_key": amount_key,
                     "line_status": "processing",
                     "api_status": "skipped_missing_fields",
                     "api_response": {
                         "note": "API fields missing; queued for processing",
-                        "got": {"phone": bool(phone), "network_id": network_id, "shared_bundle": shared_bundle}
+                        "got": {"phone": bool(phone), "network_id": network_id, "bundle_key": bundle_key}
                     }
                 })
                 continue
 
-            trx_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
-
+            # We have network_id and bundle_key resolved → map shared_bundle for provider call
             if is_express:
-                ok, payload = _send_express_single(phone, network_id, shared_bundle, trx_ref, order_id, debug_events)
+                shared_bundle_id = int(bundle_key[1])  # offer id
+                trx_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
+                ok, payload = _send_express_single(phone, int(network_id), shared_bundle_id, trx_ref, order_id, debug_events)
                 api_tag = "express"
             else:
-                ok, payload = _send_toppily_shared_bundle(phone, network_id, shared_bundle, trx_ref, order_id, debug_events)
+                shared_bundle_mb = int(bundle_key[1])  # volume MB
+                trx_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
+                ok, payload = _send_toppily_shared_bundle(phone, int(network_id), shared_bundle_mb, trx_ref, order_id, debug_events)
                 api_tag = "toppily"
 
             if ok:
@@ -721,6 +823,9 @@ def process_checkout():
                     "service_type": svc_type,
                     "provider": api_tag,
                     "trx_ref": trx_ref,
+                    "network_id": network_id,
+                    "bundle_key": {"kind": bundle_key[0], "value": bundle_key[1]},
+                    "line_amount_key": amount_key,
                     "line_status": "processing",     # <— important: not 'delivered'
                     "api_status": "success",
                     "api_response": payload
@@ -743,6 +848,9 @@ def process_checkout():
                     "service_type": svc_type,
                     "provider": api_tag,
                     "trx_ref": trx_ref,
+                    "network_id": network_id,
+                    "bundle_key": {"kind": bundle_key[0], "value": bundle_key[1]},
+                    "line_amount_key": amount_key,
                     "line_status": "processing",
                     "api_status": "processing",
                     "api_response": payload
@@ -771,12 +879,12 @@ def process_checkout():
                 "debug": {"events": debug_events}
             })
 
-            skipped_count = sum(1 for it in results if it.get("line_status") == "skipped_duplicate_processing")
+            skipped_count = sum(1 for it in results if it.get("line_status") in ("skipped_duplicate_processing","skipped_duplicate_in_cart"))
 
             return jsonify({
                 "success": True,
-                "message": ("No charge taken. {n} item(s) were skipped because the same phone already "
-                            "has an order in processing for that service.").format(n=skipped_count),
+                "message": ("No charge taken. {n} item(s) were skipped because the same phone, network, bundle, "
+                            "and amount already has an order in processing or duplicated in cart.").format(n=skipped_count),
                 "order_id": order_id,
                 "status": "skipped",
                 "charged_amount": 0.0,
@@ -829,7 +937,7 @@ def process_checkout():
             }
         })
 
-        skipped_count = sum(1 for it in results if it.get("line_status") == "skipped_duplicate_processing")
+        skipped_count = sum(1 for it in results if it.get("line_status") in ("skipped_duplicate_processing","skipped_duplicate_in_cart"))
         processing_count = sum(1 for it in results if it.get("line_status") == "processing")
 
         # Response message (always processing to frontend)
