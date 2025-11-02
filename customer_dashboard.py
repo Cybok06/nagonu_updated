@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, session, redirect, url_for, request
+from flask import Blueprint, render_template, session, redirect, url_for, request, jsonify
 from bson import ObjectId
 from db import db
 import json, ast, re
@@ -6,13 +6,17 @@ from datetime import datetime, date, timedelta
 from typing import Optional, Any, Dict, List, Tuple  # add Tuple for 3.8/3.9
 
 customer_dashboard_bp = Blueprint("customer_dashboard", __name__)
-services_col = db["services"]
-balances_col = db["balances"]
-orders_col = db["orders"]
-service_profits_col = db["service_profits"]  # per-customer overrides
-users_col = db["users"]                      # for display name
-settings_col = db["settings"]                # legacy AFA settings (price/open/stock)
-afa_settings_col = db["afa_settings"]        # primary AFA settings (price/open/stock)
+
+# --- Collections ---
+services_col         = db["services"]
+balances_col         = db["balances"]
+orders_col           = db["orders"]
+service_profits_col  = db["service_profits"]   # per-customer overrides
+users_col            = db["users"]             # for display name
+settings_col         = db["settings"]          # legacy AFA settings (price/open/stock)
+afa_settings_col     = db["afa_settings"]      # primary AFA settings (price/open/stock)
+afa_col              = db["afa_registrations"] # AFA registrations
+balance_logs_col     = db["balance_logs"]      # wallet logs
 
 # ---------- helpers ----------
 _NUM = re.compile(r"^\s*-?\d+(\.\d+)?\s*$", re.IGNORECASE)
@@ -22,8 +26,20 @@ _MIN = re.compile(r"(\d+(?:\.\d+)?)[\s]*(?:MIN|MINS|MINUTE|MINUTES)\b", re.IGNOR
 _PKG_TAIL = re.compile(r"\s*\(Pkg\s*\d+\)\s*$", re.IGNORECASE)
 _mapping_like = re.compile(r"^\s*\{.*\}\s*$", re.DOTALL)
 
+def _now() -> datetime:
+    return datetime.utcnow()
+
 def _to_float(x: Any) -> Optional[float]:
+    """
+    Safely convert numbers, Mongo Extended JSON (e.g. {'$numberDouble':'15.0'}),
+    strings like '15', etc. to float.
+    """
     try:
+        # Handle {"$numberDouble": "..."} or {"$numberInt": "..."}
+        if isinstance(x, dict):
+            for k in ("$numberDouble", "$numberInt", "$numberDecimal", "$numberLong"):
+                if k in x:
+                    return float(x[k])
         return float(x)
     except Exception:
         return None
@@ -418,6 +434,100 @@ def inject_customer_globals():
         pass
     return {"customer_balance": bal, "customer_username": uname or "Customer"}
 
+# ---------- API: Customer AFA Registration (charge immediately) ----------
+@customer_dashboard_bp.route("/api/afa/register", methods=["POST"])
+def api_afa_register():
+    # Auth: customers only
+    if session.get("role") != "customer" or not session.get("user_id"):
+        return jsonify(success=False, error="Unauthorized"), 401
+
+    user_oid = ObjectId(session["user_id"])
+
+    payload = request.get_json(silent=True) or {}
+    name       = (payload.get("name") or "").strip()
+    phone      = (payload.get("phone") or "").strip()
+    dob        = (payload.get("dob") or None)
+    location   = (payload.get("location") or None)
+    ghana_card = (payload.get("ghana_card") or None)
+
+    # Basic validation
+    if not name:
+        return jsonify(success=False, error="Name is required"), 400
+    if not re.match(r"^0\d{9}$", phone):
+        return jsonify(success=False, error="Phone must be 0xxxxxxxxx"), 400
+
+    # Load AFA settings (single source of truth)
+    afa = _load_afa_settings()
+    if not afa["is_open"]:
+        return jsonify(success=False, error="Service closed"), 400
+    if not afa["in_stock"]:
+        return jsonify(success=False, error="Out of stock"), 400
+
+    price = _to_float(afa.get("price")) or 0.0
+    if price < 0:
+        price = 0.0
+
+    now = _now()
+
+    # Atomic charge: guard against insufficient funds
+    upd = balances_col.update_one(
+        {"user_id": user_oid, "amount": {"$gte": price}},
+        {"$inc": {"amount": -price}, "$set": {"updated_at": now}},
+        upsert=False
+    )
+    if upd.matched_count == 0:
+        return jsonify(success=False, error="Insufficient funds"), 400
+
+    # Fetch new balance (best effort)
+    bal_doc = balances_col.find_one({"user_id": user_oid}) or {}
+    new_balance = float(bal_doc.get("amount", 0.0) or 0.0)
+
+    # Log balance change
+    actor_name = session.get("username") or session.get("email") or "customer"
+    log_doc = {
+        "user_id": user_oid,
+        "action": "withdraw",
+        "delta": -price,
+        "amount_before": None,  # Optional: keep None or compute preimage with find_one_and_update if required
+        "amount_after": new_balance,
+        "currency": bal_doc.get("currency", "GHS"),
+        "note": "AFA registration (customer self-charge)",
+        "actor_id": user_oid,
+        "actor_name": actor_name,
+        "created_at": now,
+    }
+    log_res = balance_logs_col.insert_one(log_doc)
+
+    # Create registration (already charged)
+    reg_doc = {
+        "customer_id": user_oid,
+        "name": name,
+        "phone": phone,
+        "dob": dob or None,
+        "location": location or None,
+        "ghana_card": ghana_card or None,
+
+        "status": "pending",
+        "charged": True,
+        "amount": price,                 # normalize UI amount to settings price used
+        "charged_amount": price,
+        "charged_at": now,
+        "charged_by": actor_name,
+        "charge_log_id": log_res.inserted_id,
+
+        "created_at": now,
+        "updated_at": now,
+    }
+    reg_id = afa_col.insert_one(reg_doc).inserted_id
+
+    return jsonify(
+        success=True,
+        message="Registration submitted and charged.",
+        registration_id=str(reg_id),
+        balance=new_balance,
+        price=price
+    ), 200
+
 # ---------- route ----------
 @customer_dashboard_bp.route("/customer/dashboard")
 def customer_dashboard():
@@ -502,6 +612,9 @@ def customer_dashboard():
     # AFA settings (price / open / stock) — decoupled from services
     afa = _load_afa_settings()
 
+    # Affordability for AFA button state on the page
+    can_buy_afa = bool(afa["is_open"] and afa["in_stock"] and balance >= float(afa["price"] or 0.0))
+
     # NEW: the customer’s own sales trend (today + last 5 days)
     ds = compute_user_daily_sales(user_oid, days_back=6)
 
@@ -513,6 +626,7 @@ def customer_dashboard():
         recent_orders=recent_orders,
         customer_name=customer_name,
         afa=afa,                           # pass settings for the AFA block in your HTML
+        can_buy_afa=can_buy_afa,           # NEW: enable/disable Buy button for AFA
 
         # sales KPIs for the hero section
         today_sales=ds["today_sales"],
