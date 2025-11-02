@@ -77,6 +77,78 @@ def _save_settings(price: float, is_open: bool, in_stock: bool):
     afa_settings_col.update_one({"_id": SETTINGS_ID}, {"$set": doc}, upsert=True)
     return _get_settings()  # return hydrated (with _id)
 
+def _settings_price():
+    s = _get_settings()
+    try:
+        return float(s.get("price", AMOUNT_DEFAULT))
+    except Exception:
+        return AMOUNT_DEFAULT
+
+def _find_balance_doc(customer_id):
+    """Accepts ObjectId or raw value stored in reg['customer_id']."""
+    bal = None
+    if isinstance(customer_id, ObjectId):
+        bal = balances_col.find_one({"user_id": customer_id})
+    if not bal and customer_id:
+        bal = balances_col.find_one({"user_id": customer_id})
+    return bal
+
+def _refund_registration(reg: dict, amount: float, actor_id: str | None, actor_name: str):
+    """
+    Idempotent refund:
+      - If already refunded, no-op.
+      - Credits user's wallet, logs deposit, stamps refunded_* fields.
+    Returns (ok: bool, msg: str, already_refunded: bool)
+    """
+    if reg.get("refunded"):
+        return True, "Already refunded", True
+
+    customer_id = reg.get("customer_id")
+    bal = _find_balance_doc(customer_id)
+    if not bal:
+        return False, "Customer balance not found", False
+
+    old_amount = float(bal.get("amount", 0.0))
+    new_amount = old_amount + float(amount)
+
+    # credit balance
+    balances_col.update_one(
+        {"_id": bal["_id"]},
+        {"$set": {"amount": new_amount, "updated_at": _now()}},
+    )
+
+    # log deposit
+    log_doc = {
+        "balance_id": bal["_id"],
+        "user_id": bal["user_id"],
+        "action": "deposit",
+        "delta": float(amount),
+        "amount_before": old_amount,
+        "amount_after": new_amount,
+        "currency": bal.get("currency", "GHS"),
+        "note": f"AFA registration refund ({str(reg['_id'])})",
+        "actor_id": ObjectId(actor_id) if actor_id else None,
+        "actor_name": actor_name,
+        "created_at": _now(),
+    }
+    log_res = balance_logs_col.insert_one(log_doc)
+
+    # mark reg refunded
+    afa_col.update_one(
+        {"_id": reg["_id"]},
+        {
+            "$set": {
+                "refunded": True,
+                "refunded_amount": float(amount),
+                "refunded_at": _now(),
+                "refunded_by": actor_name,
+                "refund_log_id": log_res.inserted_id,
+                "updated_at": _now(),
+            }
+        },
+    )
+    return True, "Refunded", False
+
 # ------------------ PAGE ------------------
 
 @admin_afa_bp.route("/admin/afa")
@@ -153,9 +225,7 @@ def admin_afa_list():
     if not _require_admin():
         return jsonify(success=False, error="Unauthorized"), 401
 
-    s = _get_settings()
-    # Single source of truth: settings price
-    current_price = float(s.get("price", AMOUNT_DEFAULT))
+    current_price = _settings_price()
 
     q = (request.args.get("q") or "").strip()
     status = (request.args.get("status") or "").strip().lower()
@@ -203,7 +273,6 @@ def admin_afa_list():
     total = afa_col.count_documents(query)
 
     # Status counts + total amount (ALWAYS using settings price)
-    # sum_amount = count * current_price
     agg = list(
         afa_col.aggregate(
             [
@@ -252,8 +321,7 @@ def admin_afa_list():
         cid = d.get("customer_id")
         uinfo = users_map.get(cid) if isinstance(cid, ObjectId) else None
 
-        # Always show settings price
-        amount = float(current_price)
+        amount = float(current_price)  # display settings price
 
         out_items.append(
             {
@@ -261,12 +329,8 @@ def admin_afa_list():
                 "customer": {
                     "id": str(cid) if cid is not None else None,
                     "name": (
-                        uinfo.get("username")
-                        or (
-                            f"{uinfo.get('first_name','')} {uinfo.get('last_name','')}".strip()
-                            if uinfo
-                            else None
-                        )
+                        (uinfo.get("username") if uinfo else None)
+                        or (f"{uinfo.get('first_name','')} {uinfo.get('last_name','')}".strip() if uinfo else None)
                     ),
                     "phone": uinfo.get("phone") if uinfo else None,
                 },
@@ -278,6 +342,8 @@ def admin_afa_list():
                 "amount": amount,
                 "status": (d.get("status") or "pending"),
                 "charged": bool(d.get("charged", False)),
+                "refunded": bool(d.get("refunded", False)),
+                "charged_amount": float(d.get("charged_amount", 0.0)) if d.get("charged") else None,
                 "created_at_display": created.strftime("%d %b %Y, %I:%M %p") if created else "",
             }
         )
@@ -301,7 +367,8 @@ def admin_afa_update_status(reg_id):
 
     payload = request.get_json(silent=True) or request.form or {}
     new_status = (payload.get("status") or "").strip().lower()
-    if new_status not in {"pending", "processing", "delivered", "completed", "failed", "rejected"}:
+    # Added 'canceled' and 'refunded' to allowed set
+    if new_status not in {"pending", "processing", "delivered", "completed", "failed", "rejected", "canceled", "refunded"}:
         return jsonify(success=False, error="Invalid status"), 400
 
     oid = _to_objectid(reg_id)
@@ -333,27 +400,11 @@ def admin_afa_charge(reg_id):
     if reg.get("charged"):
         return jsonify(success=False, error="Already charged"), 400
 
-    settings = _get_settings()
-    try:
-        current_price = float(settings.get("price", AMOUNT_DEFAULT))
-    except Exception:
-        current_price = AMOUNT_DEFAULT
+    current_price = _settings_price()
 
-    # Always charge the current settings price
-    amount = current_price
-    if amount < 0:
-        amount = AMOUNT_DEFAULT
+    amount = current_price if current_price >= 0 else AMOUNT_DEFAULT
 
-    customer_id = reg.get("customer_id")
-
-    # find the customer's balance doc (prefer ObjectId)
-    bal = None
-    if isinstance(customer_id, ObjectId):
-        bal = balances_col.find_one({"user_id": customer_id})
-    if not bal and customer_id:
-        # fallback if stored as string
-        bal = balances_col.find_one({"user_id": customer_id})
-
+    bal = _find_balance_doc(reg.get("customer_id"))
     if not bal:
         return jsonify(success=False, error="Customer balance not found"), 404
 
@@ -391,17 +442,90 @@ def admin_afa_charge(reg_id):
         {
             "$set": {
                 "charged": True,
-                "charged_amount": amount,
+                "charged_amount": float(amount),
                 "charged_at": _now(),
                 "charged_by": actor_name,
                 "charge_log_id": log_res.inserted_id,
-                "amount": amount,  # normalize to settings price for UI/reporting consistency
+                "amount": float(amount),  # normalize to settings price for UI/reporting
                 "updated_at": _now(),
             }
         },
     )
 
     return jsonify(success=True, message="Customer charged successfully.")
+
+# ------------- CANCEL (sets status=canceled AND refunds if applicable) -------------
+
+@admin_afa_bp.route("/admin/api/afa/<reg_id>/cancel", methods=["POST"])
+def admin_afa_cancel(reg_id):
+    if not _require_admin():
+        return jsonify(success=False, error="Unauthorized"), 401
+
+    oid = _to_objectid(reg_id)
+    if not oid:
+        return jsonify(success=False, error="Invalid id"), 400
+
+    reg = afa_col.find_one({"_id": oid})
+    if not reg:
+        return jsonify(success=False, error="Registration not found"), 404
+
+    actor_id, actor_name = _get_actor()
+
+    # Always set status -> canceled
+    afa_col.update_one({"_id": oid}, {"$set": {"status": "canceled", "updated_at": _now()}})
+
+    # If charged and not refunded, auto-refund the charged_amount; else no-op
+    charged_amount = float(reg.get("charged_amount", 0.0)) if reg.get("charged") else 0.0
+    if reg.get("charged") and charged_amount > 0:
+        ok, msg, already = _refund_registration(reg, charged_amount, actor_id, actor_name)
+        if not ok and not already:
+            return jsonify(success=False, error=msg), 400
+
+    return jsonify(success=True, message="Registration canceled" + (" and refunded." if charged_amount > 0 else "."))
+
+# ------------- REFUND (manual button) -------------
+
+@admin_afa_bp.route("/admin/api/afa/<reg_id>/refund", methods=["POST"])
+def admin_afa_refund(reg_id):
+    """
+    Manual refund action (button).
+    - If already refunded: returns success, notes already refunded.
+    - If charged: refunds charged_amount.
+    - If not charged: refunds the current settings price (in case you want to compensate).
+      You can change this behavior to block refund when not charged; for now we allow.
+    Also sets status='refunded' for clarity.
+    """
+    if not _require_admin():
+        return jsonify(success=False, error="Unauthorized"), 401
+
+    oid = _to_objectid(reg_id)
+    if not oid:
+        return jsonify(success=False, error="Invalid id"), 400
+
+    reg = afa_col.find_one({"_id": oid})
+    if not reg:
+        return jsonify(success=False, error="Registration not found"), 404
+
+    actor_id, actor_name = _get_actor()
+
+    if reg.get("refunded"):
+        # ensure status reflects refunded
+        afa_col.update_one({"_id": oid}, {"$set": {"status": "refunded", "updated_at": _now()}})
+        return jsonify(success=True, message="Already refunded."), 200
+
+    if reg.get("charged") and float(reg.get("charged_amount", 0.0)) > 0:
+        amt = float(reg.get("charged_amount", 0.0))
+    else:
+        # Decide policy for uncharged refunds; using settings price here
+        amt = _settings_price()
+
+    ok, msg, already = _refund_registration(reg, amt, actor_id, actor_name)
+    if not ok and not already:
+        return jsonify(success=False, error=msg), 400
+
+    # Mark status 'refunded' (distinct from 'canceled')
+    afa_col.update_one({"_id": oid}, {"$set": {"status": "refunded", "updated_at": _now()}})
+    return jsonify(success=True, message="Refund processed.")
 
 # ---- AFA stats for dashboard ----
 
@@ -422,9 +546,11 @@ def admin_afa_stats():
         delivered = afa_col.count_documents({"status": "delivered"})
         completed = afa_col.count_documents({"status": "completed"})
         failed = afa_col.count_documents({"status": {"$in": ["failed", "rejected"]}})
+        canceled = afa_col.count_documents({"status": "canceled"})
+        refunded = afa_col.count_documents({"status": "refunded"})
         uncharged = afa_col.count_documents({"$or": [{"charged": {"$exists": False}}, {"charged": False}]})
     except Exception:
-        total = today_cnt = pending = processing = delivered = completed = failed = uncharged = 0
+        total = today_cnt = pending = processing = delivered = completed = failed = canceled = refunded = uncharged = 0
 
     return jsonify(
         success=True,
@@ -436,7 +562,9 @@ def admin_afa_stats():
             "delivered": delivered,
             "completed": completed,
             "failed": failed,
-            "rejected": failed,  # mirror key for front-end convenience
+            "rejected": failed,   # mirror key for front-end convenience
+            "canceled": canceled,
+            "refunded": refunded,
             "uncharged": uncharged,
         },
     )
