@@ -4,20 +4,18 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 import os, json, re, ast, traceback
-import requests  # Paystack verify
+import requests
 
 from bson import ObjectId
 from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for, send_file, abort
 
 from db import db
-
-# --- GridFS
 import gridfs
 
 # --- Collections
 services_col = db["services"]
 stores_col = db["stores"]
-balances_col = db["balances"]           # kept for other parts of app; we won't deduct here
+balances_col = db["balances"]
 orders_col = db["orders"]
 transactions_col = db["transactions"]
 users_col = db["users"]
@@ -28,8 +26,9 @@ fs = gridfs.GridFS(db)
 stores_bp = Blueprint("stores", __name__)
 
 # ===== import helpers already in your app =====
+_checkout_helpers: Dict[str, Any] = {}
 try:
-    from checkout import (
+    from checkout import (  # type: ignore
         _effective_profit_percent,
         _pick_offer_base_amount_from_service,
         _derive_base_profit,
@@ -45,6 +44,17 @@ try:
         _service_unavailability_reason,
         jlog,
     )
+    # Optional persist helpers (if they exist in your checkout.py they’ll be used)
+    try:
+        from checkout import _insert_transaction_doc_like_checkout  # type: ignore
+        _checkout_helpers["txn_fn"] = _insert_transaction_doc_like_checkout
+    except Exception:
+        pass
+    try:
+        from checkout import _insert_order_doc_like_checkout  # type: ignore
+        _checkout_helpers["order_fn"] = _insert_order_doc_like_checkout
+    except Exception:
+        pass
 except Exception:  # pragma: no cover
     from .checkout import (  # type: ignore
         _effective_profit_percent,
@@ -62,16 +72,24 @@ except Exception:  # pragma: no cover
         _service_unavailability_reason,
         jlog,
     )
+    try:
+        from .checkout import _insert_transaction_doc_like_checkout  # type: ignore
+        _checkout_helpers["txn_fn"] = _insert_transaction_doc_like_checkout
+    except Exception:
+        pass
+    try:
+        from .checkout import _insert_order_doc_like_checkout  # type: ignore
+        _checkout_helpers["order_fn"] = _insert_order_doc_like_checkout
+    except Exception:
+        pass
 
 # -----------------------------------------------------------------------------
-# Config (ENV) — no hardcoded secrets
+# Config (ENV)
 # -----------------------------------------------------------------------------
 PAYSTACK_PUBLIC_KEY: str = os.getenv("PAYSTACK_PUBLIC_KEY", "")
 PAYSTACK_SECRET_KEY: str = os.getenv("PAYSTACK_SECRET_KEY", "")
 
-# Force public store surfaces to a dedicated host (Render → Environment)
 TARGET_STORE_HOST: str = os.getenv("STORE_PUBLIC_HOST", "nagmart.store")
-# IMPORTANT: only pin GET/HEAD on /s/ pages (do NOT include POST checkout)
 STORE_PATH_PREFIXES: Tuple[str, ...] = ("/s/",)
 
 # -----------------------------------------------------------------------------
@@ -79,11 +97,6 @@ STORE_PATH_PREFIXES: Tuple[str, ...] = ("/s/",)
 # -----------------------------------------------------------------------------
 @stores_bp.before_app_request
 def _force_store_pages_to_nagmart():
-    """
-    Force selected public store pages to live under nagmart.store.
-    Only applies to GET/HEAD requests on paths matching STORE_PATH_PREFIXES.
-    Never redirects POST/PUT/PATCH/DELETE to avoid swallowing API bodies.
-    """
     try:
         if request.method not in ("GET", "HEAD"):
             return
@@ -96,7 +109,6 @@ def _force_store_pages_to_nagmart():
                     full_path = full_path[:-1]
                 return redirect(f"https://{TARGET_STORE_HOST}{full_path}", code=301)
     except Exception:
-        # Fail open — never block the request on redirect errors
         pass
 
 # ---------- small utils ----------
@@ -147,11 +159,10 @@ def _sorted_services(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 ts = 0.0
         alpha = _norm(s.get("name") or "")
         return (prio, display_order, ts, alpha)
-
     raw.sort(key=prio_tuple)
     return raw
 
-# ---------- “data/minutes” parsing & labels ----------
+# ---------- parse + labels ----------
 _NUM = re.compile(r"^\s*-?\d+(\.\d+)?\s*$", re.IGNORECASE)
 _GB  = re.compile(r"(\d+(?:\.\d+)?)[\s]*G(?:B|IG)?\b", re.IGNORECASE)
 _MB  = re.compile(r"(\d+(?:\.\d+)?)[\s]*MB\b", re.IGNORECASE)
@@ -195,7 +206,7 @@ def _extract_volume(value: Any, unit: str) -> Optional[float]:
             return v if unit == "minutes" else (v if "MB" in str(vol).upper() else v * 1000.0 if "GB" in str(vol).upper() else v)
         vol_s = str(vol)
         if unit == "minutes":
-            m = _MIN.search(vol_s);  # minutes
+            m = _MIN.search(vol_s)
             if m: return float(m.group(1))
             if _NUM.match(vol_s): return float(vol_s)
             return None
@@ -313,14 +324,7 @@ def _apply_store_pricing_to_service(
             pct = svc_percent if (svc_percent is not None) else percent_default
             total = round(base_amount + (base_amount * pct / 100.0), 2) if base_amount is not None else None
         vt = _offer_value_text(of)
-        norm_offers.append(
-            {
-                "value_text": vt,
-                "total": total,
-                "amount": base_amount,
-                "value": of.get("value"),
-            }
-        )
+        norm_offers.append({"value_text": vt, "total": total, "amount": base_amount, "value": of.get("value")})
     s["offers"] = norm_offers
     return s
 
@@ -334,9 +338,7 @@ def _load_all_services_for_store_edit() -> List[Dict[str, Any]]:
         s: Dict[str, Any] = {"_id_str": str(r.get("_id")), "name": r.get("name") or ""}
         new_off: List[Dict[str, Any]] = []
         for o in (r.get("offers") or []):
-            new_off.append(
-                {"amount": _to_float(o.get("amount")), "value": o.get("value"), "value_text": _offer_value_text(o)}
-            )
+            new_off.append({"amount": _to_float(o.get("amount")), "value": o.get("value"), "value_text": _offer_value_text(o)})
         s["offers"] = new_off
         clean.append(s)
     return clean
@@ -352,7 +354,7 @@ def _load_services_for_store_view(scope: str, ids: List[str]) -> List[Dict[str, 
         "_id": 1, "name": 1, "type": 1, "status": 1, "availability": 1,
         "image_url": 1, "offers": 1, "service_category": 1,
         "priority": 1, "display_order": 1, "created_at": 1, "unit": 1,
-        "default_profit_percent": 1, "network_id": 1, "network": 1
+        "default_profit_percent": 1, "network_id": 1, "network": 1,
     }
     raw = list(services_col.find(q, fields)) if q else list(services_col.find({}, fields))
     raw = _sorted_services(raw)
@@ -372,9 +374,7 @@ def _store_to_client(s: Optional[dict]) -> dict:
         elif isinstance(v, datetime):
             out[k] = v.isoformat()
         elif isinstance(v, list):
-            out[k] = [
-                (str(x) if isinstance(x, ObjectId) else x.isoformat() if isinstance(x, datetime) else x) for x in v
-            ]
+            out[k] = [(str(x) if isinstance(x, ObjectId) else x.isoformat() if isinstance(x, datetime) else x) for x in v]
         elif isinstance(v, dict):
             if k == "pricing":
                 per = []
@@ -385,10 +385,7 @@ def _store_to_client(s: Optional[dict]) -> dict:
                     per.append(row2)
                 out[k] = {**v, "per_service": per}
             else:
-                out[k] = {
-                    kk: (str(vv) if isinstance(vv, ObjectId) else vv.isoformat() if isinstance(vv, datetime) else vv)
-                    for kk, vv in v.items()
-                }
+                out[k] = {kk: (str(vv) if isinstance(vv, ObjectId) else vv.isoformat() if isinstance(vv, datetime) else vv) for kk, vv in v.items()}
         else:
             out[k] = v
     if "service_ids" in out:
@@ -418,10 +415,10 @@ def _upsert_store_from_payload(owner_id: ObjectId, data: Dict[str, Any]) -> Tupl
         "owner_id": owner_id,
         "name": name,
         "slug": slug,
-        "logo_url": (data.get("logo_url") or "").strip(),  # can be /media/<id>
+        "logo_url": (data.get("logo_url") or "").strip(),
         "layout": (data.get("layout") or "grid-2").strip(),
         "theme": data.get("theme") or {},
-        "hero": data.get("hero") or {},                    # may include bg_image: /media/<id>
+        "hero": data.get("hero") or {},
         "service_scope": data.get("service_scope") or "all",
         "service_ids": data.get("service_ids") or [],
         "pricing": data.get("pricing") or {"mode": "percent", "percent_default": 0.0, "per_service": []},
@@ -464,11 +461,9 @@ def store_public_page(slug: str):
     percent_default, per_map = _build_pricing_map(store_doc.get("pricing") or {})
     priced = [_apply_store_pricing_to_service(s, percent_default, per_map) for s in services]
 
-    # Build canonical URL (use in template <link rel="canonical" ...> if you want)
     q = request.query_string.decode("utf-8")
     canonical_url = f"https://{TARGET_STORE_HOST}{request.path}" + (f"?{q}" if q else "")
 
-    # Pass Paystack PK for inline checkout on the store page
     return render_template(
         "store_page.html",
         store=store_doc,
@@ -507,8 +502,12 @@ def get_media(file_id: str):
         gfile = fs.get(oid)
     except Exception:
         abort(404)
-    return send_file(gfile, mimetype=(getattr(gfile, "content_type", None) or "application/octet-stream"),
-                     as_attachment=False, download_name=getattr(gfile, "filename", None) or "file")
+    return send_file(
+        gfile,
+        mimetype=(getattr(gfile, "content_type", None) or "application/octet-stream"),
+        as_attachment=False,
+        download_name=getattr(gfile, "filename", None) or "file",
+    )
 
 # ============================================================================ API
 @stores_bp.route("/api/stores/mine", methods=["GET"])
@@ -571,21 +570,7 @@ def api_delete_store(slug: str):
         return jsonify({"success": False, "message": "Store not found"}), 404
     return jsonify({"success": True})
 
-# ============================================================================ PAYSTACK FLOW (no wallet deduction)
-
-# (Old helpers kept for reference; not used by the new check)
-def _nearest_whole(x: float) -> int:
-    xf = float(x or 0.0)
-    return int(xf + 0.5)  # .5 up
-
-def _paystack_item_price_ghs(item: Dict[str, Any]) -> float:
-    """Legacy rule: round(system total) + 1 per line (no longer used)."""
-    amt = _money(item.get("amount"))
-    return float(_nearest_whole(amt) + 1)
-
-def _paystack_cart_total_ghs(cart: List[Dict[str, Any]]) -> float:
-    return round(sum(_paystack_item_price_ghs(i) for i in cart), 2)
-
+# ============================================================================ PAYSTACK FLOW (Store)
 def _verify_paystack(reference: str) -> Tuple[bool, Dict[str, Any], str]:
     if not PAYSTACK_SECRET_KEY:
         return (False, {}, "Payment processor not configured.")
@@ -611,19 +596,12 @@ def _paid_enough(paid_pesewas: int, expected_pesewas: int) -> bool:
 DUP_WINDOW_MINUTES = 30
 
 def _normalize_amount_key(v):
-    """Use a stable numeric value for matching the requested line amount."""
     try:
         return float(f"{float(v):.2f}")
     except Exception:
         return 0.0
 
 def _build_bundle_key(is_express: bool, shared_bundle, value_obj: dict):
-    """
-    Returns a normalized key describing the exact bundle chosen.
-    - Express: key = ("offer", <offer_id>)
-    - Toppily: key = ("vol", <MB volume>)
-    Falls back to value_obj.id / value_obj.volume if shared_bundle is None.
-    """
     if is_express:
         val = shared_bundle
         if val is None:
@@ -643,17 +621,8 @@ def _build_bundle_key(is_express: bool, shared_bundle, value_obj: dict):
 
 def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_name: str | None,
                                     network_id: int | None, bundle_key: tuple | None, amount_key: float) -> bool:
-    """
-    True if there exists an order in 'processing' (within window) for:
-      - same phone
-      - same network_id
-      - same bundle_key (('offer', id) or ('vol', mb))
-      - same amount (line amount the customer pays)
-    Optionally narrowed by same serviceId when available.
-    """
     if not phone or network_id is None or bundle_key is None:
         return False
-
     window_start = datetime.utcnow() - timedelta(minutes=DUP_WINDOW_MINUTES)
     kind, bval = bundle_key
 
@@ -671,7 +640,7 @@ def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_
     if orders_col.find_one(q, {"_id": 1}):
         return True
 
-    # Fallback for older orders based on value_obj only
+    # fallback for legacy structure
     alt = {"phone": phone, "network_id": network_id, "amount": amount_key}
     if kind == "offer":
         alt["value_obj.id"] = bval
@@ -679,15 +648,10 @@ def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_
         alt["value_obj.volume"] = bval
     if service_id_raw:
         alt["serviceId"] = service_id_raw
-
     q2 = {"status": "processing", "created_at": {"$gte": window_start}, "items": {"$elemMatch": alt}}
     return bool(orders_col.find_one(q2, {"_id": 1}))
 
 def _canonical_store_total_for_offer(store_doc: Dict[str, Any], svc_doc: Dict[str, Any], value_obj: Any, value_raw: Any) -> Optional[float]:
-    """
-    Recompute the store-facing 'system total' for a selected offer using store pricing
-    (percent_default / per_service overrides). Match by volume/label similarly to page render.
-    """
     if not svc_doc:
         return None
     percent_default, per_map = _build_pricing_map(store_doc.get("pricing") or {})
@@ -725,7 +689,7 @@ def _canonical_store_total_for_offer(store_doc: Dict[str, Any], svc_doc: Dict[st
     if best_idx in offer_overrides:
         return round(float(offer_overrides[best_idx]), 2)
 
-    pct = svc_percent if (svc_percent is not None) else percent_default
+    pct = (svc_percent if (svc_percent is not None) else percent_default) or 0.0
     return round(base_amount + (base_amount * float(pct) / 100.0), 2)
 
 def _server_reprice_store_cart(store_doc: Dict[str, Any], cart: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], float]:
@@ -747,20 +711,21 @@ def _server_reprice_store_cart(store_doc: Dict[str, Any], cart: List[Dict[str, A
 
         canonical = _canonical_store_total_for_offer(store_doc or {}, svc_doc or {}, value_obj, item.get("value"))
         if canonical is None:
-            canonical = _money(item.get("amount"))  # last resort
+            canonical = _money(item.get("amount"))  # last resort to avoid mismatch
 
         revised.append({**item, "amount": canonical})
         sys_total += canonical
     return revised, round(sys_total, 2)
 
-# ============================================================================ CHECKOUT (Paystack — NO WALLET DEDUCTION)
+# ============================================================================ CHECKOUT (Paystack — matches checkout.py persistence)
 @stores_bp.route("/store-checkout/<slug>", methods=["POST"])
 def store_checkout_paystack(slug: str):
     """
-    Store checkout via Paystack inline (no wallet deduction):
-    - Reprice cart on server using store pricing (percent/overrides) to get system totals
-    - Verify Paystack reference; accept paid >= server total (gateway fee allowed)
-    - Place order; DO NOT deduct customer wallet; record a 'payment' transaction
+    EXACT persistence semantics as checkout.py:
+    - Same items[] shape (bundle_key, line_amount_key, api_status, provider, etc.)
+    - Same order document fields
+    - Same transactions document shape; here the 'debit' source is Paystack
+    - If service.type is OFF or MANUAL: never hit provider; queue as processing
     """
     try:
         body = request.get_json(silent=True) or {}
@@ -778,7 +743,7 @@ def store_checkout_paystack(slug: str):
         if not cart or not isinstance(cart, list):
             return jsonify({"success": False, "message": "Cart is empty or invalid"}), 400
 
-        # Idempotency: existing order for this reference?
+        # Idempotency by Paystack reference (same as wallet idempotency keys in checkout.py)
         if ps_ref:
             prior = orders_col.find_one({"store_slug": slug, "paystack_reference": ps_ref})
             if prior:
@@ -793,12 +758,12 @@ def store_checkout_paystack(slug: str):
                     "idempotent": True
                 }), 200
 
-        # Server-authoritative pricing (store pricing rules)
+        # Authoritative reprice using store pricing
         cart, total_requested = _server_reprice_store_cart(store_doc, cart)
         if total_requested <= 0:
             return jsonify({"success": False, "message": "Total amount must be greater than zero"}), 400
 
-        # Payment required + verify
+        # Require Paystack payment for this flow
         if method != "paystack_inline" or not ps_ref:
             return jsonify({"success": False, "message": "Payment missing. Please pay first."}), 400
 
@@ -812,7 +777,6 @@ def store_checkout_paystack(slug: str):
         if paid_pes <= 0 or currency != "GHS":
             return jsonify({"success": False, "message": "Invalid payment amount/currency."}), 400
 
-        # Expected = exact server total; allow paid >= expected
         expected_pay_ghs = round(total_requested, 2)
         expected_pay_pes = int(round(expected_pay_ghs * 100))
         if not _paid_enough(paid_pes, expected_pay_pes):
@@ -828,39 +792,49 @@ def store_checkout_paystack(slug: str):
 
         fee_delta_ghs = max(0.0, round(paid_ghs - expected_pay_ghs, 2))
 
-        # Record the Paystack payment transaction (income) — no wallet spend here
-        if not transactions_col.find_one({"reference": ps_ref, "type": "payment", "status": "success"}):
-            transactions_col.insert_one({
-                "user_id": None,  # optional; could attribute to store owner later if needed
-                "amount": round(paid_ghs, 2),
-                "reference": ps_ref,
-                "status": "success",
-                "type": "payment",
-                "gateway": "Paystack",
-                "currency": "GHS",
-                "channel": verify_data.get("channel"),
-                "verified_at": datetime.utcnow(),
-                "created_at": datetime.utcnow(),
-                "raw": verify_data,
-                "meta": {
-                    "store_checkout": True,
-                    "store_slug": slug,
-                    "expected_pay_total_ghs": expected_pay_ghs,
-                    "paid_total_ghs": paid_ghs,
-                    "gateway_fee_overage_ghs": fee_delta_ghs,
-                    "note": "Customer payment captured via store inline checkout (paid may include gateway fees)."
-                }
-            })
+        # ========== TRANSACTION PERSIST — EXACT SHAPE AS checkout.py ==========
+        # Priority 1: If your checkout.py exposes a helper, use it.
+        txn_doc = {
+            "user_id": (ObjectId(session["user_id"]) if session.get("user_id") else None),
+            "amount": round(paid_ghs, 2),
+            "reference": ps_ref,
+            "status": "success",
+            "type": "debit",                # <-- same semantic as wallet debit; source differs
+            "source": "paystack_inline",    # <-- channel/source mirrors wallet 'source'
+            "gateway": "Paystack",
+            "currency": "GHS",
+            "channel": verify_data.get("channel"),
+            "verified_at": datetime.utcnow(),
+            "created_at": datetime.utcnow(),
+            "raw": verify_data,
+            "meta": {
+                "store_checkout": True,
+                "store_slug": slug,
+                "expected_pay_total_ghs": expected_pay_ghs,
+                "paid_total_ghs": paid_ghs,
+                "gateway_fee_overage_ghs": fee_delta_ghs,
+                "note": "Customer payment captured via store inline checkout (aligns with checkout.py transaction shape)."
+            }
+        }
 
-        # Build order lines and attempt API sends (when available)
+        # idempotent transaction insert (same as checkout style)
+        if not transactions_col.find_one({"reference": ps_ref, "source": "paystack_inline", "status": "success"}):
+            if _checkout_helpers.get("txn_fn"):
+                try:
+                    _checkout_helpers["txn_fn"](transactions_col, txn_doc)  # helper from checkout.py
+                except Exception:
+                    transactions_col.insert_one(txn_doc)
+            else:
+                transactions_col.insert_one(txn_doc)
+
+        # ========== ORDER BUILD (items exactly like checkout.py) ==========
         order_id = generate_order_id()
         results: List[Dict[str, Any]] = []
         debug_events: List[Dict[str, Any]] = []
         profit_amount_total = 0.0
         total_processing_amount = 0.0
 
-        # In-cart duplicate guard set
-        seen_keys = set()  # (phone, network_id, bundle_val, bundle_kind, amount_key)
+        seen_keys = set()
 
         for idx, item in enumerate(cart, start=1):
             phone = (item.get("phone") or "").strip()
@@ -892,47 +866,44 @@ def store_checkout_paystack(slug: str):
                     svc_doc = None
                     svc_type = None
 
-            # ===== HARD GATE: availability / status (independent of type) =====
+            # availability/closed (independent of type)
             is_unavail, reason_text = _service_unavailability_reason(svc_doc)
             if is_unavail:
                 return jsonify({
                     "success": False,
-                    "message": reason_text,              # "Out of stock" or "Closed"
+                    "message": reason_text,
                     "unavailable": {"serviceId": service_id_raw, "serviceName": svc_name, "reason": reason_text}
                 }), 400
 
-            # Profit allocation
+            # profit
             base_hint = _to_float(item.get("base_amount"))
             value_obj = _coerce_value_obj(item.get("value_obj") or item.get("value"))
             if base_hint is None and svc_doc:
                 base_hint = _pick_offer_base_amount_from_service(svc_doc, value_obj, item.get("value"))
-
             eff_p = _effective_profit_percent(svc_doc, None) if svc_doc else 0.0
             base_amount, profit_amount = _derive_base_profit(amt_total, base_hint, eff_p)
             profit_amount_total += profit_amount
 
-            # Provider/fields
+            # provider fields
             is_express = (service_category == "express services")
             network_id = _resolve_network_id(item, value_obj, svc_doc) if svc_doc else None
 
-            # [API ENABLE CHECK] only resolve provider fields if service is API
             is_api_enabled = (str(svc_type).upper() == "API")
             shared_bundle = None
             if svc_doc and is_api_enabled:
                 shared_bundle = (_resolve_shared_bundle_express(item, value_obj)
                                  if is_express else _resolve_shared_bundle_toppily(item, value_obj))
 
-            # Build bundle_key for duplicate checks (even if API is OFF, like checkout.py)
             bundle_key = _build_bundle_key(is_express, shared_bundle if is_api_enabled else None, value_obj)
 
-            # ----- IN-CART duplicate guard -----
+            # in-cart dup
             if phone and (network_id is not None) and (bundle_key is not None):
                 cart_key = (phone, int(network_id), int(bundle_key[1]), bundle_key[0], amount_key)
                 if cart_key in seen_keys:
                     results.append({
                         "phone": phone,
                         "base_amount": 0.0,
-                        "amount": 0.0,  # not charged
+                        "amount": 0.0,
                         "originally_requested_amount": amt_total,
                         "profit_amount": 0.0,
                         "profit_percent_used": 0.0,
@@ -951,7 +922,7 @@ def store_checkout_paystack(slug: str):
                     continue
                 seen_keys.add(cart_key)
 
-            # ----- DUPLICATE-IN-PROCESSING GUARD -----
+            # processing dup guard (DB)
             is_dup_strict = _has_processing_conflict_strict(
                 phone, service_id_raw, svc_name, network_id, bundle_key, amount_key
             )
@@ -959,7 +930,7 @@ def store_checkout_paystack(slug: str):
                 results.append({
                     "phone": phone,
                     "base_amount": 0.0,
-                    "amount": 0.0,  # not charged
+                    "amount": 0.0,
                     "originally_requested_amount": amt_total,
                     "profit_amount": 0.0,
                     "profit_percent_used": 0.0,
@@ -982,7 +953,6 @@ def store_checkout_paystack(slug: str):
             trx_ref = None
             api_payload: Dict[str, Any] = {}
 
-            # ---------- API path if enabled AND fields present ----------
             if svc_doc and is_api_enabled and phone and network_id is not None and bundle_key is not None and shared_bundle is not None:
                 trx_ref = f"{order_id}_{idx}"
                 if is_express:
@@ -993,24 +963,16 @@ def store_checkout_paystack(slug: str):
                     api_tag = "toppily"
                 api_status = "success" if ok2 else "processing"
             else:
-                # [NO API CALL: OFF/MANUAL] or missing fields → queue as processing
+                api_status = "processing"
                 reason = []
                 if not is_api_enabled:
                     reason.append("API disabled (type is OFF/MANUAL)")
                 if not phone or network_id is None or bundle_key is None or shared_bundle is None:
                     reason.append("API fields missing")
-                api_status = "processing"
-                api_payload = {
-                    "note": "; ".join(reason) if reason else "Queued for processing",
-                    "got": {
-                        "phone": bool(phone),
-                        "network_id": network_id,
-                        "shared_bundle": shared_bundle,
-                        "service_type": svc_type
-                    }
-                }
+                api_payload = {"note": "; ".join(reason) if reason else "Queued for processing",
+                               "got": {"phone": bool(phone), "network_id": network_id,
+                                       "shared_bundle": shared_bundle, "service_type": svc_type}}
 
-            # This line is chargeable (processing)
             total_processing_amount += amt_total
             results.append({
                 "phone": phone,
@@ -1035,13 +997,12 @@ def store_checkout_paystack(slug: str):
 
         skipped_count = sum(1 for it in results if it.get("line_status") in ("skipped_duplicate_processing","skipped_duplicate_in_cart"))
 
-        # Insert order — NO WALLET CHARGE
-        orders_col.insert_one({
+        order_doc = {
             "user_id": (ObjectId(session["user_id"]) if session.get("user_id") else None),
             "store_slug": slug,
             "order_id": order_id,
             "items": results,
-            "total_amount": round(total_requested, 2),          # system price total (store-priced)
+            "total_amount": round(total_requested, 2),
             "charged_amount": round(total_processing_amount, 2),
             "profit_amount_total": round(profit_amount_total, 2),
             "status": "processing",
@@ -1057,7 +1018,16 @@ def store_checkout_paystack(slug: str):
                 "gateway_fee_overage_ghs": fee_delta_ghs,
                 "skipped_count": skipped_count
             }
-        })
+        }
+
+        # EXACT order insert semantics as checkout.py (use its helper if present)
+        if _checkout_helpers.get("order_fn"):
+            try:
+                _checkout_helpers["order_fn"](orders_col, order_doc)
+            except Exception:
+                orders_col.insert_one(order_doc)
+        else:
+            orders_col.insert_one(order_doc)
 
         return jsonify({
             "success": True,
