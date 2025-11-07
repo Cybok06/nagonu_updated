@@ -892,20 +892,12 @@ def store_checkout_paystack(slug: str):
                     svc_doc = None
                     svc_type = None
 
-            # Allow OFF/MANUAL to pass availability if OPEN/AVAILABLE (queue as processing if not API)
-            svc_check = dict(svc_doc) if svc_doc else None
-            if svc_check:
-                t = (svc_check.get("type") or "").upper()
-                status = (svc_check.get("status") or "OPEN").upper()
-                avail = (svc_check.get("availability") or "AVAILABLE").upper()
-                if t in {"OFF", "MANUAL"} and status == "OPEN" and avail == "AVAILABLE":
-                    svc_check["type"] = "API"
-
-            is_unavail, reason_text = _service_unavailability_reason(svc_check)
+            # ===== HARD GATE: availability / status (independent of type) =====
+            is_unavail, reason_text = _service_unavailability_reason(svc_doc)
             if is_unavail:
                 return jsonify({
                     "success": False,
-                    "message": reason_text,
+                    "message": reason_text,              # "Out of stock" or "Closed"
                     "unavailable": {"serviceId": service_id_raw, "serviceName": svc_name, "reason": reason_text}
                 }), 400
 
@@ -922,10 +914,16 @@ def store_checkout_paystack(slug: str):
             # Provider/fields
             is_express = (service_category == "express services")
             network_id = _resolve_network_id(item, value_obj, svc_doc) if svc_doc else None
+
+            # [API ENABLE CHECK] only resolve provider fields if service is API
+            is_api_enabled = (str(svc_type).upper() == "API")
             shared_bundle = None
-            if svc_doc:
-                shared_bundle = _resolve_shared_bundle_express(item, value_obj) if is_express else _resolve_shared_bundle_toppily(item, value_obj)
-            bundle_key = _build_bundle_key(is_express, shared_bundle, value_obj)  # ("offer", id) or ("vol", mb)
+            if svc_doc and is_api_enabled:
+                shared_bundle = (_resolve_shared_bundle_express(item, value_obj)
+                                 if is_express else _resolve_shared_bundle_toppily(item, value_obj))
+
+            # Build bundle_key for duplicate checks (even if API is OFF, like checkout.py)
+            bundle_key = _build_bundle_key(is_express, shared_bundle if is_api_enabled else None, value_obj)
 
             # ----- IN-CART duplicate guard -----
             if phone and (network_id is not None) and (bundle_key is not None):
@@ -984,8 +982,8 @@ def store_checkout_paystack(slug: str):
             trx_ref = None
             api_payload: Dict[str, Any] = {}
 
-            # ---------- API path if possible ----------
-            if svc_doc and phone and network_id is not None and bundle_key is not None and shared_bundle is not None:
+            # ---------- API path if enabled AND fields present ----------
+            if svc_doc and is_api_enabled and phone and network_id is not None and bundle_key is not None and shared_bundle is not None:
                 trx_ref = f"{order_id}_{idx}"
                 if is_express:
                     ok2, api_payload = _send_express_single(phone, int(network_id), int(shared_bundle), trx_ref, order_id, debug_events)
@@ -995,10 +993,21 @@ def store_checkout_paystack(slug: str):
                     api_tag = "toppily"
                 api_status = "success" if ok2 else "processing"
             else:
+                # [NO API CALL: OFF/MANUAL] or missing fields → queue as processing
+                reason = []
+                if not is_api_enabled:
+                    reason.append("API disabled (type is OFF/MANUAL)")
+                if not phone or network_id is None or bundle_key is None or shared_bundle is None:
+                    reason.append("API fields missing")
                 api_status = "processing"
                 api_payload = {
-                    "note": "API fields missing; queued for processing",
-                    "got": {"phone": bool(phone), "network_id": network_id, "shared_bundle": shared_bundle}
+                    "note": "; ".join(reason) if reason else "Queued for processing",
+                    "got": {
+                        "phone": bool(phone),
+                        "network_id": network_id,
+                        "shared_bundle": shared_bundle,
+                        "service_type": svc_type
+                    }
                 }
 
             # This line is chargeable (processing)
