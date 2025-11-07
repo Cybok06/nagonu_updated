@@ -1,7 +1,7 @@
 # routes/stores.py
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 import os, json, re, ast, traceback
 import requests  # Paystack verify
@@ -71,8 +71,8 @@ PAYSTACK_SECRET_KEY: str = os.getenv("PAYSTACK_SECRET_KEY", "")
 
 # Force public store surfaces to a dedicated host (Render → Environment)
 TARGET_STORE_HOST: str = os.getenv("STORE_PUBLIC_HOST", "nagmart.store")
-# Add more prefixes here if you want them pinned to nagmart.store too (e.g., "/media/")
-STORE_PATH_PREFIXES: Tuple[str, ...] = ("/s/", "/store-checkout/")
+# IMPORTANT: only pin GET/HEAD on /s/ pages (do NOT include POST checkout)
+STORE_PATH_PREFIXES: Tuple[str, ...] = ("/s/",)
 
 # -----------------------------------------------------------------------------
 # Domain pinning for store pages (runs before requests hit handlers)
@@ -80,16 +80,18 @@ STORE_PATH_PREFIXES: Tuple[str, ...] = ("/s/", "/store-checkout/")
 @stores_bp.before_app_request
 def _force_store_pages_to_nagmart():
     """
-    Force selected public store routes to live under nagmart.store.
-    Only triggers for paths matching STORE_PATH_PREFIXES.
+    Force selected public store pages to live under nagmart.store.
+    Only applies to GET/HEAD requests on paths matching STORE_PATH_PREFIXES.
+    Never redirects POST/PUT/PATCH/DELETE to avoid swallowing API bodies.
     """
     try:
+        if request.method not in ("GET", "HEAD"):
+            return
         path = (request.path or "/")
         if any(path.startswith(p) for p in STORE_PATH_PREFIXES):
             req_host = (request.host or "").split(":")[0]
             if req_host and req_host.lower() != TARGET_STORE_HOST.lower():
-                # Preserve path + querystring; handle Flask '?' quirk when no query
-                full_path = request.full_path or path
+                full_path = (request.full_path or path)
                 if full_path.endswith("?"):
                     full_path = full_path[:-1]
                 return redirect(f"https://{TARGET_STORE_HOST}{full_path}", code=301)
@@ -193,7 +195,7 @@ def _extract_volume(value: Any, unit: str) -> Optional[float]:
             return v if unit == "minutes" else (v if "MB" in str(vol).upper() else v * 1000.0 if "GB" in str(vol).upper() else v)
         vol_s = str(vol)
         if unit == "minutes":
-            m = _MIN.search(vol_s)
+            m = _MIN.search(vol_s);  # minutes
             if m: return float(m.group(1))
             if _NUM.match(vol_s): return float(vol_s)
             return None
@@ -605,6 +607,82 @@ def _verify_paystack(reference: str) -> Tuple[bool, Dict[str, Any], str]:
 def _paid_enough(paid_pesewas: int, expected_pesewas: int) -> bool:
     return int(paid_pesewas or 0) >= int(expected_pesewas or 0)
 
+# ---------- duplicate/keys helpers (mirrors checkout.py) ----------
+DUP_WINDOW_MINUTES = 30
+
+def _normalize_amount_key(v):
+    """Use a stable numeric value for matching the requested line amount."""
+    try:
+        return float(f"{float(v):.2f}")
+    except Exception:
+        return 0.0
+
+def _build_bundle_key(is_express: bool, shared_bundle, value_obj: dict):
+    """
+    Returns a normalized key describing the exact bundle chosen.
+    - Express: key = ("offer", <offer_id>)
+    - Toppily: key = ("vol", <MB volume>)
+    Falls back to value_obj.id / value_obj.volume if shared_bundle is None.
+    """
+    if is_express:
+        val = shared_bundle
+        if val is None:
+            val = (value_obj or {}).get("id")
+        try:
+            return ("offer", int(val)) if val is not None else None
+        except Exception:
+            return None
+    else:
+        val = shared_bundle
+        if val is None:
+            val = (value_obj or {}).get("volume")
+        try:
+            return ("vol", int(val)) if val is not None else None
+        except Exception:
+            return None
+
+def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_name: str | None,
+                                    network_id: int | None, bundle_key: tuple | None, amount_key: float) -> bool:
+    """
+    True if there exists an order in 'processing' (within window) for:
+      - same phone
+      - same network_id
+      - same bundle_key (('offer', id) or ('vol', mb))
+      - same amount (line amount the customer pays)
+    Optionally narrowed by same serviceId when available.
+    """
+    if not phone or network_id is None or bundle_key is None:
+        return False
+
+    window_start = datetime.utcnow() - timedelta(minutes=DUP_WINDOW_MINUTES)
+    kind, bval = bundle_key
+
+    elem = {
+        "phone": phone,
+        "network_id": network_id,
+        "bundle_key.kind": kind,
+        "bundle_key.value": bval,
+        "amount": amount_key,
+    }
+    if service_id_raw:
+        elem["serviceId"] = service_id_raw
+
+    q = {"status": "processing", "created_at": {"$gte": window_start}, "items": {"$elemMatch": elem}}
+    if orders_col.find_one(q, {"_id": 1}):
+        return True
+
+    # Fallback for older orders based on value_obj only
+    alt = {"phone": phone, "network_id": network_id, "amount": amount_key}
+    if kind == "offer":
+        alt["value_obj.id"] = bval
+    else:
+        alt["value_obj.volume"] = bval
+    if service_id_raw:
+        alt["serviceId"] = service_id_raw
+
+    q2 = {"status": "processing", "created_at": {"$gte": window_start}, "items": {"$elemMatch": alt}}
+    return bool(orders_col.find_one(q2, {"_id": 1}))
+
 def _canonical_store_total_for_offer(store_doc: Dict[str, Any], svc_doc: Dict[str, Any], value_obj: Any, value_raw: Any) -> Optional[float]:
     """
     Recompute the store-facing 'system total' for a selected offer using store pricing
@@ -643,7 +721,6 @@ def _canonical_store_total_for_offer(store_doc: Dict[str, Any], svc_doc: Dict[st
     if base_amount is None:
         return None
 
-    # Apply per-offer override if present
     offer_overrides = per_entry.get("offers") or {}
     if best_idx in offer_overrides:
         return round(float(offer_overrides[best_idx]), 2)
@@ -735,10 +812,9 @@ def store_checkout_paystack(slug: str):
         if paid_pes <= 0 or currency != "GHS":
             return jsonify({"success": False, "message": "Invalid payment amount/currency."}), 400
 
-        # NEW: Expected = exact server total (no +1/line). We allow any paid >= expected (covers Paystack 2% + rounding)
+        # Expected = exact server total; allow paid >= expected
         expected_pay_ghs = round(total_requested, 2)
         expected_pay_pes = int(round(expected_pay_ghs * 100))
-
         if not _paid_enough(paid_pes, expected_pay_pes):
             jlog("store_public_checkout_amount_underpaid",
                  slug=slug, paid_pes=paid_pes, expected_pes=expected_pay_pes,
@@ -750,7 +826,6 @@ def store_checkout_paystack(slug: str):
                 "required": expected_pay_ghs
             }), 400
 
-        # Fee delta for logs/analytics (what user paid minus our system price)
         fee_delta_ghs = max(0.0, round(paid_ghs - expected_pay_ghs, 2))
 
         # Record the Paystack payment transaction (income) — no wallet spend here
@@ -784,9 +859,14 @@ def store_checkout_paystack(slug: str):
         profit_amount_total = 0.0
         total_processing_amount = 0.0
 
+        # In-cart duplicate guard set
+        seen_keys = set()  # (phone, network_id, bundle_val, bundle_kind, amount_key)
+
         for idx, item in enumerate(cart, start=1):
             phone = (item.get("phone") or "").strip()
             amt_total = _money(item.get("amount"))
+            amount_key = _normalize_amount_key(amt_total)
+
             service_id_raw = item.get("serviceId")
             svc_doc: Optional[Dict[str, Any]] = None
             svc_type: Optional[str] = None
@@ -839,27 +919,79 @@ def store_checkout_paystack(slug: str):
             base_amount, profit_amount = _derive_base_profit(amt_total, base_hint, eff_p)
             profit_amount_total += profit_amount
 
-            # API path if possible
+            # Provider/fields
             is_express = (service_category == "express services")
             network_id = _resolve_network_id(item, value_obj, svc_doc) if svc_doc else None
             shared_bundle = None
             if svc_doc:
                 shared_bundle = _resolve_shared_bundle_express(item, value_obj) if is_express else _resolve_shared_bundle_toppily(item, value_obj)
+            bundle_key = _build_bundle_key(is_express, shared_bundle, value_obj)  # ("offer", id) or ("vol", mb)
+
+            # ----- IN-CART duplicate guard -----
+            if phone and (network_id is not None) and (bundle_key is not None):
+                cart_key = (phone, int(network_id), int(bundle_key[1]), bundle_key[0], amount_key)
+                if cart_key in seen_keys:
+                    results.append({
+                        "phone": phone,
+                        "base_amount": 0.0,
+                        "amount": 0.0,  # not charged
+                        "originally_requested_amount": amt_total,
+                        "profit_amount": 0.0,
+                        "profit_percent_used": 0.0,
+                        "value": item.get("value"),
+                        "value_obj": value_obj,
+                        "serviceId": service_id_raw,
+                        "serviceName": svc_name,
+                        "service_type": (svc_type if svc_type else ("unknown" if not svc_doc else None)),
+                        "network_id": network_id,
+                        "bundle_key": {"kind": bundle_key[0], "value": bundle_key[1]},
+                        "line_amount_key": amount_key,
+                        "line_status": "skipped_duplicate_in_cart",
+                        "api_status": "skipped",
+                        "api_response": {"note": "Duplicate line in this cart (same number, network, bundle, amount)"}
+                    })
+                    continue
+                seen_keys.add(cart_key)
+
+            # ----- DUPLICATE-IN-PROCESSING GUARD -----
+            is_dup_strict = _has_processing_conflict_strict(
+                phone, service_id_raw, svc_name, network_id, bundle_key, amount_key
+            )
+            if is_dup_strict:
+                results.append({
+                    "phone": phone,
+                    "base_amount": 0.0,
+                    "amount": 0.0,  # not charged
+                    "originally_requested_amount": amt_total,
+                    "profit_amount": 0.0,
+                    "profit_percent_used": 0.0,
+                    "value": item.get("value"),
+                    "value_obj": value_obj,
+                    "serviceId": service_id_raw,
+                    "serviceName": svc_name,
+                    "service_type": (svc_type if svc_type else ("unknown" if not svc_doc else None)),
+                    "network_id": network_id,
+                    "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                    "line_amount_key": amount_key,
+                    "line_status": "skipped_duplicate_processing",
+                    "api_status": "skipped",
+                    "api_response": {"note": "Same number + same network + same bundle + same amount already processing; skipping."}
+                })
+                continue
 
             api_status = "not_applicable"
             api_tag = None
             trx_ref = None
             api_payload: Dict[str, Any] = {}
 
-            total_processing_amount += amt_total
-
-            if svc_doc and phone and network_id is not None and shared_bundle is not None:
+            # ---------- API path if possible ----------
+            if svc_doc and phone and network_id is not None and bundle_key is not None and shared_bundle is not None:
                 trx_ref = f"{order_id}_{idx}"
                 if is_express:
-                    ok2, api_payload = _send_express_single(phone, network_id, int(shared_bundle), trx_ref, order_id, debug_events)
+                    ok2, api_payload = _send_express_single(phone, int(network_id), int(shared_bundle), trx_ref, order_id, debug_events)
                     api_tag = "express"
                 else:
-                    ok2, api_payload = _send_toppily_shared_bundle(phone, network_id, int(shared_bundle), trx_ref, order_id, debug_events)
+                    ok2, api_payload = _send_toppily_shared_bundle(phone, int(network_id), int(shared_bundle), trx_ref, order_id, debug_events)
                     api_tag = "toppily"
                 api_status = "success" if ok2 else "processing"
             else:
@@ -869,6 +1001,8 @@ def store_checkout_paystack(slug: str):
                     "got": {"phone": bool(phone), "network_id": network_id, "shared_bundle": shared_bundle}
                 }
 
+            # This line is chargeable (processing)
+            total_processing_amount += amt_total
             results.append({
                 "phone": phone,
                 "amount": amt_total,
@@ -882,10 +1016,15 @@ def store_checkout_paystack(slug: str):
                 "service_type": svc_type,
                 "provider": api_tag,
                 "trx_ref": trx_ref,
+                "network_id": network_id,
+                "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                "line_amount_key": amount_key,
                 "line_status": "processing",
                 "api_status": api_status,
                 "api_response": api_payload
             })
+
+        skipped_count = sum(1 for it in results if it.get("line_status") in ("skipped_duplicate_processing","skipped_duplicate_in_cart"))
 
         # Insert order — NO WALLET CHARGE
         orders_col.insert_one({
@@ -906,7 +1045,8 @@ def store_checkout_paystack(slug: str):
                 "events": debug_events[-10:],
                 "paystack_paid_ghs": paid_ghs,
                 "paystack_expected_ghs": expected_pay_ghs,
-                "gateway_fee_overage_ghs": fee_delta_ghs
+                "gateway_fee_overage_ghs": fee_delta_ghs,
+                "skipped_count": skipped_count
             }
         })
 
@@ -917,6 +1057,7 @@ def store_checkout_paystack(slug: str):
             "status": "processing",
             "charged_amount": round(total_processing_amount, 2),
             "profit_amount_total": round(profit_amount_total, 2),
+            "skipped_count": skipped_count,
             "items": results,
             "paid_ghs": paid_ghs,
             "expected_ghs": expected_pay_ghs
