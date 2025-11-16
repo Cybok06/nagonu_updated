@@ -3,16 +3,26 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
-import os, json, re, ast, traceback
+import os, json, re, ast, traceback, base64
 import requests
 
 from bson import ObjectId
-from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for, send_file, abort
+from flask import (
+    Blueprint,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+    send_file,
+    abort,
+)
 
 from db import db
 import gridfs
 
-# --- Collections
+# --- Collections ---
 services_col = db["services"]
 stores_col = db["stores"]
 balances_col = db["balances"]
@@ -20,12 +30,12 @@ orders_col = db["orders"]
 transactions_col = db["transactions"]
 users_col = db["users"]
 
-# --- GridFS bucket
+# --- GridFS bucket ---
 fs = gridfs.GridFS(db)
 
 stores_bp = Blueprint("stores", __name__)
 
-# ===== import helpers already in your app =====
+# ===== import helpers already in your app (from checkout.py) =====
 _checkout_helpers: Dict[str, Any] = {}
 try:
     from checkout import (  # type: ignore
@@ -36,26 +46,24 @@ try:
         _to_float,
         _money,
         generate_order_id,
-        _resolve_network_id,
-        _resolve_shared_bundle_express,
-        _resolve_shared_bundle_toppily,
-        _send_express_single,
-        _send_toppily_shared_bundle,
         _service_unavailability_reason,
         jlog,
     )
     # Optional persist helpers (if they exist in your checkout.py they’ll be used)
     try:
         from checkout import _insert_transaction_doc_like_checkout  # type: ignore
+
         _checkout_helpers["txn_fn"] = _insert_transaction_doc_like_checkout
     except Exception:
         pass
     try:
         from checkout import _insert_order_doc_like_checkout  # type: ignore
+
         _checkout_helpers["order_fn"] = _insert_order_doc_like_checkout
     except Exception:
         pass
 except Exception:  # pragma: no cover
+    # fallback relative import if project is packaged differently
     from .checkout import (  # type: ignore
         _effective_profit_percent,
         _pick_offer_base_amount_from_service,
@@ -64,37 +72,49 @@ except Exception:  # pragma: no cover
         _to_float,
         _money,
         generate_order_id,
-        _resolve_network_id,
-        _resolve_shared_bundle_express,
-        _resolve_shared_bundle_toppily,
-        _send_express_single,
-        _send_toppily_shared_bundle,
         _service_unavailability_reason,
         jlog,
     )
     try:
         from .checkout import _insert_transaction_doc_like_checkout  # type: ignore
+
         _checkout_helpers["txn_fn"] = _insert_transaction_doc_like_checkout
     except Exception:
         pass
     try:
         from .checkout import _insert_order_doc_like_checkout  # type: ignore
+
         _checkout_helpers["order_fn"] = _insert_order_doc_like_checkout
     except Exception:
         pass
 
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # Config (ENV)
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 PAYSTACK_PUBLIC_KEY: str = os.getenv("PAYSTACK_PUBLIC_KEY", "")
 PAYSTACK_SECRET_KEY: str = os.getenv("PAYSTACK_SECRET_KEY", "")
 
 TARGET_STORE_HOST: str = os.getenv("STORE_PUBLIC_HOST", "nagmart.store")
 STORE_PATH_PREFIXES: Tuple[str, ...] = ("/s/",)
 
-# -----------------------------------------------------------------------------
+# --- Dataverse API config (NEW) ---
+DATAVERSE_BASE_URL = "https://dataversegh.pro/wp-json/custom/v1"
+DATAVERSE_PLACE_ORDER_URL = f"{DATAVERSE_BASE_URL}/place-order"
+
+# Use env in production; defaults here just for dev/test
+DATAVERSE_USERNAME = os.getenv("DATAVERSE_USERNAME", "Nyebro")
+DATAVERSE_PASSWORD = os.getenv("DATAVERSE_PASSWORD", "TazgH924s29FaF1UUOzxyzPT")
+
+# Optional network_id fallback (for DB structure + duplicate guards)
+NETWORK_ID_FALLBACK: Dict[str, int] = {
+    "MTN": 3,
+    "VODAFONE": 2,
+    "AIRTELTIGO": 1,
+}
+
+# ---------------------------------------------------------------------
 # Domain pinning for store pages (runs before requests hit handlers)
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 @stores_bp.before_app_request
 def _force_store_pages_to_nagmart():
     try:
@@ -109,16 +129,20 @@ def _force_store_pages_to_nagmart():
                     full_path = full_path[:-1]
                 return redirect(f"https://{TARGET_STORE_HOST}{full_path}", code=301)
     except Exception:
+        # never block request because of this
         pass
+
 
 # ---------- small utils ----------
 def _norm(s: str) -> str:
     return (s or "").strip().lower()
 
+
 def _slugify(s: str) -> str:
     s2 = (s or "").lower().strip()
     s2 = re.sub(r"[^a-z0-9]+", "-", s2).strip("-")
     return s2 or "store"
+
 
 def _service_state(svc: Dict[str, Any]) -> Dict[str, Any]:
     t = (svc.get("type") or "API").upper()
@@ -143,6 +167,7 @@ def _service_state(svc: Dict[str, Any]) -> Dict[str, Any]:
         "disabled_reason": disabled_reason,
     }
 
+
 def _sorted_services(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     def prio_tuple(s: Dict[str, Any]) -> Tuple[float, float, float, str]:
         prio = _to_float(s.get("priority")) or float("inf")
@@ -159,15 +184,18 @@ def _sorted_services(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 ts = 0.0
         alpha = _norm(s.get("name") or "")
         return (prio, display_order, ts, alpha)
+
     raw.sort(key=prio_tuple)
     return raw
 
+
 # ---------- parse + labels ----------
 _NUM = re.compile(r"^\s*-?\d+(\.\d+)?\s*$", re.IGNORECASE)
-_GB  = re.compile(r"(\d+(?:\.\d+)?)[\s]*G(?:B|IG)?\b", re.IGNORECASE)
-_MB  = re.compile(r"(\d+(?:\.\d+)?)[\s]*MB\b", re.IGNORECASE)
+_GB = re.compile(r"(\d+(?:\.\d+)?)[\s]*G(?:B|IG)?\b", re.IGNORECASE)
+_MB = re.compile(r"(\d+(?:\.\d+)?)[\s]*MB\b", re.IGNORECASE)
 _MIN = re.compile(r"(\d+(?:\.\d+)?)[\s]*(?:MIN|MINS|MINUTE|MINUTES)\b", re.IGNORECASE)
 _PKG_TAIL = re.compile(r"\s*\(Pkg\s*\d+\)\s*$", re.IGNORECASE)
+
 
 def _service_unit(svc: Dict[str, Any]) -> str:
     unit = (svc.get("unit") or "").strip().lower()
@@ -175,6 +203,7 @@ def _service_unit(svc: Dict[str, Any]) -> str:
     if unit in ("min", "mins", "minute", "minutes") or name == "afa talktime":
         return "minutes"
     return "data"
+
 
 def _parse_value_field(value: Any) -> Any:
     if isinstance(value, dict) or value is None:
@@ -196,50 +225,79 @@ def _parse_value_field(value: Any) -> Any:
         return vt
     return value
 
+
 def _extract_volume(value: Any, unit: str) -> Optional[float]:
+    """
+    For unit == 'data' -> return MB
+    For unit == 'minutes' -> return minutes
+    """
     if isinstance(value, dict):
         vol = value.get("volume") or value.get("offer") or value.get("gb")
         if vol is None:
             return None
         if isinstance(vol, (int, float)) or (_NUM.match(str(vol))):
             v = float(vol)
-            return v if unit == "minutes" else (v if "MB" in str(vol).upper() else v * 1000.0 if "GB" in str(vol).upper() else v)
+            if unit == "minutes":
+                return v
+            # for 'data'
+            vol_s = str(vol).upper()
+            if "GB" in vol_s:
+                return v * 1000.0
+            if "MB" in vol_s:
+                return v
+            return v  # assume MB
         vol_s = str(vol)
         if unit == "minutes":
             m = _MIN.search(vol_s)
-            if m: return float(m.group(1))
-            if _NUM.match(vol_s): return float(vol_s)
+            if m:
+                return float(m.group(1))
+            if _NUM.match(vol_s):
+                return float(vol_s)
             return None
         else:
             m = _GB.search(vol_s)
-            if m: return float(m.group(1)) * 1000.0
+            if m:
+                return float(m.group(1)) * 1000.0
             m = _MB.search(vol_s)
-            if m: return float(m.group(1))
-            if _NUM.match(vol_s): return float(vol_s)
+            if m:
+                return float(m.group(1))
+            if _NUM.match(vol_s):
+                return float(vol_s)
             return None
+
     if isinstance(value, str):
         s = value
         if unit == "minutes":
             m = _MIN.search(s)
-            if m: return float(m.group(1))
-            if _NUM.match(s): return float(s)
+            if m:
+                return float(m.group(1))
+            if _NUM.match(s):
+                return float(s)
             s2 = _PKG_TAIL.sub("", s)
             m = _MIN.search(s2)
-            if m: return float(m.group(1))
+            if m:
+                return float(m.group(1))
             return None
         else:
             m = _GB.search(s)
-            if m: return float(m.group(1)) * 1000.0
+            if m:
+                return float(m.group(1)) * 1000.0
             m = _MB.search(s)
-            if m: return float(m.group(1))
+            if m:
+                return float(m.group(1))
             s2 = _PKG_TAIL.sub("", s)
             m = _GB.search(s2)
-            if m: return float(m.group(1)) * 1000.0
+            if m:
+                return float(m.group(1)) * 1000.0
             m = _MB.search(s2)
-            if m: return float(m.group(1))
-            if _NUM.match(s2): return float(s2)
+            if m:
+                return float(m.group(1))
+            if _NUM.match(s2):
+                return float(s2)
             return None
+
     return None
+
 
 def _format_volume_unit(value: Optional[float], unit: str) -> str:
     if value is None:
@@ -255,6 +313,7 @@ def _format_volume_unit(value: Optional[float], unit: str) -> str:
         return f"{int(gb)}GB" if abs(gb - int(gb)) < 1e-9 else f"{gb:.2f}GB"
     return f"{int(v)}MB"
 
+
 def _value_text_for_display(value: Any, unit: str) -> str:
     if isinstance(value, dict):
         vol = _extract_volume(value, unit)
@@ -264,6 +323,7 @@ def _value_text_for_display(value: Any, unit: str) -> str:
         vol = _extract_volume(cleaned, unit)
         return _format_volume_unit(vol, unit) if vol is not None else (cleaned or "-")
     return value or "-"
+
 
 # ---------- pricing map builder ----------
 def _build_pricing_map(pricing: Dict[str, Any]) -> Tuple[float, Dict[str, Dict[str, Any]]]:
@@ -290,6 +350,7 @@ def _build_pricing_map(pricing: Dict[str, Any]) -> Tuple[float, Dict[str, Dict[s
         per_map[sid] = entry
     return percent_default, per_map
 
+
 # ---------- apply pricing to a service (for page render) ----------
 def _offer_value_text(o: Dict[str, Any]) -> str:
     vt = o.get("value_text")
@@ -305,8 +366,11 @@ def _offer_value_text(o: Dict[str, Any]) -> str:
     lab = _value_text_for_display(o.get("value"), "data")
     return lab or "-"
 
+
 def _apply_store_pricing_to_service(
-    svc: Dict[str, Any], percent_default: float, per_service_map: Dict[str, Dict[str, Any]]
+    svc: Dict[str, Any],
+    percent_default: float,
+    per_service_map: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
     s = dict(svc)
     offers = s.get("offers") or []
@@ -322,11 +386,23 @@ def _apply_store_pricing_to_service(
             total = round(float(offer_overrides[idx]), 2)
         else:
             pct = svc_percent if (svc_percent is not None) else percent_default
-            total = round(base_amount + (base_amount * pct / 100.0), 2) if base_amount is not None else None
+            total = (
+                round(base_amount + (base_amount * pct / 100.0), 2)
+                if base_amount is not None
+                else None
+            )
         vt = _offer_value_text(of)
-        norm_offers.append({"value_text": vt, "total": total, "amount": base_amount, "value": of.get("value")})
+        norm_offers.append(
+            {
+                "value_text": vt,
+                "total": total,
+                "amount": base_amount,
+                "value": of.get("value"),
+            }
+        )
     s["offers"] = norm_offers
     return s
+
 
 # ---------- DB loads for editor/view ----------
 def _load_all_services_for_store_edit() -> List[Dict[str, Any]]:
@@ -338,10 +414,17 @@ def _load_all_services_for_store_edit() -> List[Dict[str, Any]]:
         s: Dict[str, Any] = {"_id_str": str(r.get("_id")), "name": r.get("name") or ""}
         new_off: List[Dict[str, Any]] = []
         for o in (r.get("offers") or []):
-            new_off.append({"amount": _to_float(o.get("amount")), "value": o.get("value"), "value_text": _offer_value_text(o)})
+            new_off.append(
+                {
+                    "amount": _to_float(o.get("amount")),
+                    "value": o.get("value"),
+                    "value_text": _offer_value_text(o),
+                }
+            )
         s["offers"] = new_off
         clean.append(s)
     return clean
+
 
 def _load_services_for_store_view(scope: str, ids: List[str]) -> List[Dict[str, Any]]:
     q: Dict[str, Any] = {}
@@ -351,10 +434,21 @@ def _load_services_for_store_view(scope: str, ids: List[str]) -> List[Dict[str, 
         except Exception:
             q = {"_id": {"$in": []}}
     fields = {
-        "_id": 1, "name": 1, "type": 1, "status": 1, "availability": 1,
-        "image_url": 1, "offers": 1, "service_category": 1,
-        "priority": 1, "display_order": 1, "created_at": 1, "unit": 1,
-        "default_profit_percent": 1, "network_id": 1, "network": 1,
+        "_id": 1,
+        "name": 1,
+        "type": 1,
+        "status": 1,
+        "availability": 1,
+        "image_url": 1,
+        "offers": 1,
+        "service_category": 1,
+        "priority": 1,
+        "display_order": 1,
+        "created_at": 1,
+        "unit": 1,
+        "default_profit_percent": 1,
+        "network_id": 1,
+        "network": 1,
     }
     raw = list(services_col.find(q, fields)) if q else list(services_col.find({}, fields))
     raw = _sorted_services(raw)
@@ -362,6 +456,7 @@ def _load_services_for_store_view(scope: str, ids: List[str]) -> List[Dict[str, 
         s["_id_str"] = str(s["_id"])
         s.update(_service_state(s))
     return raw
+
 
 # ---------- JSON-safe converter ----------
 def _store_to_client(s: Optional[dict]) -> dict:
@@ -374,7 +469,10 @@ def _store_to_client(s: Optional[dict]) -> dict:
         elif isinstance(v, datetime):
             out[k] = v.isoformat()
         elif isinstance(v, list):
-            out[k] = [(str(x) if isinstance(x, ObjectId) else x.isoformat() if isinstance(x, datetime) else x) for x in v]
+            out[k] = [
+                (str(x) if isinstance(x, ObjectId) else x.isoformat() if isinstance(x, datetime) else x)
+                for x in v
+            ]
         elif isinstance(v, dict):
             if k == "pricing":
                 per = []
@@ -385,12 +483,22 @@ def _store_to_client(s: Optional[dict]) -> dict:
                     per.append(row2)
                 out[k] = {**v, "per_service": per}
             else:
-                out[k] = {kk: (str(vv) if isinstance(vv, ObjectId) else vv.isoformat() if isinstance(vv, datetime) else vv) for kk, vv in v.items()}
+                out[k] = {
+                    kk: (
+                        str(vv)
+                        if isinstance(vv, ObjectId)
+                        else vv.isoformat()
+                        if isinstance(vv, datetime)
+                        else vv
+                    )
+                    for kk, vv in v.items()
+                }
         else:
             out[k] = v
     if "service_ids" in out:
         out["service_ids"] = [str(x) for x in (out.get("service_ids") or [])]
     return out
+
 
 # ---------- helper: find current user's store ----------
 def _find_user_store(user_id: ObjectId, slug: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -399,8 +507,11 @@ def _find_user_store(user_id: ObjectId, slug: Optional[str] = None) -> Optional[
         q["slug"] = slug
     return stores_col.find_one(q, sort=[("updated_at", -1), ("created_at", -1)])
 
+
 # ---------- shared upsert ----------
-def _upsert_store_from_payload(owner_id: ObjectId, data: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+def _upsert_store_from_payload(
+    owner_id: ObjectId, data: Dict[str, Any]
+) -> Tuple[bool, Dict[str, Any]]:
     name = (data.get("name") or "").strip()
     slug = _slugify(data.get("slug") or name)
     status = (data.get("status") or "published").strip()
@@ -421,7 +532,8 @@ def _upsert_store_from_payload(owner_id: ObjectId, data: Dict[str, Any]) -> Tupl
         "hero": data.get("hero") or {},
         "service_scope": data.get("service_scope") or "all",
         "service_ids": data.get("service_ids") or [],
-        "pricing": data.get("pricing") or {"mode": "percent", "percent_default": 0.0, "per_service": []},
+        "pricing": data.get("pricing")
+        or {"mode": "percent", "percent_default": 0.0, "per_service": []},
         "status": status,
         "updated_at": datetime.utcnow(),
     }
@@ -432,6 +544,7 @@ def _upsert_store_from_payload(owner_id: ObjectId, data: Dict[str, Any]) -> Tupl
     )
     return True, {"slug": slug, "status": status}
 
+
 # ============================================================================ PAGES
 @stores_bp.route("/create-store", methods=["GET"])
 def create_store_page():
@@ -441,14 +554,19 @@ def create_store_page():
     user_id = ObjectId(session["user_id"])
     slug = (request.args.get("slug") or "").strip() or None
     store_doc = _find_user_store(user_id, slug)
-    return render_template("store_create.html", services=services_min, store=_store_to_client(store_doc))
+    return render_template(
+        "store_create.html", services=services_min, store=_store_to_client(store_doc)
+    )
+
 
 @stores_bp.route("/s/<slug>", methods=["GET"])
 def store_public_page(slug: str):
     store_doc = stores_col.find_one({"slug": slug, "status": "published"})
     if not store_doc:
         if request.args.get("preview") == "1" and session.get("user_id"):
-            store_doc = stores_col.find_one({"slug": slug, "owner_id": ObjectId(session["user_id"])})
+            store_doc = stores_col.find_one(
+                {"slug": slug, "owner_id": ObjectId(session["user_id"])}
+            )
             if not store_doc:
                 return "Store not found", 404
         else:
@@ -469,8 +587,9 @@ def store_public_page(slug: str):
         store=store_doc,
         services=priced,
         paystack_pk=PAYSTACK_PUBLIC_KEY,
-        canonical_url=canonical_url
+        canonical_url=canonical_url,
     )
+
 
 # ============================================================================ API: media (GridFS)
 @stores_bp.route("/api/media", methods=["POST"])
@@ -490,7 +609,10 @@ def api_upload_media():
         uploaded_by=str(session.get("user_id")),
         created_at=datetime.utcnow(),
     )
-    return jsonify({"success": True, "id": str(fid), "url": url_for("stores.get_media", file_id=str(fid))})
+    return jsonify(
+        {"success": True, "id": str(fid), "url": url_for("stores.get_media", file_id=str(fid))}
+    )
+
 
 @stores_bp.route("/media/<file_id>", methods=["GET"])
 def get_media(file_id: str):
@@ -509,7 +631,8 @@ def get_media(file_id: str):
         download_name=getattr(gfile, "filename", None) or "file",
     )
 
-# ============================================================================ API
+
+# ============================================================================ API (store CRUD)
 @stores_bp.route("/api/stores/mine", methods=["GET"])
 def api_get_my_store():
     if session.get("role") != "customer" or not session.get("user_id"):
@@ -518,6 +641,7 @@ def api_get_my_store():
     slug = (request.args.get("slug") or "").strip() or None
     store = _find_user_store(user_id, slug)
     return jsonify({"success": True, "store": _store_to_client(store) if store else None})
+
 
 @stores_bp.route("/api/stores", methods=["POST"])
 def api_upsert_store():
@@ -530,6 +654,7 @@ def api_upsert_store():
         return jsonify({"success": False, **payload}), 400
     return jsonify({"success": True, **payload})
 
+
 @stores_bp.route("/api/stores/preview", methods=["POST"])
 def api_save_draft_for_preview():
     if session.get("role") != "customer" or not session.get("user_id"):
@@ -541,6 +666,7 @@ def api_save_draft_for_preview():
     if not ok:
         return jsonify({"success": False, **payload}), 400
     return jsonify({"success": True, **payload})
+
 
 @stores_bp.route("/api/stores/<slug>/status", methods=["POST"])
 def api_update_status(slug: str):
@@ -558,6 +684,7 @@ def api_update_status(slug: str):
         return jsonify({"success": False, "message": "Store not found"}), 404
     return jsonify({"success": True, "slug": slug, "status": status})
 
+
 @stores_bp.route("/api/stores/<slug>", methods=["DELETE"])
 def api_delete_store(slug: str):
     if session.get("role") != "customer" or not session.get("user_id"):
@@ -569,6 +696,7 @@ def api_delete_store(slug: str):
     if res.matched_count == 0:
         return jsonify({"success": False, "message": "Store not found"}), 404
     return jsonify({"success": True})
+
 
 # ============================================================================ PAYSTACK FLOW (Store)
 def _verify_paystack(reference: str) -> Tuple[bool, Dict[str, Any], str]:
@@ -582,18 +710,21 @@ def _verify_paystack(reference: str) -> Tuple[bool, Dict[str, Any], str]:
         if not result.get("status"):
             return (False, result, result.get("message") or "Verification failed.")
         data = result.get("data") or {}
-        ok = (data.get("status") == "success")
+        ok = data.get("status") == "success"
         if not ok:
             return (False, data, data.get("gateway_response") or "Payment not successful.")
         return (True, data, "")
     except Exception as e:
         return (False, {}, f"Verify error: {str(e)}")
 
+
 def _paid_enough(paid_pesewas: int, expected_pesewas: int) -> bool:
     return int(paid_pesewas or 0) >= int(expected_pesewas or 0)
 
+
 # ---------- duplicate/keys helpers (mirrors checkout.py) ----------
 DUP_WINDOW_MINUTES = 30
+
 
 def _normalize_amount_key(v):
     try:
@@ -601,7 +732,9 @@ def _normalize_amount_key(v):
     except Exception:
         return 0.0
 
+
 def _build_bundle_key(is_express: bool, shared_bundle, value_obj: dict):
+    # kept for duplicate guards (same logic as checkout)
     if is_express:
         val = shared_bundle
         if val is None:
@@ -619,8 +752,15 @@ def _build_bundle_key(is_express: bool, shared_bundle, value_obj: dict):
         except Exception:
             return None
 
-def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_name: str | None,
-                                    network_id: int | None, bundle_key: tuple | None, amount_key: float) -> bool:
+
+def _has_processing_conflict_strict(
+    phone: str,
+    service_id_raw: str | None,
+    svc_name: str | None,
+    network_id: int | None,
+    bundle_key: tuple | None,
+    amount_key: float,
+) -> bool:
     if not phone or network_id is None or bundle_key is None:
         return False
     window_start = datetime.utcnow() - timedelta(minutes=DUP_WINDOW_MINUTES)
@@ -636,7 +776,11 @@ def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_
     if service_id_raw:
         elem["serviceId"] = service_id_raw
 
-    q = {"status": "processing", "created_at": {"$gte": window_start}, "items": {"$elemMatch": elem}}
+    q = {
+        "status": "processing",
+        "created_at": {"$gte": window_start},
+        "items": {"$elemMatch": elem},
+    }
     if orders_col.find_one(q, {"_id": 1}):
         return True
 
@@ -648,10 +792,20 @@ def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_
         alt["value_obj.volume"] = bval
     if service_id_raw:
         alt["serviceId"] = service_id_raw
-    q2 = {"status": "processing", "created_at": {"$gte": window_start}, "items": {"$elemMatch": alt}}
+    q2 = {
+        "status": "processing",
+        "created_at": {"$gte": window_start},
+        "items": {"$elemMatch": alt},
+    }
     return bool(orders_col.find_one(q2, {"_id": 1}))
 
-def _canonical_store_total_for_offer(store_doc: Dict[str, Any], svc_doc: Dict[str, Any], value_obj: Any, value_raw: Any) -> Optional[float]:
+
+def _canonical_store_total_for_offer(
+    store_doc: Dict[str, Any],
+    svc_doc: Dict[str, Any],
+    value_obj: Any,
+    value_raw: Any,
+) -> Optional[float]:
     if not svc_doc:
         return None
     percent_default, per_map = _build_pricing_map(store_doc.get("pricing") or {})
@@ -666,7 +820,7 @@ def _canonical_store_total_for_offer(store_doc: Dict[str, Any], svc_doc: Dict[st
     unit = _service_unit(svc_doc)
     vol_needed = _extract_volume(value_obj if isinstance(value_obj, dict) else value_raw, unit)
 
-    best_idx = None
+    best_idx: Optional[int] = None
     best_diff = float("inf")
     for idx, of in enumerate(offers):
         parsed = _parse_value_field(of.get("value"))
@@ -692,30 +846,208 @@ def _canonical_store_total_for_offer(store_doc: Dict[str, Any], svc_doc: Dict[st
     pct = (svc_percent if (svc_percent is not None) else percent_default) or 0.0
     return round(base_amount + (base_amount * float(pct) / 100.0), 2)
 
-def _server_reprice_store_cart(store_doc: Dict[str, Any], cart: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], float]:
-    revised = []
+
+def _server_reprice_store_cart(
+    store_doc: Dict[str, Any], cart: List[Dict[str, Any]]
+) -> Tuple[List[Dict[str, Any]], float]:
+    revised: List[Dict[str, Any]] = []
     sys_total = 0.0
     for item in cart:
         service_id_raw = item.get("serviceId")
         value_obj = _coerce_value_obj(item.get("value_obj") or item.get("value"))
-        svc_doc = None
+        svc_doc: Optional[Dict[str, Any]] = None
         if service_id_raw:
             try:
                 svc_doc = services_col.find_one(
                     {"_id": ObjectId(service_id_raw)},
-                    {"offers": 1, "unit": 1, "name": 1, "type": 1, "service_category": 1,
-                     "default_profit_percent": 1, "status": 1, "availability": 1, "network_id": 1, "network": 1}
+                    {
+                        "offers": 1,
+                        "unit": 1,
+                        "name": 1,
+                        "type": 1,
+                        "service_category": 1,
+                        "default_profit_percent": 1,
+                        "status": 1,
+                        "availability": 1,
+                        "network_id": 1,
+                        "network": 1,
+                    },
                 )
             except Exception:
                 svc_doc = None
 
-        canonical = _canonical_store_total_for_offer(store_doc or {}, svc_doc or {}, value_obj, item.get("value"))
+        canonical = _canonical_store_total_for_offer(
+            store_doc or {}, svc_doc or {}, value_obj, item.get("value")
+        )
         if canonical is None:
             canonical = _money(item.get("amount"))  # last resort to avoid mismatch
 
         revised.append({**item, "amount": canonical})
         sys_total += canonical
     return revised, round(sys_total, 2)
+
+
+# ---------- resolve network_id (copied logic from checkout) ----------
+def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
+    nid = (item or {}).get("network_id") or (value_obj or {}).get("network_id")
+    if nid not in (None, "", []):
+        try:
+            return int(nid)
+        except Exception:
+            pass
+    if svc_doc:
+        try:
+            if "network_id" in svc_doc and svc_doc["network_id"] not in (None, ""):
+                return int(svc_doc["network_id"])
+            guess = (svc_doc.get("name") or svc_doc.get("network") or "").strip().upper()
+            if guess and guess in NETWORK_ID_FALLBACK:
+                return int(NETWORK_ID_FALLBACK[guess])
+        except Exception:
+            pass
+    if not svc_doc:
+        name = (item.get("serviceName") or "").strip().upper()
+        if name in NETWORK_ID_FALLBACK:
+            return int(NETWORK_ID_FALLBACK[name])
+    return None
+
+
+# ---------- Dataverse helpers (NEW) ----------
+def _derive_package_size_gb_from_item(
+    svc_doc: Dict[str, Any], value_obj: Any, value_raw: Any
+) -> Optional[int]:
+    """
+    Derive Dataverse package_size (GB integer) from the selected offer.
+    - Only for data bundles (unit == 'data').
+    - Uses MB volume and converts to GB, rounding sensibly.
+    """
+    unit = _service_unit(svc_doc)
+    if unit != "data":
+        return None
+    vol_mb = _extract_volume(value_obj if isinstance(value_obj, dict) else value_raw, unit)
+    if vol_mb is None or vol_mb <= 0:
+        return None
+    gb = vol_mb / 1000.0
+    if gb <= 0:
+        return None
+    # Ensure at least 1GB and integer
+    gb_int = int(round(gb))
+    if gb_int <= 0:
+        gb_int = 1
+    return gb_int
+
+
+def _send_dataverse_mtn_bundle(
+    phone: str,
+    package_size_gb: int,
+    order_reference: str,
+    debug_events: List[Dict[str, Any]],
+) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Calls Dataverse /place-order for MTN.
+
+    Body:
+    {
+      "network": "mtn",
+      "recipient": "<phone>",
+      "package_size": <int GB>,
+      "order_id": "<ref>"
+    }
+    """
+    if not DATAVERSE_USERNAME or not DATAVERSE_PASSWORD:
+        payload = {
+            "status": "error",
+            "message": "Dataverse credentials not configured",
+            "http_status": 500,
+        }
+        jlog(
+            "dataverse_config_error",
+            phone=phone,
+            order_reference=order_reference,
+        )
+        debug_events.append(
+            {
+                "when": datetime.utcnow(),
+                "stage": "dataverse-config",
+                "ok": False,
+                "debug": payload,
+            }
+        )
+        return False, payload
+
+    creds = f"{DATAVERSE_USERNAME}:{DATAVERSE_PASSWORD}".encode("utf-8")
+    token = base64.b64encode(creds).decode("ascii")
+    headers = {
+        "Authorization": f"Basic {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "NagonuStore/1.0 (+server)",
+    }
+
+    body = {
+        "network": "mtn",
+        "recipient": phone,
+        "package_size": int(package_size_gb),
+        "order_id": str(order_reference),
+    }
+
+    masked = phone[:3] + "***" + phone[-2:] if phone else ""
+    jlog(
+        "dataverse_request_body",
+        phone=masked,
+        body={**body, "recipient": "***masked***"},
+    )
+
+    try:
+        resp = requests.post(
+            DATAVERSE_PLACE_ORDER_URL, headers=headers, json=body, timeout=45
+        )
+        text = resp.text or ""
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw": text}
+        ok = resp.ok and str(data.get("status", "")).lower() == "success"
+        debug = {
+            "status": resp.status_code,
+            "body_len": len(text),
+            "body_snippet": text[:140].replace("\n", " "),
+        }
+        debug_events.append(
+            {
+                "when": datetime.utcnow(),
+                "stage": "dataverse-place-order",
+                "ok": ok,
+                "debug": debug,
+            }
+        )
+        data["http_status"] = resp.status_code
+        jlog(
+            "dataverse_call",
+            phone=masked,
+            order_reference=order_reference,
+            ok=ok,
+            status=resp.status_code,
+            debug=debug,
+        )
+        return ok, data
+    except requests.RequestException as e:
+        payload = {"status": "error", "message": str(e), "http_status": 599}
+        debug_events.append(
+            {
+                "when": datetime.utcnow(),
+                "stage": "dataverse-error",
+                "ok": False,
+                "error": str(e),
+            }
+        )
+        jlog(
+            "dataverse_network_error",
+            error=str(e),
+            phone=masked,
+            order_reference=order_reference,
+        )
+        return False, payload
+
 
 # ============================================================================ CHECKOUT (Paystack — matches checkout.py persistence)
 @stores_bp.route("/store-checkout/<slug>", methods=["POST"])
@@ -726,6 +1058,11 @@ def store_checkout_paystack(slug: str):
     - Same order document fields
     - Same transactions document shape; here the 'debit' source is Paystack
     - If service.type is OFF or MANUAL: never hit provider; queue as processing
+
+    NEW:
+    - MTN data orders go through Dataverse API (one by one).
+    - package_size is integer GB (1GB -> 1, 3GB -> 3, etc.).
+    - Each line stores Dataverse 'reference' as provider_reference when available.
     """
     try:
         body = request.get_json(silent=True) or {}
@@ -743,64 +1080,84 @@ def store_checkout_paystack(slug: str):
         if not cart or not isinstance(cart, list):
             return jsonify({"success": False, "message": "Cart is empty or invalid"}), 400
 
-        # Idempotency by Paystack reference (same as wallet idempotency keys in checkout.py)
+        # Idempotency by Paystack reference
         if ps_ref:
             prior = orders_col.find_one({"store_slug": slug, "paystack_reference": ps_ref})
             if prior:
-                return jsonify({
-                    "success": True,
-                    "message": f"✅ Order already created. Order ID: {prior.get('order_id')}",
-                    "order_id": prior.get("order_id"),
-                    "status": prior.get("status"),
-                    "charged_amount": prior.get("charged_amount"),
-                    "profit_amount_total": prior.get("profit_amount_total", 0.0),
-                    "items": prior.get("items", []),
-                    "idempotent": True
-                }), 200
+                return jsonify(
+                    {
+                        "success": True,
+                        "message": f"✅ Order already created. Order ID: {prior.get('order_id')}",
+                        "order_id": prior.get("order_id"),
+                        "status": prior.get("status"),
+                        "charged_amount": prior.get("charged_amount"),
+                        "profit_amount_total": prior.get("profit_amount_total", 0.0),
+                        "items": prior.get("items", []),
+                        "idempotent": True,
+                    }
+                ), 200
 
         # Authoritative reprice using store pricing
         cart, total_requested = _server_reprice_store_cart(store_doc, cart)
         if total_requested <= 0:
-            return jsonify({"success": False, "message": "Total amount must be greater than zero"}), 400
+            return jsonify(
+                {"success": False, "message": "Total amount must be greater than zero"}
+            ), 400
 
-        # Require Paystack payment for this flow
+        # Require Paystack payment
         if method != "paystack_inline" or not ps_ref:
-            return jsonify({"success": False, "message": "Payment missing. Please pay first."}), 400
+            return jsonify(
+                {"success": False, "message": "Payment missing. Please pay first."}
+            ), 400
 
         ok, verify_data, fail_reason = _verify_paystack(ps_ref)
         if not ok:
-            return jsonify({"success": False, "message": f"Payment verification failed: {fail_reason}"}), 400
+            return jsonify(
+                {
+                    "success": False,
+                    "message": f"Payment verification failed: {fail_reason}",
+                }
+            ), 400
 
         paid_pes = int(verify_data.get("amount") or 0)
         paid_ghs = round(paid_pes / 100.0, 2)
         currency = (verify_data.get("currency") or "GHS").upper()
         if paid_pes <= 0 or currency != "GHS":
-            return jsonify({"success": False, "message": "Invalid payment amount/currency."}), 400
+            return jsonify(
+                {"success": False, "message": "Invalid payment amount/currency."}
+            ), 400
 
         expected_pay_ghs = round(total_requested, 2)
         expected_pay_pes = int(round(expected_pay_ghs * 100))
         if not _paid_enough(paid_pes, expected_pay_pes):
-            jlog("store_public_checkout_amount_underpaid",
-                 slug=slug, paid_pes=paid_pes, expected_pes=expected_pay_pes,
-                 paid_ghs=paid_ghs, expected_ghs=expected_pay_ghs, cart=cart)
-            return jsonify({
-                "success": False,
-                "message": "Payment amount is less than required. Please complete full payment.",
-                "paid": paid_ghs,
-                "required": expected_pay_ghs
-            }), 400
+            jlog(
+                "store_public_checkout_amount_underpaid",
+                slug=slug,
+                paid_pes=paid_pes,
+                expected_pes=expected_pay_pes,
+                paid_ghs=paid_ghs,
+                expected_ghs=expected_pay_ghs,
+                cart=cart,
+            )
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "Payment amount is less than required. Please complete full payment.",
+                    "paid": paid_ghs,
+                    "required": expected_pay_ghs,
+                }
+            ), 400
 
         fee_delta_ghs = max(0.0, round(paid_ghs - expected_pay_ghs, 2))
 
         # ========== TRANSACTION PERSIST — EXACT SHAPE AS checkout.py ==========
-        # Priority 1: If your checkout.py exposes a helper, use it.
         txn_doc = {
             "user_id": (ObjectId(session["user_id"]) if session.get("user_id") else None),
             "amount": round(paid_ghs, 2),
             "reference": ps_ref,
             "status": "success",
-            "type": "debit",                # <-- same semantic as wallet debit; source differs
-            "source": "paystack_inline",    # <-- channel/source mirrors wallet 'source'
+            "type": "debit",  # same semantic as wallet debit; source differs
+            "source": "paystack_inline",
             "gateway": "Paystack",
             "currency": "GHS",
             "channel": verify_data.get("channel"),
@@ -813,21 +1170,22 @@ def store_checkout_paystack(slug: str):
                 "expected_pay_total_ghs": expected_pay_ghs,
                 "paid_total_ghs": paid_ghs,
                 "gateway_fee_overage_ghs": fee_delta_ghs,
-                "note": "Customer payment captured via store inline checkout (aligns with checkout.py transaction shape)."
-            }
+                "note": "Customer payment captured via store inline checkout (aligns with checkout.py transaction shape).",
+            },
         }
 
-        # idempotent transaction insert (same as checkout style)
-        if not transactions_col.find_one({"reference": ps_ref, "source": "paystack_inline", "status": "success"}):
+        if not transactions_col.find_one(
+            {"reference": ps_ref, "source": "paystack_inline", "status": "success"}
+        ):
             if _checkout_helpers.get("txn_fn"):
                 try:
-                    _checkout_helpers["txn_fn"](transactions_col, txn_doc)  # helper from checkout.py
+                    _checkout_helpers["txn_fn"](transactions_col, txn_doc)
                 except Exception:
                     transactions_col.insert_one(txn_doc)
             else:
                 transactions_col.insert_one(txn_doc)
 
-        # ========== ORDER BUILD (items exactly like checkout.py) ==========
+        # ========== ORDER BUILD (items exactly like checkout.py, but using Dataverse for MTN) ==========
         order_id = generate_order_id()
         results: List[Dict[str, Any]] = []
         debug_events: List[Dict[str, Any]] = []
@@ -852,55 +1210,129 @@ def store_checkout_paystack(slug: str):
                     svc_doc = services_col.find_one(
                         {"_id": ObjectId(service_id_raw)},
                         {
-                            "type": 1, "network_id": 1, "name": 1, "network": 1,
-                            "offers": 1, "default_profit_percent": 1, "service_category": 1,
-                            "status": 1, "availability": 1
-                        }
+                            "type": 1,
+                            "network_id": 1,
+                            "name": 1,
+                            "network": 1,
+                            "offers": 1,
+                            "default_profit_percent": 1,
+                            "service_category": 1,
+                            "status": 1,
+                            "availability": 1,
+                            "unit": 1,
+                        },
                     )
                     if svc_doc:
                         st = svc_doc.get("type")
-                        svc_type = (st.strip().upper() if isinstance(st, str) else st)
-                        svc_name = svc_doc.get("name") or svc_doc.get("network") or svc_name
-                        service_category = (svc_doc.get("service_category") or "").strip().lower()
+                        svc_type = st.strip().upper() if isinstance(st, str) else st
+                        svc_name = (
+                            svc_doc.get("name")
+                            or svc_doc.get("network")
+                            or svc_name
+                        )
+                        service_category = (
+                            svc_doc.get("service_category") or ""
+                        ).strip().lower()
                 except Exception:
                     svc_doc = None
                     svc_type = None
 
-            # availability/closed (independent of type)
+            # availability/closed
             is_unavail, reason_text = _service_unavailability_reason(svc_doc)
             if is_unavail:
-                return jsonify({
-                    "success": False,
-                    "message": reason_text,
-                    "unavailable": {"serviceId": service_id_raw, "serviceName": svc_name, "reason": reason_text}
-                }), 400
+                return jsonify(
+                    {
+                        "success": False,
+                        "message": reason_text,
+                        "unavailable": {
+                            "serviceId": service_id_raw,
+                            "serviceName": svc_name,
+                            "reason": reason_text,
+                        },
+                    }
+                ), 400
 
             # profit
             base_hint = _to_float(item.get("base_amount"))
             value_obj = _coerce_value_obj(item.get("value_obj") or item.get("value"))
             if base_hint is None and svc_doc:
-                base_hint = _pick_offer_base_amount_from_service(svc_doc, value_obj, item.get("value"))
+                base_hint = _pick_offer_base_amount_from_service(
+                    svc_doc, value_obj, item.get("value")
+                )
             eff_p = _effective_profit_percent(svc_doc, None) if svc_doc else 0.0
-            base_amount, profit_amount = _derive_base_profit(amt_total, base_hint, eff_p)
+            base_amount, profit_amount = _derive_base_profit(
+                amt_total, base_hint, eff_p
+            )
             profit_amount_total += profit_amount
 
-            # provider fields
-            is_express = (service_category == "express services")
+            # provider fields / duplicate keys
             network_id = _resolve_network_id(item, value_obj, svc_doc) if svc_doc else None
+            network_name = (svc_doc.get("network") or "").strip().lower() if svc_doc else ""
 
-            is_api_enabled = (str(svc_type).upper() == "API")
-            shared_bundle = None
-            if svc_doc and is_api_enabled:
-                shared_bundle = (_resolve_shared_bundle_express(item, value_obj)
-                                 if is_express else _resolve_shared_bundle_toppily(item, value_obj))
+            is_api_enabled = str(svc_type).upper() == "API" if svc_type else False
 
-            bundle_key = _build_bundle_key(is_express, shared_bundle if is_api_enabled else None, value_obj)
+            # For duplicate keys, still build a bundle_key based on volume/id (even though provider is Dataverse now)
+            shared_bundle_for_key = None
+            # we use volume as shared_bundle for key purposes
+            if svc_doc:
+                unit = _service_unit(svc_doc)
+                vol_for_key = _extract_volume(
+                    value_obj if isinstance(value_obj, dict) else item.get("value"),
+                    unit,
+                )
+                if vol_for_key is not None:
+                    try:
+                        shared_bundle_for_key = int(vol_for_key)
+                    except Exception:
+                        shared_bundle_for_key = None
 
-            # in-cart dup
+            is_express = False  # legacy concept; here all follow 'vol' style for keys
+            bundle_key = _build_bundle_key(
+                is_express, shared_bundle_for_key, value_obj
+            )
+
+            # in-cart duplicate guard
             if phone and (network_id is not None) and (bundle_key is not None):
                 cart_key = (phone, int(network_id), int(bundle_key[1]), bundle_key[0], amount_key)
                 if cart_key in seen_keys:
-                    results.append({
+                    results.append(
+                        {
+                            "phone": phone,
+                            "base_amount": 0.0,
+                            "amount": 0.0,
+                            "originally_requested_amount": amt_total,
+                            "profit_amount": 0.0,
+                            "profit_percent_used": 0.0,
+                            "value": item.get("value"),
+                            "value_obj": value_obj,
+                            "serviceId": service_id_raw,
+                            "serviceName": svc_name,
+                            "service_type": (
+                                svc_type if svc_type else ("unknown" if not svc_doc else None)
+                            ),
+                            "network_id": network_id,
+                            "bundle_key": {
+                                "kind": bundle_key[0],
+                                "value": bundle_key[1],
+                            },
+                            "line_amount_key": amount_key,
+                            "line_status": "skipped_duplicate_in_cart",
+                            "api_status": "skipped",
+                            "api_response": {
+                                "note": "Duplicate line in this cart (same number, network, bundle, amount)"
+                            },
+                        }
+                    )
+                    continue
+                seen_keys.add(cart_key)
+
+            # processing duplicate guard (DB)
+            is_dup_strict = _has_processing_conflict_strict(
+                phone, service_id_raw, svc_name, network_id, bundle_key, amount_key
+            )
+            if is_dup_strict:
+                results.append(
+                    {
                         "phone": phone,
                         "base_amount": 0.0,
                         "amount": 0.0,
@@ -911,91 +1343,118 @@ def store_checkout_paystack(slug: str):
                         "value_obj": value_obj,
                         "serviceId": service_id_raw,
                         "serviceName": svc_name,
-                        "service_type": (svc_type if svc_type else ("unknown" if not svc_doc else None)),
+                        "service_type": (
+                            svc_type if svc_type else ("unknown" if not svc_doc else None)
+                        ),
                         "network_id": network_id,
-                        "bundle_key": {"kind": bundle_key[0], "value": bundle_key[1]},
+                        "bundle_key": (
+                            {"kind": bundle_key[0], "value": bundle_key[1]}
+                            if bundle_key
+                            else None
+                        ),
                         "line_amount_key": amount_key,
-                        "line_status": "skipped_duplicate_in_cart",
+                        "line_status": "skipped_duplicate_processing",
                         "api_status": "skipped",
-                        "api_response": {"note": "Duplicate line in this cart (same number, network, bundle, amount)"}
-                    })
-                    continue
-                seen_keys.add(cart_key)
+                        "api_response": {
+                            "note": "Same number + same network + same bundle + same amount already processing; skipping."
+                        },
+                    }
+                )
+                continue
 
-            # processing dup guard (DB)
-            is_dup_strict = _has_processing_conflict_strict(
-                phone, service_id_raw, svc_name, network_id, bundle_key, amount_key
-            )
-            if is_dup_strict:
-                results.append({
+            # ---------- Provider call (Dataverse for MTN only) ----------
+            api_status = "not_applicable"
+            api_tag: Optional[str] = None
+            trx_ref: Optional[str] = None
+            provider_reference: Optional[str] = None
+            api_payload: Dict[str, Any] = {}
+
+            if (
+                svc_doc
+                and is_api_enabled
+                and phone
+                and network_name == "mtn"
+            ):
+                # derive package_size in GB as integer
+                package_size_gb = _derive_package_size_gb_from_item(
+                    svc_doc, value_obj, item.get("value")
+                )
+                if package_size_gb is not None and package_size_gb > 0:
+                    trx_ref = f"{order_id}_{idx}"
+                    ok2, api_payload = _send_dataverse_mtn_bundle(
+                        phone, package_size_gb, trx_ref, debug_events
+                    )
+                    api_tag = "dataverse"
+                    provider_reference = (
+                        api_payload.get("reference")
+                        or api_payload.get("order_id")
+                        or trx_ref
+                    )
+                    api_status = "success" if ok2 else "processing"
+                else:
+                    # package size missing/invalid — keep as processing
+                    api_status = "processing"
+                    api_payload = {
+                        "note": "Could not derive Dataverse package_size from offer; queued for processing.",
+                        "got": {
+                            "phone": bool(phone),
+                            "network": network_name,
+                            "service_type": svc_type,
+                        },
+                    }
+            else:
+                # Non-MTN or API disabled => queued for manual processing
+                api_status = "processing"
+                reason = []
+                if not is_api_enabled:
+                    reason.append("API disabled (type is OFF/MANUAL or not set)")
+                if network_name != "mtn":
+                    reason.append("Dataverse currently used only for MTN bundles")
+                api_payload = {
+                    "note": "; ".join(reason) if reason else "Queued for processing",
+                    "got": {
+                        "phone": bool(phone),
+                        "network": network_name,
+                        "service_type": svc_type,
+                    },
+                }
+
+            total_processing_amount += amt_total
+
+            results.append(
+                {
                     "phone": phone,
-                    "base_amount": 0.0,
-                    "amount": 0.0,
-                    "originally_requested_amount": amt_total,
-                    "profit_amount": 0.0,
-                    "profit_percent_used": 0.0,
+                    "amount": amt_total,
+                    "base_amount": base_amount,
+                    "profit_amount": profit_amount,
+                    "profit_percent_used": eff_p,
                     "value": item.get("value"),
                     "value_obj": value_obj,
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
-                    "service_type": (svc_type if svc_type else ("unknown" if not svc_doc else None)),
+                    "service_type": svc_type,
+                    "provider": api_tag,
+                    "trx_ref": trx_ref,
+                    "provider_reference": provider_reference,  # NEW: Dataverse reference per line
                     "network_id": network_id,
-                    "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                    "bundle_key": (
+                        {"kind": bundle_key[0], "value": bundle_key[1]}
+                        if bundle_key
+                        else None
+                    ),
                     "line_amount_key": amount_key,
-                    "line_status": "skipped_duplicate_processing",
-                    "api_status": "skipped",
-                    "api_response": {"note": "Same number + same network + same bundle + same amount already processing; skipping."}
-                })
-                continue
+                    "line_status": "processing",
+                    "api_status": api_status,
+                    "api_response": api_payload,
+                }
+            )
 
-            api_status = "not_applicable"
-            api_tag = None
-            trx_ref = None
-            api_payload: Dict[str, Any] = {}
-
-            if svc_doc and is_api_enabled and phone and network_id is not None and bundle_key is not None and shared_bundle is not None:
-                trx_ref = f"{order_id}_{idx}"
-                if is_express:
-                    ok2, api_payload = _send_express_single(phone, int(network_id), int(shared_bundle), trx_ref, order_id, debug_events)
-                    api_tag = "express"
-                else:
-                    ok2, api_payload = _send_toppily_shared_bundle(phone, int(network_id), int(shared_bundle), trx_ref, order_id, debug_events)
-                    api_tag = "toppily"
-                api_status = "success" if ok2 else "processing"
-            else:
-                api_status = "processing"
-                reason = []
-                if not is_api_enabled:
-                    reason.append("API disabled (type is OFF/MANUAL)")
-                if not phone or network_id is None or bundle_key is None or shared_bundle is None:
-                    reason.append("API fields missing")
-                api_payload = {"note": "; ".join(reason) if reason else "Queued for processing",
-                               "got": {"phone": bool(phone), "network_id": network_id,
-                                       "shared_bundle": shared_bundle, "service_type": svc_type}}
-
-            total_processing_amount += amt_total
-            results.append({
-                "phone": phone,
-                "amount": amt_total,
-                "base_amount": base_amount,
-                "profit_amount": profit_amount,
-                "profit_percent_used": eff_p,
-                "value": item.get("value"),
-                "value_obj": value_obj,
-                "serviceId": service_id_raw,
-                "serviceName": svc_name,
-                "service_type": svc_type,
-                "provider": api_tag,
-                "trx_ref": trx_ref,
-                "network_id": network_id,
-                "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
-                "line_amount_key": amount_key,
-                "line_status": "processing",
-                "api_status": api_status,
-                "api_response": api_payload
-            })
-
-        skipped_count = sum(1 for it in results if it.get("line_status") in ("skipped_duplicate_processing","skipped_duplicate_in_cart"))
+        skipped_count = sum(
+            1
+            for it in results
+            if it.get("line_status")
+            in ("skipped_duplicate_processing", "skipped_duplicate_in_cart")
+        )
 
         order_doc = {
             "user_id": (ObjectId(session["user_id"]) if session.get("user_id") else None),
@@ -1016,11 +1475,11 @@ def store_checkout_paystack(slug: str):
                 "paystack_paid_ghs": paid_ghs,
                 "paystack_expected_ghs": expected_pay_ghs,
                 "gateway_fee_overage_ghs": fee_delta_ghs,
-                "skipped_count": skipped_count
-            }
+                "skipped_count": skipped_count,
+            },
         }
 
-        # EXACT order insert semantics as checkout.py (use its helper if present)
+        # EXACT order insert semantics as checkout.py
         if _checkout_helpers.get("order_fn"):
             try:
                 _checkout_helpers["order_fn"](orders_col, order_doc)
@@ -1029,19 +1488,25 @@ def store_checkout_paystack(slug: str):
         else:
             orders_col.insert_one(order_doc)
 
-        return jsonify({
-            "success": True,
-            "message": f"✅ Order received and is processing. Order ID: {order_id}",
-            "order_id": order_id,
-            "status": "processing",
-            "charged_amount": round(total_processing_amount, 2),
-            "profit_amount_total": round(profit_amount_total, 2),
-            "skipped_count": skipped_count,
-            "items": results,
-            "paid_ghs": paid_ghs,
-            "expected_ghs": expected_pay_ghs
-        }), 200
+        return jsonify(
+            {
+                "success": True,
+                "message": f"✅ Order received and is processing. Order ID: {order_id}",
+                "order_id": order_id,
+                "status": "processing",
+                "charged_amount": round(total_processing_amount, 2),
+                "profit_amount_total": round(profit_amount_total, 2),
+                "skipped_count": skipped_count,
+                "items": results,
+                "paid_ghs": paid_ghs,
+                "expected_ghs": expected_pay_ghs,
+            }
+        ), 200
 
     except Exception:
-        jlog("store_public_checkout_uncaught", slug=slug, error=traceback.format_exc())
+        jlog(
+            "store_public_checkout_uncaught",
+            slug=slug,
+            error=traceback.format_exc(),
+        )
         return jsonify({"success": False, "message": "Server error"}), 500
