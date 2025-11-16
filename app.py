@@ -47,6 +47,7 @@ from shares import shares_bp
 from routes.stores import stores_bp
 from routes.customer_store import customer_store_bp
 from routes.admin_store import admin_store_bp
+from order_status import order_status_bp   # 👈 add this
 
 # ✅ Use ABSOLUTE import (place index.py next to this file)
 from index import index_bp
@@ -140,6 +141,7 @@ def create_app():
     app.register_blueprint(stores_bp)
     app.register_blueprint(customer_store_bp)
     app.register_blueprint(admin_store_bp)
+    app.register_blueprint(order_status_bp)   # 👈 add this
 
     # --- Jinja env injection ---
     @app.context_processor
