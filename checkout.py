@@ -1,10 +1,7 @@
-# checkout.py — Toppily shared-bundle + Express (second API)  [NO SCHEDULER VERSION]
 from flask import Blueprint, request, jsonify, session
 from bson import ObjectId
 from datetime import datetime, timedelta
-import os, uuid, random, requests, certifi, traceback, json, hashlib, pathlib, shutil, ast
-
-# NOTE: Removed: from apscheduler.schedulers.background import BackgroundScheduler
+import os, uuid, random, requests, traceback, json, ast, re
 
 from db import db
 
@@ -17,57 +14,19 @@ transactions_col = db["transactions"]
 services_col = db["services"]
 service_profits_col = db["service_profits"]  # per-customer overrides
 
+# ===== DataVerse Provider Config (HARDCODED as requested) ====================
+DATAVERSE_BASE_URL = "https://dataversegh.pro/wp-json/custom/v1"
+DATAVERSE_USERNAME = "Nyebro"
+DATAVERSE_PASSWORD = "TazgH924s29FaF1UUOzxyzPT"
 
-# ===== Provider Configs =======================================================
-# --- Toppily (existing) ---
-TOPPILY_URL = "https://toppily.com/api/v1/buy-other-package"
-TOPPILY_API_KEY = os.getenv("TOPPILY_API_KEY", "0e7434520859996d4b758c7c77e22013690fc9ae")  # keep secret
-
-# --- Express (second API) ---
-EXPRESS_URL_SINGLE = "https://reseller.dakazinabusinessconsult.com/api/v1/buy-data-package"
-EXPRESS_URL_BULK   = "https://reseller.dakazinabusinessconsult.com/api/v1/buy-bulk-data-packages"
-EXPRESS_API_KEY    = os.getenv("EXPRESS_API_KEY", "dk_wC8jFCnsbwJJmWcMwNlxXQWNojxX43Gy")
-
-# TLS + CF toggles (used for both providers)
-USE_CUSTOM_CA_BUNDLE = True
-USE_CLOUDSCRAPER_FALLBACK = True
-PRIMARY_VERIFY_SSL = True
-
-TOPPILY_INTERMEDIATE_PEM = r""  # optional PEM if provider’s chain is incomplete
-
-# Fallback map (used only if DB lookup fails)
+# Network ID fallback (kept for internal use / reporting, not for provider)
 NETWORK_ID_FALLBACK = {
     "MTN": 3,
     "VODAFONE": 2,
     "AIRTELTIGO": 1,
 }
 
-# ===== Startup: custom CA bundle =====
-def _setup_custom_ca_bundle():
-    if not USE_CUSTOM_CA_BUNDLE:
-        return certifi.where()
-    try:
-        ca_dir = pathlib.Path(os.getcwd()) / "vendor_certs"
-        ca_dir.mkdir(parents=True, exist_ok=True)
-        base_ca = certifi.where()
-        custom_ca = ca_dir / "custom_ca_bundle.pem"
-        with open(custom_ca, "wb") as out:
-            with open(base_ca, "rb") as base:
-                shutil.copyfileobj(base, out)
-            pem = TOPPILY_INTERMEDIATE_PEM.strip().encode("utf-8")
-            if pem:
-                out.write(b"\n"); out.write(pem)
-        os.environ["SSL_CERT_FILE"] = str(custom_ca)
-        os.environ["REQUESTS_CA_BUNDLE"] = str(custom_ca)
-        print("[SSL] Using custom CA bundle:", custom_ca)
-        return str(custom_ca)
-    except Exception as e:
-        print("[SSL] Failed to build custom CA bundle:", e)
-        return certifi.where()
-
-_CA_BUNDLE = _setup_custom_ca_bundle()
-
-# ===== Tiny JSON logger =====
+# ===== Tiny JSON logger =======================================================
 def jlog(event: str, **kv):
     rec = {"evt": event, **kv}
     try:
@@ -75,7 +34,7 @@ def jlog(event: str, **kv):
     except Exception:
         print(f"[LOG_FALLBACK] {event} {kv}")
 
-# ===== Helpers =====
+# ===== Helpers ================================================================
 def generate_order_id():
     return f"NAN{random.randint(10000, 99999)}"
 
@@ -113,58 +72,7 @@ def _coerce_value_obj(v):
                 return {}
     return {}
 
-def _is_cloudflare_block(text: str, headers: dict, status: int) -> bool:
-    return (status in (403, 503)) and (
-        "Just a moment..." in text or "__cf_chl_" in text or "challenge-platform" in text
-    )
-
-def _resp_debug(resp: requests.Response, body_text: str):
-    redacted_headers = {}
-    for k, v in resp.headers.items():
-        lk = k.lower()
-        redacted_headers[k] = "***" if lk in ("authorization","cookie","set-cookie","x-api-key") else v
-    return {
-        "status": resp.status_code,
-        "headers": redacted_headers,
-        "body_len": len(body_text or ""),
-        "body_sha256_16": hashlib.sha256((body_text or "").encode("utf-8","ignore")).hexdigest()[:16],
-        "body_snippet": (body_text or "")[:140].replace("\n"," "),
-    }
-
-# ===== Toppily HTTP =====
-def _post_requests_toppily(body, verify):
-    headers = {
-        "x-api-key": TOPPILY_API_KEY,
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "NanDataApp/1.0 (+server)",
-    }
-    resp = requests.post(TOPPILY_URL, headers=headers, json=body, timeout=45, verify=verify)
-    text = resp.text or ""
-    try:
-        data = resp.json()
-    except Exception:
-        data = {"raw": text}
-    ok = resp.ok and bool(data.get("success", False))
-    return ok, data, resp, text
-
-def _post_cloudscraper_toppily(body):
-    try:
-        import cloudscraper
-    except Exception as e:
-        return False, {"success": False, "error": f"cloudscraper not installed: {e}"}, None, ""
-    scraper = cloudscraper.create_scraper(browser={"browser":"chrome","platform":"windows","mobile":False})
-    headers = {"x-api-key": TOPPILY_API_KEY, "Accept":"application/json","Content-Type":"application/json"}
-    resp = scraper.post(TOPPILY_URL, headers=headers, json=body, timeout=60)
-    text = resp.text or ""
-    try:
-        data = resp.json()
-    except Exception:
-        data = {"raw": text}
-    ok = resp.ok and bool(data.get("success", False))
-    return ok, data, resp, text
-
-# ===== Profit helpers (absolute profit amount) =====
+# ===== Profit helpers (absolute profit amount) ================================
 def _get_service_default_profit_percent(service_doc):
     return _to_float(service_doc.get("default_profit_percent"), 0.0) or 0.0
 
@@ -177,6 +85,9 @@ def _effective_profit_percent(service_doc, customer_id_obj):
     return override if override is not None else _get_service_default_profit_percent(service_doc)
 
 def _pick_offer_base_amount_from_service(svc_doc, value_obj, raw_value):
+    """
+    Try to recover the base (wholesale) amount from the selected offer in svc_doc.offers.
+    """
     try:
         offers = svc_doc.get("offers") or []
         vid = (value_obj or {}).get("id")
@@ -226,7 +137,10 @@ def _derive_base_profit(amount_total, base_amount_hint, eff_percent):
 
 # ===== Field resolvers =======================================================
 def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
-    """General network_id resolver for both providers."""
+    """
+    Internal numeric network ID, used only for duplicate guards / reporting.
+    Not sent to DataVerse.
+    """
     nid = (item or {}).get("network_id") or (value_obj or {}).get("network_id")
     if nid not in (None, "", []):
         try:
@@ -248,213 +162,211 @@ def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
             return int(NETWORK_ID_FALLBACK[name])
     return None
 
-def _resolve_shared_bundle_toppily(item: dict, value_obj: dict):
-    """For Toppily: use MB (volume)."""
-    vol = (value_obj or {}).get("volume")
+def _resolve_dataverse_network(svc_doc: dict | None, item: dict) -> str | None:
+    """
+    Resolve DataVerse 'network' string.
+    For now we only support MTN via the API.
+    Uses:
+      - svc_doc.service_network
+      - svc_doc.network / name
+      - stored service by name (fallback)
+      - item fields
+    Returns 'mtn' or None.
+    """
+    doc = svc_doc
+
+    # Fallback: look up by service name if svc_doc is missing
+    if not doc:
+        sname = (item.get("serviceName") or "").strip()
+        if sname:
+            try:
+                doc = services_col.find_one(
+                    {"name": sname},
+                    {"service_network": 1, "network": 1, "name": 1},
+                )
+            except Exception:
+                doc = None
+
+    candidates = []
+    if doc:
+        candidates.append(doc.get("service_network"))
+        candidates.append(doc.get("network"))
+        candidates.append(doc.get("name"))
+
+    candidates.append(item.get("network"))
+    candidates.append(item.get("network_name"))
+    candidates.append(item.get("serviceName"))
+
+    joined = " ".join(str(c) for c in candidates if c).lower()
+    if "mtn" in joined:
+        return "mtn"
+    return None
+
+def _resolve_package_size_gb(value_obj: dict, item: dict) -> int | None:
+    """
+    Resolve DataVerse 'package_size' (integer GB).
+    Tries (in order):
+      - explicit gb/size fields in value_obj
+      - volume field (interpreting >50 as MB, otherwise GB)
+      - parsing numbers from item['value'] like '1GB', '5 GB'
+    """
+    if not isinstance(value_obj, dict):
+        value_obj = value_obj or {}
+
+    # 1) explicit GB fields
+    for key in ("gb", "gb_size", "package_size", "volume_gb", "size_gb"):
+        val = value_obj.get(key)
+        if val not in (None, "", []):
+            try:
+                return int(float(val))
+            except Exception:
+                pass
+
+    # 2) 'volume' field (can be GB or MB)
+    vol = value_obj.get("volume")
     if vol not in (None, "", []):
         try:
-            return int(vol)
+            vol_f = float(vol)
+            # Heuristic: if looks large, assume MB and convert
+            if vol_f > 50:
+                gb = max(1, round(vol_f / 1024.0))
+            else:
+                gb = vol_f
+            return int(gb)
         except Exception:
             pass
-    sb = (item or {}).get("shared_bundle")
-    if sb not in (None, "", []):
-        try:
-            return int(sb)
-        except Exception:
-            pass
+
+    # 3) Parse from item['value'] string like '1GB', '5 GB'
+    raw_val = item.get("value") or ""
+    if isinstance(raw_val, str):
+        m = re.search(r"(\d+(?:\.\d+)?)\s*gb", raw_val.lower())
+        if m:
+            try:
+                return int(float(m.group(1)))
+            except Exception:
+                pass
+        # fallback: first number
+        m2 = re.search(r"(\d+(?:\.\d+)?)", raw_val)
+        if m2:
+            try:
+                return int(float(m2.group(1)))
+            except Exception:
+                pass
+
     return None
 
-def _resolve_shared_bundle_express(item: dict, value_obj: dict):
-    """For Express: MUST use package ID (offer `id`)."""
-    vid = (value_obj or {}).get("id")
-    if vid not in (None, "", []):
-        try:
-            return int(vid)
-        except Exception:
-            pass
-    sb = (item or {}).get("shared_bundle")
-    if sb not in (None, "", []):
-        try:
-            return int(sb)
-        except Exception:
-            pass
-    return None
+def _build_bundle_key(value_obj: dict, item: dict):
+    """
+    Build a generic bundle key for duplicate detection.
+    We don't care about provider-specific semantics anymore.
+    Returns ('bundle', <normalized_value>) or None.
+    """
+    val = None
+    if isinstance(value_obj, dict):
+        for key in ("id", "volume", "code", "package_size", "gb"):
+            if value_obj.get(key) not in (None, "", []):
+                val = value_obj.get(key)
+                break
+    if val is None:
+        val = item.get("value") or item.get("label")
 
-# ===== Provider callers =======================================================
-# --- Toppily (existing) ---
-def _send_toppily_shared_bundle(phone: str, network_id: int, shared_bundle: int, trx_ref: str,
-                                order_id: str, debug_events: list):
-    if not TOPPILY_API_KEY.strip():
-        err = {"success": False, "message": "API key not set", "http_status": 500}
-        jlog("toppily_config_error", order_id=order_id, trx_ref=trx_ref)
-        return False, err
-
-    masked = phone[:3] + "***" + phone[-2:] if phone else ""
-    body = {"recipient_msisdn": phone, "network_id": int(network_id), "shared_bundle": int(shared_bundle), "trx_ref": trx_ref}
-    jlog("toppily_request_body", order_id=order_id, trx_ref=trx_ref,
-         body={"recipient_msisdn": masked, "network_id": body["network_id"], "shared_bundle": body["shared_bundle"], "trx_ref": trx_ref})
+    if val is None:
+        return None
 
     try:
-        verify_val = (_CA_BUNDLE if PRIMARY_VERIFY_SSL else False)
-        ok, data, resp, text = _post_requests_toppily(body, verify_val)
-        dbg = _resp_debug(resp, text)
-        blocked = _is_cloudflare_block(text, resp.headers, resp.status_code)
-        payload = {**data, "http_status": resp.status_code}
-        if blocked:
-            payload.setdefault("error", "Cloudflare challenge blocked the request")
-            payload["blocked_by_cloudflare"] = True
-        jlog("toppily_call", order_id=order_id, trx_ref=trx_ref, verify=bool(verify_val), ok=ok,
-             status=resp.status_code, blocked_by_cloudflare=blocked, debug=dbg)
-        debug_events.append({"when": datetime.utcnow(), "stage":"primary","verify":bool(verify_val),
-                             "ok":ok,"blocked_by_cloudflare":blocked,"debug":dbg})
+        norm = int(float(val))
+    except Exception:
+        norm = str(val).strip()
 
-        if blocked and USE_CLOUDSCRAPER_FALLBACK:
-            ok2, data2, resp2, text2 = _post_cloudscraper_toppily(body)
-            if resp2 is not None:
-                dbg2 = _resp_debug(resp2, text2)
-                blocked2 = _is_cloudflare_block(text2, resp2.headers, resp2.status_code)
-                payload2 = {**data2, "http_status": resp2.status_code, "note": "cloudscraper fallback used"}
-                if blocked2:
-                    payload2.setdefault("error","Cloudflare challenge blocked the request (cloudscraper)")
-                    payload2["blocked_by_cloudflare"] = True
-                jlog("toppily_cloudscraper", order_id=order_id, trx_ref=trx_ref, ok=ok2,
-                     status=resp2.status_code, blocked_by_cloudflare=blocked2, debug=dbg2)
-                debug_events.append({"when": datetime.utcnow(), "stage":"cloudscraper","verify":None,
-                                     "ok":ok2,"blocked_by_cloudflare":blocked2,"debug":dbg2})
-                return (ok2 and not blocked2), payload2
+    return ("bundle", norm)
 
-        return (ok and not blocked), payload
-
-    except requests.exceptions.SSLError as e:
-        jlog("toppily_ssl_error", order_id=order_id, trx_ref=trx_ref, error=str(e))
-        try:
-            ok, data, resp, text = _post_requests_toppily(body, False)
-            dbg = _resp_debug(resp, text)
-            blocked = _is_cloudflare_block(text, resp.headers, resp.status_code)
-            payload = {**data, "http_status": resp.status_code, "note":"insecure verify=False (diagnostic)"}
-            if blocked:
-                payload.setdefault("error","Cloudflare challenge blocked the request")
-                payload["blocked_by_cloudflare"] = True
-            jlog("toppily_insecure_diag", order_id=order_id, trx_ref=trx_ref, ok=ok,
-                 status=resp.status_code, blocked_by_cloudflare=blocked, debug=dbg)
-            debug_events.append({"when": datetime.utcnow(), "stage":"insecure-diagnostic","verify":False,
-                                 "ok":ok,"blocked_by_cloudflare":blocked,"debug":dbg})
-
-            if blocked and USE_CLOUDSCRAPER_FALLBACK:
-                ok2, data2, resp2, text2 = _post_cloudscraper_toppily(body)
-                if resp2 is not None:
-                    dbg2 = _resp_debug(resp2, text2)
-                    blocked2 = _is_cloudflare_block(text2, resp2.headers, resp2.status_code)
-                    payload2 = {**data2, "http_status": resp2.status_code, "note":"cloudscraper fallback used"}
-                    if blocked2:
-                        payload2.setdefault("error","Cloudflare challenge blocked the request (cloudscraper)")
-                        payload2["blocked_by_cloudflare"] = True
-                    jlog("toppily_cloudscraper", order_id=order_id, trx_ref=trx_ref, ok=ok2,
-                         status=resp2.status_code, blocked_by_cloudflare=blocked2, debug=dbg2)
-                    debug_events.append({"when": datetime.utcnow(), "stage":"cloudscraper","verify":None,
-                                         "ok":ok2,"blocked_by_cloudflare":blocked2,"debug":dbg2})
-                    return (ok2 and not blocked2), payload2
-
-            return (ok and not blocked), payload
-        except requests.RequestException as e2:
-            return False, {"success": False, "error": f"SSL + insecure diag failed: {e2}", "http_status": 597}
-
-    except requests.RequestException as e:
-        jlog("toppily_network_error", order_id=order_id, trx_ref=trx_ref, error=str(e))
-        return False, {"success": False, "error": str(e), "http_status": 599}
-
-# --- Express (second API) — follow provider doc strictly ---
-def _send_express_single(phone: str, network_id: int, shared_bundle_id: int,
-                         incoming_ref: str, order_id: str, debug_events: list):
+# ===== DataVerse provider caller =============================================
+def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
+                          external_ref: str, order_id: str, debug_events: list):
     """
-    Express API: POST /buy-data-package
-    Body: {
-      "recipient_msisdn": "<MSISDN>",
-      "network_id": <int>,
-      "shared_bundle": <offer_id>,
-      "incoming_api_ref": "<unique>"
-    }
+    Call DataVerse place-order endpoint for a single MTN bundle.
+    Body:
+      {
+        "network": "mtn",
+        "recipient": "<phone>",
+        "package_size": <int GB>,
+        "order_id": "<unique-ref>"
+      }
     """
-    if not EXPRESS_API_KEY:
-        err = {"success": False, "error": "EXPRESS_API_KEY not set", "http_status": 500}
-        jlog("express_config_error", order_id=order_id, ref=incoming_ref)
+    if not DATAVERSE_USERNAME or not DATAVERSE_PASSWORD:
+        err = {"status": "error", "message": "DATAVERSE credentials not configured", "http_status": 500}
+        jlog("dataverse_config_error", order_id=order_id, ref=external_ref)
         return False, err
 
+    url = f"{DATAVERSE_BASE_URL.rstrip('/')}/place-order"
     headers = {
+        "Accept": "application/json",
         "Content-Type": "application/json",
-        "x-api-key": EXPRESS_API_KEY,
-        "User-Agent": "NanDataApp/1.0 (+server)",
     }
-
     body = {
-        "recipient_msisdn": phone,
-        "network_id": int(network_id),
-        "shared_bundle": int(shared_bundle_id),   # MUST be the OFFER ID
-        "incoming_api_ref": incoming_ref
+        "network": network,
+        "recipient": phone,
+        "package_size": int(package_size_gb),
+        "order_id": external_ref,
     }
 
-    masked = phone[:3] + "***" + phone[-2:] if phone else ""
-    jlog("express_request_body", order_id=order_id, ref=incoming_ref,
-         body={"recipient_msisdn": masked, "network_id": body["network_id"], "shared_bundle": body["shared_bundle"]})
+    masked = phone[:3] + "***" + phone[-2:] if phone and len(phone) >= 5 else "***"
+    jlog(
+        "dataverse_request_body",
+        order_id=order_id,
+        ref=external_ref,
+        body={
+            "network": network,
+            "recipient": masked,
+            "package_size": body["package_size"],
+            "order_id": external_ref,
+        },
+    )
 
     try:
-        verify_val = (_CA_BUNDLE if PRIMARY_VERIFY_SSL else False)
-        resp = requests.post(EXPRESS_URL_SINGLE, headers=headers, json=body, timeout=45, verify=verify_val)
+        resp = requests.post(
+            url,
+            headers=headers,
+            json=body,
+            auth=(DATAVERSE_USERNAME, DATAVERSE_PASSWORD),
+            timeout=45,
+        )
         text = resp.text or ""
         try:
             payload = resp.json()
         except Exception:
             payload = {"raw": text} if text else {}
-        dbg = _resp_debug(resp, text)
-        ok = resp.ok  # provider may omit success flag; rely on HTTP status
-        jlog("express_call", order_id=order_id, ref=incoming_ref, verify=bool(verify_val), ok=ok,
-             status=resp.status_code, debug=dbg)
-        debug_events.append({"when": datetime.utcnow(), "stage":"express-single","verify":bool(verify_val),
-                             "ok":ok,"debug":dbg})
-        payload.setdefault("http_status", resp.status_code)
+
+        ok = (
+            resp.status_code == 200
+            and isinstance(payload, dict)
+            and str(payload.get("status", "")).lower() in ("success", "true")
+        )
+        if isinstance(payload, dict):
+            payload.setdefault("http_status", resp.status_code)
+
+        dbg = {
+            "status": resp.status_code,
+            "body_len": len(text),
+        }
+        # 🔍 log full response payload for debugging
+        jlog("dataverse_response", order_id=order_id, ref=external_ref, payload=payload)
+        jlog("dataverse_call", order_id=order_id, ref=external_ref, ok=ok, debug=dbg)
+        debug_events.append(
+            {
+                "when": datetime.utcnow(),
+                "stage": "dataverse-place-order",
+                "ok": ok,
+                "http_status": resp.status_code,
+            }
+        )
         return ok, payload
+
     except requests.RequestException as e:
-        jlog("express_network_error", order_id=order_id, ref=incoming_ref, error=str(e))
-        return False, {"success": False, "error": str(e), "http_status": 599}
+        jlog("dataverse_network_error", order_id=order_id, ref=external_ref, error=str(e))
+        return False, {"status": "error", "message": str(e), "http_status": 599}
 
-# (Optional) bulk helper (kept for future batching)
-def _send_express_bulk(orders: list, incoming_ref: str, order_id: str, debug_events: list):
-    """
-    orders: [{ recipient_msisdn, network_id, shared_bundle, incoming_api_ref }, ...]
-    """
-    if not EXPRESS_API_KEY:
-        err = {"success": False, "error": "EXPRESS_API_KEY not set", "http_status": 500}
-        jlog("express_config_error", order_id=order_id, ref=incoming_ref)
-        return False, err
-    headers = {
-        "Content-Type": "application/json",
-        "x-api-key": EXPRESS_API_KEY,
-        "User-Agent": "NanDataApp/1.0 (+server)",
-    }
-    body = {"orders": orders}
-    jlog("express_bulk_request_body", order_id=order_id, ref=incoming_ref, count=len(orders))
-
-    try:
-        verify_val = (_CA_BUNDLE if PRIMARY_VERIFY_SSL else False)
-        resp = requests.post(EXPRESS_URL_BULK, headers=headers, json=body, timeout=60, verify=verify_val)
-        text = resp.text or ""
-        try:
-            payload = resp.json()
-        except Exception:
-            payload = {"raw": text} if text else {}
-        dbg = _resp_debug(resp, text)
-        ok = resp.ok
-        jlog("express_bulk_call", order_id=order_id, ref=incoming_ref, verify=bool(verify_val), ok=ok,
-             status=resp.status_code, debug=dbg)
-        debug_events.append({"when": datetime.utcnow(), "stage":"express-bulk","verify":bool(verify_val),
-                             "ok":ok,"debug":dbg})
-        payload.setdefault("http_status", resp.status_code)
-        return ok, payload
-    except requests.RequestException as e:
-        jlog("express_network_error", order_id=order_id, ref=incoming_ref, error=str(e))
-        return False, {"success": False, "error": str(e), "http_status": 599}
-
-# ===== Unavailability checker =================================================
+# ===== Unavailability checker ================================================
 def _service_unavailability_reason(svc_doc: dict):
     """
     Returns (is_unavailable, reason_text)
@@ -476,7 +388,6 @@ def _service_unavailability_reason(svc_doc: dict):
     return False, ""
 
 # ===== Duplicate-in-processing guard =========================================
-# “Few minutes” window — tweak as needed.
 DUP_WINDOW_MINUTES = 30
 
 def _normalize_amount_key(v):
@@ -486,41 +397,25 @@ def _normalize_amount_key(v):
     except Exception:
         return 0.0
 
-### Bundle-key builder (what defines “same GB”)
-def _build_bundle_key(is_express: bool, shared_bundle, value_obj: dict):
-    """
-    Returns a normalized key describing the exact bundle chosen.
-    - Express: key = ("offer", <offer_id>)
-    - Toppily: key = ("vol", <MB volume>)
-    Falls back to value_obj.id / value_obj.volume if shared_bundle is None.
-    """
-    if is_express:
-        val = shared_bundle
-        if val is None:
-            val = (value_obj or {}).get("id")
-        try:
-            return ("offer", int(val)) if val is not None else None
-        except Exception:
-            return None
-    else:
-        val = shared_bundle
-        if val is None:
-            val = (value_obj or {}).get("volume")
-        try:
-            return ("vol", int(val)) if val is not None else None
-        except Exception:
-            return None
-
-### STRICT conflict based on (phone, network_id, bundle_key, amount)
-def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_name: str | None,
-                                    network_id: int | None, bundle_key: tuple | None, amount_key: float) -> bool:
+def _has_processing_conflict_strict(
+    phone: str,
+    service_id_raw: str | None,
+    svc_name: str | None,
+    network_id: int | None,
+    bundle_key: tuple | None,
+    amount_key: float,
+) -> bool:
     """
     True if there exists an order in 'processing' (within window) for:
       - same phone
       - same network_id
-      - same bundle_key (('offer', id) or ('vol', mb))
+      - same bundle_key
       - same amount (line amount the customer pays)
     Optionally narrowed by same serviceId when available.
+
+    ✅ This ensures:
+      - If 0530393625 + 1GB + same amount is already processing,
+        a new identical request is SKIPPED and never hits the API.
     """
     if not phone or network_id is None or bundle_key is None:
         return False  # cannot assert strict duplicate without the triad
@@ -542,7 +437,7 @@ def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_
     q = {
         "status": "processing",
         "created_at": {"$gte": window_start},
-        "items": {"$elemMatch": elem}
+        "items": {"$elemMatch": elem},
     }
     if orders_col.find_one(q, {"_id": 1}):
         return True
@@ -563,7 +458,7 @@ def _has_processing_conflict_strict(phone: str, service_id_raw: str | None, svc_
     q2 = {
         "status": "processing",
         "created_at": {"$gte": window_start},
-        "items": {"$elemMatch": alt}
+        "items": {"$elemMatch": alt},
     }
     return bool(orders_col.find_one(q2, {"_id": 1}))
 
@@ -605,8 +500,8 @@ def process_checkout():
         results = []
         debug_events = []
 
-        # We will charge for: successful API lines + any line we keep "processing"
-        total_delivered_api_amount = 0.0   # stays 0 because we no longer mark anything delivered immediately
+        # We will charge for: successful provider lines + any line we keep "processing"
+        total_delivered_api_amount = 0.0   # stays 0 because we do not mark anything delivered immediately
         total_processing_amount = 0.0
         api_requested_total = 0.0
         has_processing = False
@@ -627,7 +522,6 @@ def process_checkout():
             svc_doc = None
             svc_type = None
             svc_name = item.get("serviceName") or None
-            service_category = None
 
             # Resolve service and its type/category (+ offers for base recovery)
             if service_id_raw:
@@ -635,16 +529,23 @@ def process_checkout():
                     svc_doc = services_col.find_one(
                         {"_id": ObjectId(service_id_raw)},
                         {
-                            "type": 1, "network_id": 1, "name": 1, "network": 1,
-                            "offers": 1, "default_profit_percent": 1, "service_category": 1,
-                            "status": 1, "availability": 1
-                        }
+                            "type": 1,
+                            "network_id": 1,
+                            "name": 1,
+                            "network": 1,
+                            "offers": 1,
+                            "default_profit_percent": 1,
+                            "service_category": 1,
+                            "status": 1,
+                            "availability": 1,
+                            "service_network": 1,
+                        },
                     )
                     if svc_doc:
                         st = svc_doc.get("type")
                         svc_type = (st.strip().upper() if isinstance(st, str) else st)
+                        # prefer svc_doc name
                         svc_name = svc_doc.get("name") or svc_doc.get("network") or svc_name
-                        service_category = (svc_doc.get("service_category") or "").strip().lower()
                 except Exception:
                     svc_doc = None
                     svc_type = None
@@ -653,37 +554,64 @@ def process_checkout():
             is_unavail, reason_text = _service_unavailability_reason(svc_doc)
             if is_unavail:
                 # Stop the entire checkout and return explicit reason
-                return jsonify({
-                    "success": False,
-                    "message": reason_text,              # "Out of stock" or "Closed"
-                    "unavailable": {
-                        "serviceId": service_id_raw,
-                        "serviceName": svc_name,
-                        "reason": reason_text
+                return jsonify(
+                    {
+                        "success": False,
+                        "message": reason_text,  # "Out of stock" or "Closed"
+                        "unavailable": {
+                            "serviceId": service_id_raw,
+                            "serviceName": svc_name,
+                            "reason": reason_text,
+                        },
                     }
-                }), 400
+                ), 400
 
-            # ---------- Decide provider (needed early for duplicate key building) ----------
-            is_express = (service_category == "express services")
-
-            # ---------- Resolve API-needed fields early (for duplicate key) ----------
+            # ---------- Resolve fields used for duplicate guard ----------
             network_id = _resolve_network_id(item, value_obj, svc_doc)
-            if is_express:
-                shared_bundle = _resolve_shared_bundle_express(item, value_obj)   # USE OFFER ID
-            else:
-                shared_bundle = _resolve_shared_bundle_toppily(item, value_obj)   # USE VOLUME (MB)
-
-            bundle_key = _build_bundle_key(is_express, shared_bundle, value_obj)   # e.g., ('offer', 123) or ('vol', 2048)
+            bundle_key = _build_bundle_key(value_obj, item)   # generic duplication key
 
             # ----- IN-CART duplicate guard (same number + same network + same bundle + same amount) -----
             if phone and (network_id is not None) and (bundle_key is not None):
-                cart_key = (phone, int(network_id), int(bundle_key[1]), bundle_key[0], amount_key)
+                cart_key = (phone, int(network_id), bundle_key[1], bundle_key[0], amount_key)
                 if cart_key in seen_keys:
-                    results.append({
+                    results.append(
+                        {
+                            "phone": phone,
+                            "base_amount": 0.0,
+                            "amount": 0.0,  # not charged
+                            "originally_requested_amount": amt_total,
+                            "profit_amount": 0.0,
+                            "profit_percent_used": 0.0,
+                            "value": item.get("value"),
+                            "value_obj": value_obj,
+                            "serviceId": service_id_raw,
+                            "serviceName": svc_name,
+                            "service_type": svc_type if svc_type else ("unknown" if not svc_doc else None),
+                            "network_id": network_id,
+                            "bundle_key": {"kind": bundle_key[0], "value": bundle_key[1]},
+                            "line_amount_key": amount_key,
+                            "line_status": "skipped_duplicate_in_cart",
+                            "api_status": "skipped",
+                            "api_response": {
+                                "note": "Duplicate line in this cart (same number, network, bundle, amount)"
+                            },
+                        }
+                    )
+                    continue
+                seen_keys.add(cart_key)
+
+            # ----- DUPLICATE-IN-PROCESSING GUARD (strict + amount) -------------------------
+            is_dup_strict = _has_processing_conflict_strict(
+                phone, service_id_raw, svc_name, network_id, bundle_key, amount_key
+            )
+            if is_dup_strict:
+                # ✅ This line is NOT charged and NOT sent to API
+                results.append(
+                    {
                         "phone": phone,
                         "base_amount": 0.0,
                         "amount": 0.0,  # not charged
-                        "originally_requested_amount": amt_total,
+                        "originally_requested_amount": amt_total,  # for audit
                         "profit_amount": 0.0,
                         "profit_percent_used": 0.0,
                         "value": item.get("value"),
@@ -692,42 +620,15 @@ def process_checkout():
                         "serviceName": svc_name,
                         "service_type": svc_type if svc_type else ("unknown" if not svc_doc else None),
                         "network_id": network_id,
-                        "bundle_key": {"kind": bundle_key[0], "value": bundle_key[1]},
+                        "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
                         "line_amount_key": amount_key,
-                        "line_status": "skipped_duplicate_in_cart",
+                        "line_status": "skipped_duplicate_processing",
                         "api_status": "skipped",
-                        "api_response": {"note": "Duplicate line in this cart (same number, network, bundle, amount)"}
-                    })
-                    continue
-                seen_keys.add(cart_key)
-
-            # ----- DUPLICATE-IN-PROCESSING GUARD (strict + amount) -------------------------
-            # Only block if the same phone + same network + same bundle + same amount is already processing.
-            is_dup_strict = _has_processing_conflict_strict(
-                phone, service_id_raw, svc_name, network_id, bundle_key, amount_key
-            )
-            if is_dup_strict:
-                results.append({
-                    "phone": phone,
-                    "base_amount": 0.0,
-                    "amount": 0.0,  # not charged
-                    "originally_requested_amount": amt_total,  # for audit
-                    "profit_amount": 0.0,
-                    "profit_percent_used": 0.0,
-                    "value": item.get("value"),
-                    "value_obj": value_obj,
-                    "serviceId": service_id_raw,
-                    "serviceName": svc_name,
-                    "service_type": svc_type if svc_type else ("unknown" if not svc_doc else None),
-                    "network_id": network_id,
-                    "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
-                    "line_amount_key": amount_key,
-                    "line_status": "skipped_duplicate_processing",
-                    "api_status": "skipped",
-                    "api_response": {
-                        "note": "Same number + same network + same bundle + same amount already processing; skipping."
+                        "api_response": {
+                            "note": "Same number + same network + same bundle + same amount already processing; skipping."
+                        },
                     }
-                })
+                )
                 continue
 
             # --- Compute base_amount & profit_amount (ABSOLUTE) ---
@@ -740,38 +641,122 @@ def process_checkout():
             base_amount, profit_amount = _derive_base_profit(amt_total, base_hint, eff_p)
             profit_amount_total += profit_amount
 
-            # ---------- NON-API path → FORCE processing and CHARGE ----------
-            if not svc_doc or (svc_type and str(svc_type).upper() != "API"):
+            # ---------------- DETERMINE DATAVERSE vs MANUAL ----------------
+            # No service doc at all → manual processing (still charge)
+            if not svc_doc:
                 has_processing = True
                 total_processing_amount += amt_total
-                results.append({
-                    "phone": phone,
-                    "base_amount": base_amount,
-                    "amount": amt_total,
-                    "profit_amount": profit_amount,
-                    "profit_percent_used": eff_p,
-                    "value": item.get("value"),
-                    "value_obj": value_obj,
-                    "serviceId": service_id_raw,
-                    "serviceName": svc_name,
-                    "service_type": svc_type if svc_type else ("unknown" if not svc_doc else None),
-                    "network_id": network_id,
-                    "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
-                    "line_amount_key": amount_key,
-                    "line_status": "processing",                    # never 'failed'
-                    "api_status": "not_applicable",
-                    "api_response": {"note": "Service not API; queued for processing"}
-                })
+                results.append(
+                    {
+                        "phone": phone,
+                        "base_amount": base_amount,
+                        "amount": amt_total,
+                        "profit_amount": profit_amount,
+                        "profit_percent_used": eff_p,
+                        "value": item.get("value"),
+                        "value_obj": value_obj,
+                        "serviceId": service_id_raw,
+                        "serviceName": svc_name,
+                        "service_type": svc_type if svc_type else "unknown",
+                        "network_id": network_id,
+                        "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                        "line_amount_key": amount_key,
+                        "line_status": "processing",
+                        "api_status": "not_applicable",
+                        "api_response": {"note": "Service not found; queued for processing"},
+                    }
+                )
                 continue
 
-            # ---------- API path ----------
+            # ✅ Only MTN EXPRESS + MTN network should go through DataVerse
+            dataverse_network = _resolve_dataverse_network(svc_doc, item)
+            svc_name_norm = (svc_name or "").strip().lower()
+            is_mtn_express = (svc_name_norm == "mtn express")
+            use_dataverse = (dataverse_network == "mtn" and is_mtn_express)
+
+            if not use_dataverse:
+                # Any non-MTN EXPRESS service (even MTN NORMAL) → manual processing
+                has_processing = True
+                total_processing_amount += amt_total
+                results.append(
+                    {
+                        "phone": phone,
+                        "base_amount": base_amount,
+                        "amount": amt_total,
+                        "profit_amount": profit_amount,
+                        "profit_percent_used": eff_p,
+                        "value": item.get("value"),
+                        "value_obj": value_obj,
+                        "serviceId": service_id_raw,
+                        "serviceName": svc_name,
+                        "service_type": svc_type,
+                        "network_id": network_id,
+                        "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                        "line_amount_key": amount_key,
+                        "line_status": "processing",
+                        "api_status": "not_applicable_network",
+                        "api_response": {
+                            "note": "Dataverse API is used only for 'MTN EXPRESS' MTN bundles; queued for manual processing.",
+                            "dataverse_network": dataverse_network,
+                            "serviceName": svc_name,
+                        },
+                    }
+                )
+                continue
+
+            # From here: ONLY MTN EXPRESS (MTN) lines reach this point → API-eligible
             api_requested_total += amt_total
 
-            # If missing fields for API → treat as processing and charge (keep previous behavior)
-            if not phone or network_id is None or bundle_key is None:
+            # MTN DataVerse path: need phone + package_size_gb
+            package_size_gb = _resolve_package_size_gb(value_obj, item)
+            if not phone or package_size_gb is None:
                 has_processing = True
                 total_processing_amount += amt_total
-                results.append({
+                results.append(
+                    {
+                        "phone": phone,
+                        "base_amount": base_amount,
+                        "amount": amt_total,
+                        "profit_amount": profit_amount,
+                        "profit_percent_used": eff_p,
+                        "value": item.get("value"),
+                        "value_obj": value_obj,
+                        "serviceId": service_id_raw,
+                        "serviceName": svc_name,
+                        "service_type": svc_type,
+                        "network_id": network_id,
+                        "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                        "line_amount_key": amount_key,
+                        "line_status": "processing",
+                        "api_status": "skipped_missing_fields",
+                        "api_response": {
+                            "note": "API fields missing; queued for processing",
+                            "got": {
+                                "phone": bool(phone),
+                                "dataverse_network": dataverse_network,
+                                "package_size_gb": package_size_gb,
+                            },
+                        },
+                    }
+                )
+                continue
+
+            # We have a valid MTN EXPRESS → DataVerse line → call provider
+            external_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
+            ok, payload = _send_dataverse_order(phone, "mtn", package_size_gb, external_ref, order_id, debug_events)
+
+            provider_ref = None
+            provider_order_id = None
+            if isinstance(payload, dict):
+                # Some responses use "reference", others "order_reference"
+                provider_ref = payload.get("reference") or payload.get("order_reference")
+                provider_order_id = payload.get("order_id")
+
+            # Regardless of provider success, we keep status as processing and charge
+            has_processing = True
+            total_processing_amount += amt_total
+            results.append(
+                {
                     "phone": phone,
                     "base_amount": base_amount,
                     "amount": amt_total,
@@ -782,79 +767,19 @@ def process_checkout():
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
                     "service_type": svc_type,
+                    "provider": "dataverse",
+                    "provider_network": "mtn",
+                    "provider_reference": provider_ref,            # reference from provider response
+                    "provider_order_id": provider_order_id,        # numeric provider order_id, if any
+                    "provider_request_order_id": external_ref,     # what we sent as order_id
                     "network_id": network_id,
                     "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
                     "line_amount_key": amount_key,
-                    "line_status": "processing",
-                    "api_status": "skipped_missing_fields",
-                    "api_response": {
-                        "note": "API fields missing; queued for processing",
-                        "got": {"phone": bool(phone), "network_id": network_id, "bundle_key": bundle_key}
-                    }
-                })
-                continue
-
-            # We have network_id and bundle_key resolved → map shared_bundle for provider call
-            if is_express:
-                shared_bundle_id = int(bundle_key[1])  # offer id
-                trx_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
-                ok, payload = _send_express_single(phone, int(network_id), shared_bundle_id, trx_ref, order_id, debug_events)
-                api_tag = "express"
-            else:
-                shared_bundle_mb = int(bundle_key[1])  # volume MB
-                trx_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
-                ok, payload = _send_toppily_shared_bundle(phone, int(network_id), shared_bundle_mb, trx_ref, order_id, debug_events)
-                api_tag = "toppily"
-
-            if ok:
-                # === SUCCESSFUL provider response -> STILL mark as processing ===
-                has_processing = True
-                total_processing_amount += amt_total
-                results.append({
-                    "phone": phone,
-                    "base_amount": base_amount,
-                    "amount": amt_total,
-                    "profit_amount": profit_amount,
-                    "profit_percent_used": eff_p,
-                    "value": item.get("value"),
-                    "value_obj": value_obj,
-                    "serviceId": service_id_raw,
-                    "serviceName": svc_name,
-                    "service_type": svc_type,
-                    "provider": api_tag,
-                    "trx_ref": trx_ref,
-                    "network_id": network_id,
-                    "bundle_key": {"kind": bundle_key[0], "value": bundle_key[1]},
-                    "line_amount_key": amount_key,
-                    "line_status": "processing",     # <— important: not 'delivered'
-                    "api_status": "success",
-                    "api_response": payload
-                })
-                # NOTE: do NOT increment total_delivered_api_amount
-            else:
-                # Provider error → keep processing and CHARGE
-                has_processing = True
-                total_processing_amount += amt_total
-                results.append({
-                    "phone": phone,
-                    "base_amount": base_amount,
-                    "amount": amt_total,
-                    "profit_amount": profit_amount,
-                    "profit_percent_used": eff_p,
-                    "value": item.get("value"),
-                    "value_obj": value_obj,
-                    "serviceId": service_id_raw,
-                    "serviceName": svc_name,
-                    "service_type": svc_type,
-                    "provider": api_tag,
-                    "trx_ref": trx_ref,
-                    "network_id": network_id,
-                    "bundle_key": {"kind": bundle_key[0], "value": bundle_key[1]},
-                    "line_amount_key": amount_key,
-                    "line_status": "processing",
-                    "api_status": "processing",
-                    "api_response": payload
-                })
+                    "line_status": "processing",     # important: not 'delivered'
+                    "api_status": "success" if ok else "processing",
+                    "api_response": payload,
+                }
+            )
 
         # keep last debug entries
         if len(debug_events) > 10:
@@ -865,96 +790,124 @@ def process_checkout():
 
         # ==== Nothing to charge now (e.g., all lines were skipped as duplicates) ====
         if total_to_charge_now <= 0:
-            orders_col.insert_one({
-                "user_id": user_id,
-                "order_id": order_id,
-                "items": results,                    # contains skipped_duplicate lines (amount 0)
-                "total_amount": 0.0,
-                "charged_amount": 0.0,
-                "profit_amount_total": 0.0,
-                "status": "skipped",
-                "paid_from": method,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
-                "debug": {"events": debug_events}
-            })
+            orders_col.insert_one(
+                {
+                    "user_id": user_id,
+                    "order_id": order_id,
+                    "items": results,  # contains skipped_duplicate lines (amount 0)
+                    "total_amount": 0.0,
+                    "charged_amount": 0.0,
+                    "profit_amount_total": 0.0,
+                    "status": "skipped",
+                    "paid_from": method,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                    "debug": {"events": debug_events},
+                }
+            )
 
-            skipped_count = sum(1 for it in results if it.get("line_status") in ("skipped_duplicate_processing","skipped_duplicate_in_cart"))
+            skipped_count = sum(
+                1
+                for it in results
+                if it.get("line_status") in ("skipped_duplicate_processing", "skipped_duplicate_in_cart")
+            )
 
-            return jsonify({
-                "success": True,
-                "message": ("No charge taken. {n} item(s) were skipped because the same phone, network, bundle, "
-                            "and amount already has an order in processing or duplicated in cart.").format(n=skipped_count),
-                "order_id": order_id,
-                "status": "skipped",
-                "charged_amount": 0.0,
-                "profit_amount_total": 0.0,
-                "skipped_count": skipped_count,
-                "items": results
-            }), 200
+            return (
+                jsonify(
+                    {
+                        "success": True,
+                        "message": (
+                            "No charge taken. {n} item(s) were skipped because the same phone, network, bundle, "
+                            "and amount already has an order in processing or duplicated in cart."
+                        ).format(n=skipped_count),
+                        "order_id": order_id,
+                        "status": "skipped",
+                        "charged_amount": 0.0,
+                        "profit_amount_total": 0.0,
+                        "skipped_count": skipped_count,
+                        "items": results,
+                    }
+                ),
+                200,
+            )
 
         # Deduct balance for the amount we are charging now
         balances_col.update_one(
             {"user_id": user_id},
             {"$inc": {"amount": -total_to_charge_now}, "$set": {"updated_at": datetime.utcnow()}},
-            upsert=True
+            upsert=True,
         )
 
         # Overall order status: ALWAYS processing (even if all provider calls succeeded)
         status = "processing"
 
         # Persist order
-        orders_col.insert_one({
-            "user_id": user_id,
-            "order_id": order_id,
-            "items": results,
-            "total_amount": total_requested,                # cart grand total (UI computed)
-            "charged_amount": total_to_charge_now,          # charged now
-            "profit_amount_total": round(profit_amount_total, 2),
-            "status": status,                               # processing
-            "paid_from": method,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
-            "debug": {"events": debug_events}
-        })
+        orders_col.insert_one(
+            {
+                "user_id": user_id,
+                "order_id": order_id,
+                "items": results,
+                "total_amount": total_requested,  # cart grand total (UI computed)
+                "charged_amount": total_to_charge_now,  # charged now
+                "profit_amount_total": round(profit_amount_total, 2),
+                "status": status,  # processing
+                "paid_from": method,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+                "debug": {"events": debug_events},
+            }
+        )
 
         # Record transaction for the amount actually charged now
-        transactions_col.insert_one({
-            "user_id": user_id,
-            "amount": total_to_charge_now,
-            "reference": order_id,
-            "status": "success",
-            "type": "purchase",
-            "gateway": "Wallet",
-            "currency": "GHS",
-            "created_at": datetime.utcnow(),
-            "verified_at": datetime.utcnow(),
-            "meta": {
-                "order_status": status,
-                "api_delivered_amount": round(total_delivered_api_amount, 2),  # likely 0.0
-                "processing_amount": round(total_processing_amount, 2),
-                "profit_amount_total": round(profit_amount_total, 2)
+        transactions_col.insert_one(
+            {
+                "user_id": user_id,
+                "amount": total_to_charge_now,
+                "reference": order_id,
+                "status": "success",
+                "type": "purchase",
+                "gateway": "Wallet",
+                "currency": "GHS",
+                "created_at": datetime.utcnow(),
+                "verified_at": datetime.utcnow(),
+                "meta": {
+                    "order_status": status,
+                    "api_delivered_amount": round(total_delivered_api_amount, 2),  # likely 0.0
+                    "processing_amount": round(total_processing_amount, 2),
+                    "profit_amount_total": round(profit_amount_total, 2),
+                },
             }
-        })
+        )
 
-        skipped_count = sum(1 for it in results if it.get("line_status") in ("skipped_duplicate_processing","skipped_duplicate_in_cart"))
+        skipped_count = sum(
+            1
+            for it in results
+            if it.get("line_status") in ("skipped_duplicate_processing", "skipped_duplicate_in_cart")
+        )
         processing_count = sum(1 for it in results if it.get("line_status") == "processing")
 
         # Response message (always processing to frontend)
-        msg = ("📝 Order received and is processing. "
-               "We’ve charged your wallet. Order ID: {oid}").format(oid=order_id)
+        msg = (
+            "📝 Order received and is processing. "
+            "We’ve charged your wallet. Order ID: {oid}"
+        ).format(oid=order_id)
 
-        return jsonify({
-            "success": True,
-            "message": msg,
-            "order_id": order_id,
-            "status": status,
-            "charged_amount": total_to_charge_now,
-            "profit_amount_total": round(profit_amount_total, 2),
-            "processing_count": processing_count,
-            "skipped_count": skipped_count,
-            "items": results
-        }), 200
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "message": msg,
+                    "order_id": order_id,
+                    "status": status,
+                    "charged_amount": total_to_charge_now,
+                    "profit_amount_total": round(profit_amount_total, 2),
+                    "processing_count": processing_count,
+                    "skipped_count": skipped_count,
+                    "items": results,
+                }
+            ),
+            200,
+        )
 
     except Exception:
         jlog("checkout_uncaught", error=traceback.format_exc())
