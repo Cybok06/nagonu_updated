@@ -668,16 +668,40 @@ def process_checkout():
                 )
                 continue
 
-            # ✅ Only MTN EXPRESS + MTN network should go through DataVerse
+            # ✅ Only MTN EXPRESS + MTN network + TYPE=ON should go through DataVerse
             dataverse_network = _resolve_dataverse_network(svc_doc, item)
             svc_name_norm = (svc_name or "").strip().lower()
             is_mtn_express = (svc_name_norm == "mtn express")
-            use_dataverse = (dataverse_network == "mtn" and is_mtn_express)
+
+            # NEW: respect service.type as ON/OFF toggle for API
+            svc_type_flag = (svc_type or "").strip().upper() if isinstance(svc_type, str) else ""
+            type_allows_api = (svc_type_flag == "ON")
+
+            use_dataverse = (dataverse_network == "mtn" and is_mtn_express and type_allows_api)
 
             if not use_dataverse:
-                # Any non-MTN EXPRESS service (even MTN NORMAL) → manual processing
+                # Any case where:
+                #  - not MTN, or
+                #  - not MTN EXPRESS by name, or
+                #  - TYPE is OFF (API disabled)
+                # → manual processing
                 has_processing = True
                 total_processing_amount += amt_total
+
+                # Note reason for debugging
+                if svc_type_flag == "OFF":
+                    note = (
+                        "Dataverse API disabled for this service because type is OFF; "
+                        "queued for manual processing."
+                    )
+                    api_status = "not_applicable_type_off"
+                else:
+                    note = (
+                        "Dataverse API is used only for 'MTN EXPRESS' MTN bundles with type=ON; "
+                        "queued for manual processing."
+                    )
+                    api_status = "not_applicable_network"
+
                 results.append(
                     {
                         "phone": phone,
@@ -694,17 +718,18 @@ def process_checkout():
                         "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
                         "line_amount_key": amount_key,
                         "line_status": "processing",
-                        "api_status": "not_applicable_network",
+                        "api_status": api_status,
                         "api_response": {
-                            "note": "Dataverse API is used only for 'MTN EXPRESS' MTN bundles; queued for manual processing.",
+                            "note": note,
                             "dataverse_network": dataverse_network,
                             "serviceName": svc_name,
+                            "service_type_flag": svc_type_flag,
                         },
                     }
                 )
                 continue
 
-            # From here: ONLY MTN EXPRESS (MTN) lines reach this point → API-eligible
+            # From here: ONLY MTN EXPRESS (MTN) lines with TYPE=ON reach this point → API-eligible
             api_requested_total += amt_total
 
             # MTN DataVerse path: need phone + package_size_gb
