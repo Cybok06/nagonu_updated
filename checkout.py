@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, session
 from bson import ObjectId
 from datetime import datetime, timedelta
-import os, uuid, random, requests, traceback, json, ast, re
+import os, uuid, random, requests, traceback, json, ast, re, base64
 
 from db import db
 
@@ -17,7 +17,23 @@ service_profits_col = db["service_profits"]  # per-customer overrides
 # ===== DataVerse Provider Config (HARDCODED as requested) ====================
 DATAVERSE_BASE_URL = "https://dataversegh.pro/wp-json/custom/v1"
 DATAVERSE_USERNAME = "Nyebro"
-DATAVERSE_PASSWORD = "TazgH924s29FaF1UUOzxyzPT"
+DATAVERSE_PASSWORD = "EWzk0g0xetm7c5g2rDjB9opR"  # UPDATED PASSWORD
+
+# ===== Portal-02 Provider Config =============================================
+PORTAL02_BASE_URL = "https://www.portal-02.com/api/v1"
+PORTAL02_API_KEY = os.getenv("PORTAL02_API_KEY", "dk_mJmQDFQWmDId4RT_c5HrEghcgwujPAFf")
+PORTAL02_WEBHOOK_URL = os.getenv(
+    "PORTAL02_WEBHOOK_URL",
+    "https://www.portal-02.com/api/webhooks/orders",
+)
+
+# Default offer slugs (can be overridden per-service or per-item)
+# MTN "Master Beneficiary Data Bundle"
+PORTAL02_OFFER_SLUG_MTN_NORMAL = "master_beneficiary_data_bundle"
+# Telecel Expiry Bundle
+PORTAL02_OFFER_SLUG_TELECEL = "telecel_expiry_bundle"
+# AirtelTigo iShare Data Bundle
+PORTAL02_OFFER_SLUG_ISHARE = "ishare_data_bundle"
 
 # Network ID fallback (kept for internal use / reporting, not for provider)
 NETWORK_ID_FALLBACK = {
@@ -139,7 +155,7 @@ def _derive_base_profit(amount_total, base_amount_hint, eff_percent):
 def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
     """
     Internal numeric network ID, used only for duplicate guards / reporting.
-    Not sent to DataVerse.
+    Not sent to providers.
     """
     nid = (item or {}).get("network_id") or (value_obj or {}).get("network_id")
     if nid not in (None, "", []):
@@ -164,14 +180,10 @@ def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
 
 def _resolve_dataverse_network(svc_doc: dict | None, item: dict) -> str | None:
     """
-    Resolve DataVerse 'network' string.
-    For now we only support MTN via the API.
-    Uses:
-      - svc_doc.service_network
-      - svc_doc.network / name
-      - stored service by name (fallback)
-      - item fields
-    Returns 'mtn' or None.
+    Resolve generic 'network' slug we also reuse for Portal-02:
+      - 'mtn'
+      - 'telecel'
+      - 'airteltigo'
     """
     doc = svc_doc
 
@@ -198,13 +210,30 @@ def _resolve_dataverse_network(svc_doc: dict | None, item: dict) -> str | None:
     candidates.append(item.get("serviceName"))
 
     joined = " ".join(str(c) for c in candidates if c).lower()
+
     if "mtn" in joined:
         return "mtn"
+
+    # Telecel / Vodafone rebrand
+    if "telecel" in joined or "vodafone" in joined:
+        return "telecel"
+
+    # AirtelTigo / AT / iShare
+    if (
+        "airteltigo" in joined
+        or "airtel tigo" in joined
+        or "airtel-tigo" in joined
+        or "at - ishare" in joined
+        or "i share" in joined
+        or "ishare" in joined
+    ):
+        return "airteltigo"
+
     return None
 
 def _resolve_package_size_gb(value_obj: dict, item: dict) -> int | None:
     """
-    Resolve DataVerse 'package_size' (integer GB).
+    Resolve bundle size (integer GB) to use as Portal/DataVerse "volume".
     Tries (in order):
       - explicit gb/size fields in value_obj
       - volume field (interpreting >50 as MB, otherwise GB)
@@ -227,7 +256,7 @@ def _resolve_package_size_gb(value_obj: dict, item: dict) -> int | None:
     if vol not in (None, "", []):
         try:
             vol_f = float(vol)
-            # Heuristic: if looks large, assume MB and convert
+            # If looks large, assume MB and convert
             if vol_f > 50:
                 gb = max(1, round(vol_f / 1024.0))
             else:
@@ -258,7 +287,6 @@ def _resolve_package_size_gb(value_obj: dict, item: dict) -> int | None:
 def _build_bundle_key(value_obj: dict, item: dict):
     """
     Build a generic bundle key for duplicate detection.
-    We don't care about provider-specific semantics anymore.
     Returns ('bundle', <normalized_value>) or None.
     """
     val = None
@@ -280,7 +308,73 @@ def _build_bundle_key(value_obj: dict, item: dict):
 
     return ("bundle", norm)
 
-# ===== DataVerse provider caller =============================================
+def _normalize_msisdn_gh(phone: str) -> str:
+    """
+    Convert Ghana numbers to international format for Portal-02.
+    Examples:
+      '0242915038' -> '233242915038'
+      '233242915038' -> '233242915038'
+    """
+    p = re.sub(r"\D", "", phone or "")
+    if not p:
+        return phone
+    if p.startswith("0") and len(p) == 10:
+        return "233" + p[1:]
+    if p.startswith("233") and len(p) == 12:
+        return p
+    return p
+
+def _resolve_portal02_offer_slug(svc_doc: dict | None, item: dict) -> str:
+    """
+    Decide which offerSlug to send to Portal-02, in this order:
+      1) item['offerSlug']
+      2) svc_doc['portal02_offer_slug']
+      3) svc_doc['offerSlug']
+      4) hard-coded defaults for known services (Telecel / iShare)
+      5) global fallback PORTAL02_OFFER_SLUG_MTN_NORMAL
+    """
+    if item.get("offerSlug"):
+        return str(item["offerSlug"])
+
+    if svc_doc:
+        # Explicit config wins
+        if svc_doc.get("portal02_offer_slug"):
+            return str(svc_doc["portal02_offer_slug"])
+        if svc_doc.get("offerSlug"):
+            return str(svc_doc["offerSlug"])
+
+        # Known service-based defaults
+        nm = str(svc_doc.get("name", "")).lower()
+        net = str(svc_doc.get("network", "")).lower()
+        combo = f"{nm} {net}"
+
+        # Telecel expiry bundle
+        if "telecel" in combo:
+            return PORTAL02_OFFER_SLUG_TELECEL
+
+        # AirtelTigo iShare
+        if (
+            "ishare" in combo
+            or "i share" in combo
+            or "at - ishare" in combo
+            or ("airtel" in combo and "tigo" in combo)
+        ):
+            return PORTAL02_OFFER_SLUG_ISHARE
+
+    # Default (MTN Master Beneficiary)
+    return PORTAL02_OFFER_SLUG_MTN_NORMAL
+
+# ===== Basic Auth header builder =============================================
+def _build_basic_auth_header() -> str:
+    """
+    Build Authorization header exactly as docs:
+      Authorization: Basic base64("username:password")
+    """
+    creds = f"{DATAVERSE_USERNAME}:{DATAVERSE_PASSWORD}"
+    token = base64.b64encode(creds.encode("utf-8")).decode("utf-8")
+    return f"Basic {token}"
+
+# ===== DataVerse provider caller (MTN EXPRESS) ===============================
 def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
                           external_ref: str, order_id: str, debug_events: list):
     """
@@ -302,6 +396,7 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
+        "Authorization": _build_basic_auth_header(),  # DOC-COMPLIANT AUTH
     }
     body = {
         "network": network,
@@ -328,7 +423,6 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
             url,
             headers=headers,
             json=body,
-            auth=(DATAVERSE_USERNAME, DATAVERSE_PASSWORD),
             timeout=45,
         )
         text = resp.text or ""
@@ -349,7 +443,6 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
             "status": resp.status_code,
             "body_len": len(text),
         }
-        # 🔍 log full response payload for debugging
         jlog("dataverse_response", order_id=order_id, ref=external_ref, payload=payload)
         jlog("dataverse_call", order_id=order_id, ref=external_ref, ok=ok, debug=dbg)
         debug_events.append(
@@ -365,6 +458,100 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
     except requests.RequestException as e:
         jlog("dataverse_network_error", order_id=order_id, ref=external_ref, error=str(e))
         return False, {"status": "error", "message": str(e), "http_status": 599}
+
+# ===== Portal-02 provider caller ============================================
+def _send_portal02_order(phone: str, network: str, volume_gb: int,
+                         offer_slug: str,
+                         external_ref: str, order_id: str, debug_events: list):
+    """
+    Call Portal-02 /order/:network endpoint for a single bundle.
+
+    Request body (SINGLE) – EXACTLY as docs:
+      {
+        "type": "single",
+        "volume": <int>,
+        "phone": "<msisdn>",
+        "offerSlug": "<slug>",
+        "webhookUrl": "<our webhook>"
+      }
+    """
+    if not PORTAL02_API_KEY or PORTAL02_API_KEY == "dk_your_api_key_here":
+        err = {
+            "success": False,
+            "error": "PORTAL02 API key not configured",
+            "type": "CONFIG_ERROR",
+            "http_status": 500,
+        }
+        jlog("portal02_config_error", order_id=order_id, ref=external_ref)
+        return False, err
+
+    url = f"{PORTAL02_BASE_URL.rstrip('/')}/order/{network}"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "x-api-key": PORTAL02_API_KEY,
+    }
+    body = {
+        "type": "single",
+        "volume": int(volume_gb),     # e.g. 1, 2, 5, 10...
+        "phone": phone,               # already normalized to 233...
+        "offerSlug": offer_slug,      # e.g. "master_beneficiary_data_bundle", "telecel_expiry_bundle", "ishare_data_bundle"
+        "webhookUrl": PORTAL02_WEBHOOK_URL,
+    }
+
+    masked = phone[:5] + "***" + phone[-2:] if phone and len(phone) >= 7 else "***"
+    jlog(
+        "portal02_request_body",
+        order_id=order_id,
+        ref=external_ref,
+        body={
+            "network": network,
+            "phone": masked,
+            "volume": body["volume"],
+            "offerSlug": body["offerSlug"],
+        },
+    )
+
+    try:
+        resp = requests.post(
+            url,
+            headers=headers,
+            json=body,
+            timeout=45,
+        )
+        text = resp.text or ""
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = {"raw": text} if text else {}
+
+        ok = (
+            resp.status_code in (200, 201)
+            and isinstance(payload, dict)
+            and bool(payload.get("success")) is True
+        )
+        if isinstance(payload, dict):
+            payload.setdefault("http_status", resp.status_code)
+
+        dbg = {
+            "status": resp.status_code,
+            "body_len": len(text),
+        }
+        jlog("portal02_response", order_id=order_id, ref=external_ref, payload=payload)
+        jlog("portal02_call", order_id=order_id, ref=external_ref, ok=ok, debug=dbg)
+        debug_events.append(
+            {
+                "when": datetime.utcnow(),
+                "stage": "portal02-place-order",
+                "ok": ok,
+                "http_status": resp.status_code,
+            }
+        )
+        return ok, payload
+
+    except requests.RequestException as e:
+        jlog("portal02_network_error", order_id=order_id, ref=external_ref, error=str(e))
+        return False, {"success": False, "error": str(e), "type": "NETWORK_ERROR", "http_status": 599}
 
 # ===== Unavailability checker ================================================
 def _service_unavailability_reason(svc_doc: dict):
@@ -412,10 +599,6 @@ def _has_processing_conflict_strict(
       - same bundle_key
       - same amount (line amount the customer pays)
     Optionally narrowed by same serviceId when available.
-
-    ✅ This ensures:
-      - If 0530393625 + 1GB + same amount is already processing,
-        a new identical request is SKIPPED and never hits the API.
     """
     if not phone or network_id is None or bundle_key is None:
         return False  # cannot assert strict duplicate without the triad
@@ -539,6 +722,8 @@ def process_checkout():
                             "status": 1,
                             "availability": 1,
                             "service_network": 1,
+                            "portal02_offer_slug": 1,
+                            "offerSlug": 1,
                         },
                     )
                     if svc_doc:
@@ -641,7 +826,7 @@ def process_checkout():
             base_amount, profit_amount = _derive_base_profit(amt_total, base_hint, eff_p)
             profit_amount_total += profit_amount
 
-            # ---------------- DETERMINE DATAVERSE vs MANUAL ----------------
+            # ---------------- DETERMINE PROVIDER vs MANUAL ----------------
             # No service doc at all → manual processing (still charge)
             if not svc_doc:
                 has_processing = True
@@ -668,37 +853,84 @@ def process_checkout():
                 )
                 continue
 
-            # ✅ Only MTN EXPRESS + MTN network + TYPE=ON should go through DataVerse
-            dataverse_network = _resolve_dataverse_network(svc_doc, item)
+            # Provider selection:
+            #  - DataVerse for MTN EXPRESS
+            #  - Portal-02 for:
+            #       * MTN NORMAL (mtn)
+            #       * TELECEL service (telecel)
+            #       * AT - iShare / AirtelTigo iShare (airteltigo)
+            resolved_network = _resolve_dataverse_network(svc_doc, item)
             svc_name_norm = (svc_name or "").strip().lower()
+            svc_network_norm = (svc_doc.get("network") or "").strip().lower() if svc_doc else ""
+            combo_name_net = f"{svc_name_norm} {svc_network_norm}"
+
             is_mtn_express = (svc_name_norm == "mtn express")
+            is_mtn_normal = (svc_name_norm == "mtn normal")
+            is_telecel_bundle = ("telecel" in combo_name_net)
+            is_ishare_bundle = (
+                "ishare" in combo_name_net
+                or "i share" in combo_name_net
+                or "at - ishare" in combo_name_net
+            )
 
-            # NEW: respect service.type as ON/OFF toggle for API
+            # Allow "API" and "ON" as API-enabled flags
             svc_type_flag = (svc_type or "").strip().upper() if isinstance(svc_type, str) else ""
-            type_allows_api = (svc_type_flag == "ON")
+            type_allows_api = svc_type_flag in ("ON", "API")
 
-            use_dataverse = (dataverse_network == "mtn" and is_mtn_express and type_allows_api)
+            # For TELECEL + AT iShare we FORCE API even if type is OFF
+            api_allowed = type_allows_api or is_telecel_bundle or is_ishare_bundle
 
-            if not use_dataverse:
+            # DataVerse: MTN EXPRESS only
+            use_dataverse = (resolved_network == "mtn" and is_mtn_express and api_allowed)
+
+            # Portal-02: MTN NORMAL / TELECEL / AIRTELTIGO iShare
+            portal02_network_slug = None
+            if api_allowed:
+                if resolved_network == "mtn" and is_mtn_normal:
+                    portal02_network_slug = "mtn"
+                elif resolved_network == "telecel" and is_telecel_bundle:
+                    portal02_network_slug = "telecel"
+                elif resolved_network == "airteltigo" and is_ishare_bundle:
+                    portal02_network_slug = "airteltigo"
+
+            use_portal02 = portal02_network_slug is not None
+
+            jlog(
+                "checkout_line_routing",
+                order_id=order_id,
+                idx=idx,
+                serviceId=service_id_raw,
+                svc_name=svc_name,
+                resolved_network=resolved_network,
+                svc_type_flag=svc_type_flag,
+                is_mtn_express=is_mtn_express,
+                is_mtn_normal=is_mtn_normal,
+                is_telecel_bundle=is_telecel_bundle,
+                is_ishare_bundle=is_ishare_bundle,
+                api_allowed=api_allowed,
+                use_dataverse=use_dataverse,
+                use_portal02=use_portal02,
+                portal02_network_slug=portal02_network_slug,
+            )
+
+            if not (use_dataverse or use_portal02):
                 # Any case where:
-                #  - not MTN, or
-                #  - not MTN EXPRESS by name, or
-                #  - TYPE is OFF (API disabled)
+                #  - API disabled, or
+                #  - network not mapped to provider
                 # → manual processing
                 has_processing = True
                 total_processing_amount += amt_total
 
-                # Note reason for debugging
-                if svc_type_flag == "OFF":
+                if not api_allowed:
                     note = (
-                        "Dataverse API disabled for this service because type is OFF; "
+                        "API calls disabled for this service (type OFF and not a mapped Telecel/iShare); "
                         "queued for manual processing."
                     )
                     api_status = "not_applicable_type_off"
                 else:
                     note = (
-                        "Dataverse API is used only for 'MTN EXPRESS' MTN bundles with type=ON; "
-                        "queued for manual processing."
+                        "API is used for MTN EXPRESS (DataVerse) and MTN NORMAL / TELECEL / AIRTELTIGO iShare "
+                        "via Portal-02, but this line did not match any mapped combination; queued for manual processing."
                     )
                     api_status = "not_applicable_network"
 
@@ -721,7 +953,7 @@ def process_checkout():
                         "api_status": api_status,
                         "api_response": {
                             "note": note,
-                            "dataverse_network": dataverse_network,
+                            "resolved_network": resolved_network,
                             "serviceName": svc_name,
                             "service_type_flag": svc_type_flag,
                         },
@@ -729,10 +961,10 @@ def process_checkout():
                 )
                 continue
 
-            # From here: ONLY MTN EXPRESS (MTN) lines with TYPE=ON reach this point → API-eligible
+            # From here: ONLY API-eligible lines reach this point → provider call
             api_requested_total += amt_total
 
-            # MTN DataVerse path: need phone + package_size_gb
+            # Need phone + package_size_gb / volume_gb
             package_size_gb = _resolve_package_size_gb(value_obj, item)
             if not phone or package_size_gb is None:
                 has_processing = True
@@ -758,7 +990,7 @@ def process_checkout():
                             "note": "API fields missing; queued for processing",
                             "got": {
                                 "phone": bool(phone),
-                                "dataverse_network": dataverse_network,
+                                "resolved_network": resolved_network,
                                 "package_size_gb": package_size_gb,
                             },
                         },
@@ -766,23 +998,59 @@ def process_checkout():
                 )
                 continue
 
-            # We have a valid MTN EXPRESS → DataVerse line → call provider
+            # We have a valid API-eligible line → call appropriate provider
             external_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
-            ok, payload = _send_dataverse_order(phone, "mtn", package_size_gb, external_ref, order_id, debug_events)
+            provider_name = None
+            provider_network_slug = None
+            ok = False
+            payload = {}
+
+            if use_dataverse:
+                provider_name = "dataverse"
+                provider_network_slug = "mtn"
+                ok, payload = _send_dataverse_order(
+                    phone=phone,
+                    network="mtn",
+                    package_size_gb=package_size_gb,
+                    external_ref=external_ref,
+                    order_id=order_id,
+                    debug_events=debug_events,
+                )
+            elif use_portal02:
+                provider_name = "portal02"
+                provider_network_slug = portal02_network_slug
+                offer_slug = _resolve_portal02_offer_slug(svc_doc, item)
+                normalized_phone = _normalize_msisdn_gh(phone)
+                ok, payload = _send_portal02_order(
+                    phone=normalized_phone,
+                    network=portal02_network_slug,
+                    volume_gb=package_size_gb,
+                    offer_slug=offer_slug,
+                    external_ref=external_ref,
+                    order_id=order_id,
+                    debug_events=debug_events,
+                )
 
             provider_ref = None
             provider_order_id = None
             if isinstance(payload, dict):
-                # Some responses use "reference", others "order_reference"
-                provider_ref = payload.get("reference") or payload.get("order_reference")
-                provider_order_id = payload.get("order_id")
+                # DataVerse: reference / order_reference, order_id
+                # Portal-02: reference, orderId
+                provider_ref = (
+                    payload.get("reference")
+                    or payload.get("order_reference")
+                )
+                provider_order_id = (
+                    payload.get("orderId")
+                    or payload.get("order_id")
+                )
 
             # Regardless of provider success, we keep status as processing and charge
             has_processing = True
             total_processing_amount += amt_total
             results.append(
                 {
-                    "phone": phone,
+                    "phone": phone,  # keep original format for UI
                     "base_amount": base_amount,
                     "amount": amt_total,
                     "profit_amount": profit_amount,
@@ -792,11 +1060,11 @@ def process_checkout():
                     "serviceId": service_id_raw,
                     "serviceName": svc_name,
                     "service_type": svc_type,
-                    "provider": "dataverse",
-                    "provider_network": "mtn",
+                    "provider": provider_name,
+                    "provider_network": provider_network_slug,
                     "provider_reference": provider_ref,            # reference from provider response
                     "provider_order_id": provider_order_id,        # numeric provider order_id, if any
-                    "provider_request_order_id": external_ref,     # what we sent as order_id
+                    "provider_request_order_id": external_ref,     # what we sent as order_id / external ref
                     "network_id": network_id,
                     "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
                     "line_amount_key": amount_key,
