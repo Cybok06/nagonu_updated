@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify
 from bson import ObjectId
 from datetime import datetime, timedelta
-import requests, json, traceback
+import requests, json, traceback, os
 
 from db import db
 
@@ -16,7 +16,11 @@ orders_col = db["orders"]
 # ===== DataVerse Provider Config (HARDCODED to match checkout) ==============
 DATAVERSE_BASE_URL = "https://dataversegh.pro/wp-json/custom/v1"
 DATAVERSE_USERNAME = "Nyebro"
-DATAVERSE_PASSWORD = "TazgH924s29FaF1UUOzxyzPT"
+DATAVERSE_PASSWORD = "EWzk0g0xetm7c5g2rDjB9opR"
+
+# ===== Portal-02 Provider Config (MIRRORS checkout.py) ======================
+PORTAL02_BASE_URL = "https://www.portal-02.com/api/v1"
+PORTAL02_API_KEY = os.getenv("PORTAL02_API_KEY", "dk_mJmQDFQWmDId4RT_c5HrEghcgwujPAFf")
 
 # ===== Tiny JSON logger (same style as checkout) ============================
 def jlog(event: str, **kv):
@@ -25,6 +29,7 @@ def jlog(event: str, **kv):
         print(json.dumps(rec, ensure_ascii=False, separators=(",", ":")))
     except Exception:
         print(f"[LOG_FALLBACK] {event} {kv}")
+
 
 # ===== DataVerse order-status caller ========================================
 def _fetch_dataverse_order_status(order_reference: str, order_id: str | None = None):
@@ -99,6 +104,90 @@ def _fetch_dataverse_order_status(order_reference: str, order_id: str | None = N
         )
         return False, {"status": "error", "message": str(e), "http_status": 599}
 
+
+# ===== Portal-02 order-status caller ========================================
+def _fetch_portal02_order_status(identifier: str, order_id: str | None = None):
+    """
+    Call Portal-02 order-status endpoint:
+
+      GET {BASE}/order/status/:identifier
+
+    Where :identifier can be:
+      - orderId (e.g. ORD-000067)
+      - reference (e.g. ORD-IB22OQws)
+
+    Returns: (ok, payload)
+      ok = True when HTTP 200/201 and payload.success == True
+    """
+    if not PORTAL02_API_KEY or PORTAL02_API_KEY == "dk_your_api_key_here":
+        err = {
+            "success": False,
+            "error": "PORTAL02 API key not configured",
+            "type": "CONFIG_ERROR",
+            "http_status": 500,
+        }
+        jlog(
+            "portal02_status_config_error",
+            order_id=order_id,
+            identifier=identifier,
+        )
+        return False, err
+
+    url = f"{PORTAL02_BASE_URL.rstrip('/')}/order/status/{identifier}"
+
+    jlog(
+        "portal02_status_request",
+        order_id=order_id,
+        identifier=identifier,
+        url=url,
+    )
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "x-api-key": PORTAL02_API_KEY,
+    }
+
+    try:
+        resp = requests.get(
+            url,
+            headers=headers,
+            timeout=30,
+        )
+        text = resp.text or ""
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = {"raw": text} if text else {}
+
+        ok = (
+            resp.status_code in (200, 201)
+            and isinstance(payload, dict)
+            and bool(payload.get("success")) is True
+        )
+        if isinstance(payload, dict):
+            payload.setdefault("http_status", resp.status_code)
+
+        jlog(
+            "portal02_status_response",
+            order_id=order_id,
+            identifier=identifier,
+            ok=ok,
+            payload=payload,
+        )
+
+        return ok, payload
+
+    except requests.RequestException as e:
+        jlog(
+            "portal02_status_network_error",
+            order_id=order_id,
+            identifier=identifier,
+            error=str(e),
+        )
+        return False, {"success": False, "error": str(e), "http_status": 599}
+
+
 # ===== Helper: decide item + order status ===================================
 def _compute_order_status_from_items(items):
     statuses = [str(i.get("line_status") or "").lower() for i in items]
@@ -122,19 +211,19 @@ def _compute_order_status_from_items(items):
 def _run_order_status_sync():
     """
     Internal function that:
-      - finds all orders with Dataverse items in 'processing'
-      - calls DataVerse order-status for each such line
+      - finds all orders with Dataverse *or* Portal-02 items in 'processing'
+      - calls provider order-status for each such line
       - updates MongoDB
     Returns a summary dict.
     """
     now = datetime.utcnow()
 
-    # Find orders where any Dataverse line is still processing
+    # Find orders where any provider line is still processing
     cursor = orders_col.find(
         {
             "items": {
                 "$elemMatch": {
-                    "provider": "dataverse",
+                    "provider": {"$in": ["dataverse", "portal02"]},
                     "line_status": "processing",
                 }
             }
@@ -158,9 +247,11 @@ def _run_order_status_sync():
 
         new_items = []
         for item in items:
-            # Only touch Dataverse processing lines
+            provider = item.get("provider")
+
+            # ---- Dataverse processing lines ---------------------------------
             if (
-                item.get("provider") == "dataverse"
+                provider == "dataverse"
                 and str(item.get("line_status", "")).lower() == "processing"
             ):
                 # Prefer the exact ref we sent as "order_id" during place-order
@@ -207,6 +298,64 @@ def _run_order_status_sync():
                     still_processing_lines += 1
 
                 changed = True
+                new_items.append(item)
+                continue
+
+            # ---- Portal-02 processing lines ---------------------------------
+            if (
+                provider == "portal02"
+                and str(item.get("line_status", "")).lower() == "processing"
+            ):
+                # Prefer provider_order_id (ORD-xxxxx), else reference
+                identifier = (
+                    item.get("provider_order_id")
+                    or item.get("provider_reference")
+                )
+
+                if not identifier:
+                    # No identifier: cannot sync status; just mark the check time
+                    item["provider_status_checked_at"] = now
+                    new_items.append(item)
+                    still_processing_lines += 1
+                    continue
+
+                ok, payload = _fetch_portal02_order_status(identifier, order_id)
+
+                provider_status = None
+                provider_order_data = {}
+                if isinstance(payload, dict):
+                    # Portal-02 wraps details under "order"
+                    provider_order_data = payload.get("order") or {}
+                    provider_status = provider_order_data.get("status")
+
+                status_str = str(provider_status or "").lower()
+
+                # Track raw info
+                item["provider_status_last"] = provider_status
+                item["provider_status_checked_at"] = now
+                item["provider_status_payload"] = payload
+
+                # Map Portal-02 statuses to our internal statuses:
+                # pending, processing, delivered, failed, cancelled, refunded, resolved
+                if ok and status_str in ("delivered", "resolved", "success", "completed"):
+                    item["line_status"] = "completed"
+                    item["api_status"] = "success"
+                    completed_lines += 1
+                elif ok and status_str in ("failed", "cancelled", "canceled", "refunded", "error"):
+                    item["line_status"] = "failed"
+                    item["api_status"] = "failed"
+                    failed_lines += 1
+                else:
+                    # pending / processing / unknown → keep as processing
+                    item["line_status"] = "processing"
+                    item["api_status"] = "processing"
+                    still_processing_lines += 1
+
+                changed = True
+                new_items.append(item)
+                continue
+
+            # ---- Non-provider or already-final lines ------------------------
             new_items.append(item)
 
         # If nothing changed in items, skip order update
@@ -287,7 +436,7 @@ scheduler.add_job(
     minutes=15,
     max_instances=1,
     coalesce=True,
-    id="dataverse_order_status_sync",
+    id="provider_order_status_sync",  # updated name (covers Dataverse + Portal-02)
 )
 
 try:
