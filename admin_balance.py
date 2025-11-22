@@ -1,4 +1,3 @@
-# admin_balance.py
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from bson.objectid import ObjectId
 from db import db
@@ -83,7 +82,6 @@ def _fmt_money(x: float, style: str = "GHS") -> str:
     amt = f"{float(x):.0f}" if float(x).is_integer() else f"{float(x):.2f}"
     if style == "GH₵":
         return f"GH₵{amt}"
-    # Keep no space to match previous layout; change to "GHS {amt}" if you prefer a space.
     return f"GHS{amt}"
 
 
@@ -96,13 +94,24 @@ def _user_snapshot(u: dict) -> dict:
     }
 
 
+def _to_float_safe(v, default: float = 0.0) -> float:
+    """
+    Safely convert to float.
+    Handles None, "", and bad types without throwing.
+    """
+    try:
+        if v is None:
+            return float(default)
+        return float(v)
+    except Exception:
+        return float(default)
+
+
 # ------------ Routes ------------
 @admin_balance_bp.route("/admin/balances")
 def view_balances():
     """
-    Faster list:
-    - Batch-fetch balances
-    - Batch-fetch users by ids (avoid N+1)
+    List balances with fast batch lookups and server-side search.
     Optional query params:
       q=  (filters by name or phone)
       limit= (default 200)
@@ -138,9 +147,14 @@ def view_balances():
                 continue
 
         balances.append({
-            "_id": bal["_id"],
-            "user": {"_id": user["_id"], "first_name": user["first_name"], "last_name": user["last_name"], "phone": phone},
-            "amount": float(bal.get("amount", 0.0)),
+            "_id": str(bal["_id"]),  # ensure string for HTML attributes
+            "user": {
+                "_id": str(user["_id"]),  # string so history URL works
+                "first_name": user["first_name"],
+                "last_name": user["last_name"],
+                "phone": phone,
+            },
+            "amount": _to_float_safe(bal.get("amount")),  # safe float
             "currency": bal.get("currency", "GHS"),
             "updated_at": bal.get("updated_at"),
         })
@@ -148,85 +162,7 @@ def view_balances():
     return render_template("admin_balance.html", balances=balances)
 
 
-@admin_balance_bp.route("/admin/balances/update/<balance_id>", methods=["POST"])
-def update_balance(balance_id):
-    """
-    Set absolute amount. Writes a log entry with action='set'.
-    Sends SMS: "Your account balance has been updated to GHSXXX"
-    """
-    new_amount = request.form.get("amount")
-    note = (request.form.get("note") or "").strip()
-    if not new_amount or not balance_id:
-        msg = "Invalid data provided."
-        if _is_ajax(request):
-            return jsonify(success=False, message=msg), 400
-        flash(msg, "danger")
-        return redirect(url_for("admin_balance.view_balances"))
-
-    try:
-        bal = balances_col.find_one({"_id": ObjectId(balance_id)})
-        if not bal:
-            msg = "Balance not found."
-            if _is_ajax(request):
-                return jsonify(success=False, message=msg), 404
-            flash(msg, "danger")
-            return redirect(url_for("admin_balance.view_balances"))
-
-        old_amount = float(bal.get("amount", 0.0))
-        new_amount_f = float(new_amount)
-        currency = bal.get("currency", "GHS")
-
-        # Update
-        balances_col.update_one(
-            {"_id": bal["_id"]},
-            {"$set": {"amount": new_amount_f, "updated_at": _now()}}
-        )
-
-        # Log
-        actor_id, actor_name = _get_actor()
-        balance_logs_col.insert_one({
-            "balance_id": bal["_id"],
-            "user_id": bal["user_id"],
-            "action": "set",
-            "delta": new_amount_f - old_amount,
-            "amount_before": old_amount,
-            "amount_after": new_amount_f,
-            "currency": currency,
-            "note": note[:240],  # keep notes short
-            "actor_id": ObjectId(actor_id) if actor_id else None,
-            "actor_name": actor_name,
-            "created_at": _now(),
-        })
-
-        # SMS
-        user = users_col.find_one({"_id": bal["user_id"]}, {"phone": 1, "first_name": 1, "last_name": 1})
-        sms_status = None
-        if user:
-            msisdn = _normalize_phone(user.get("phone", ""))
-            if msisdn:
-                message = f"Your account balance has been updated to {_fmt_money(new_amount_f)}"
-                sms_status = _send_sms(msisdn, message)
-            else:
-                sms_status = "invalid_phone"
-
-        ok_msg = "Balance updated successfully!"
-        if sms_status == "sent":
-            ok_msg += " SMS sent."
-        elif sms_status in ("failed", "error"):
-            ok_msg += " (SMS delivery failed)"
-        elif sms_status == "invalid_phone":
-            ok_msg += " (Phone not valid for SMS)"
-
-        if _is_ajax(request):
-            return jsonify(success=True, message=ok_msg)
-        flash(ok_msg, "success")
-    except Exception as e:
-        print("Update Error:", e)
-        if _is_ajax(request):
-            return jsonify(success=False, message="Error updating balance."), 500
-        flash("Error updating balance.", "danger")
-
-    return redirect(url_for("admin_balance.view_balances"))
+# NOTE: "SET NEW AMOUNT" route REMOVED — only deposit & withdraw remain.
 
 
 @admin_balance_bp.route("/admin/balances/deposit/<balance_id>", methods=["POST"])
@@ -262,7 +198,7 @@ def deposit_balance(balance_id):
             flash(msg, "danger")
             return redirect(url_for("admin_balance.view_balances"))
 
-        old_amount = float(bal.get("amount", 0.0))
+        old_amount = _to_float_safe(bal.get("amount"))
         new_amount = old_amount + delta_f
         currency = bal.get("currency", "GHS")
 
@@ -276,9 +212,9 @@ def deposit_balance(balance_id):
             "balance_id": bal["_id"],
             "user_id": bal["user_id"],
             "action": "deposit",
-            "delta": delta_f,
-            "amount_before": old_amount,
-            "amount_after": new_amount,
+            "delta": float(delta_f),
+            "amount_before": float(old_amount),
+            "amount_after": float(new_amount),
             "currency": currency,
             "note": note[:240],
             "actor_id": ObjectId(actor_id) if actor_id else None,
@@ -351,7 +287,7 @@ def withdraw_balance(balance_id):
             flash(msg, "danger")
             return redirect(url_for("admin_balance.view_balances"))
 
-        old_amount = float(bal.get("amount", 0.0))
+        old_amount = _to_float_safe(bal.get("amount"))
         new_amount = old_amount - delta_f
         if new_amount < 0:
             msg = "Insufficient funds: cannot withdraw more than the current balance."
@@ -372,9 +308,9 @@ def withdraw_balance(balance_id):
             "balance_id": bal["_id"],
             "user_id": bal["user_id"],
             "action": "withdraw",
-            "delta": -delta_f,
-            "amount_before": old_amount,
-            "amount_after": new_amount,
+            "delta": float(-delta_f),
+            "amount_before": float(old_amount),
+            "amount_after": float(new_amount),
             "currency": currency,
             "note": note[:240],
             "actor_id": ObjectId(actor_id) if actor_id else None,
@@ -424,25 +360,38 @@ def balance_history(user_id):
     except Exception:
         return jsonify({"success": False, "error": "Invalid user id"}), 400
 
-    logs = []
-    cursor = (
-        balance_logs_col.find({"user_id": uid}, {
-            "action": 1, "delta": 1, "amount_before": 1, "amount_after": 1,
-            "currency": 1, "note": 1, "actor_name": 1, "created_at": 1
-        })
-        .sort("created_at", -1)
-        .limit(200)
-    )
-    for lg in cursor:
-        logs.append({
-            "id": str(lg["_id"]),
-            "action": lg.get("action"),
-            "delta": float(lg.get("delta", 0.0)),
-            "amount_before": float(lg.get("amount_before", 0.0)),
-            "amount_after": float(lg.get("amount_after", 0.0)),
-            "currency": lg.get("currency", "GHS"),
-            "note": lg.get("note", ""),
-            "actor_name": lg.get("actor_name", "admin"),
-            "created_at": lg.get("created_at").strftime("%Y-%m-%d %H:%M") if lg.get("created_at") else "",
-        })
-    return jsonify({"success": True, "logs": logs})
+    try:
+        logs = []
+        cursor = (
+            balance_logs_col.find(
+                {"user_id": uid},
+                {
+                    "action": 1,
+                    "delta": 1,
+                    "amount_before": 1,
+                    "amount_after": 1,
+                    "currency": 1,
+                    "note": 1,
+                    "actor_name": 1,
+                    "created_at": 1,
+                },
+            )
+            .sort("created_at", -1)
+            .limit(200)
+        )
+        for lg in cursor:
+            logs.append({
+                "id": str(lg["_id"]),
+                "action": lg.get("action"),
+                "delta": _to_float_safe(lg.get("delta")),               # SAFE
+                "amount_before": _to_float_safe(lg.get("amount_before")),  # SAFE
+                "amount_after": _to_float_safe(lg.get("amount_after")),    # SAFE
+                "currency": lg.get("currency", "GHS"),
+                "note": lg.get("note", ""),
+                "actor_name": lg.get("actor_name", "admin"),
+                "created_at": lg.get("created_at").strftime("%Y-%m-%d %H:%M") if lg.get("created_at") else "",
+            })
+        return jsonify({"success": True, "logs": logs})
+    except Exception as e:
+        print("History Error:", e)
+        return jsonify({"success": False, "error": "Server error loading history"}), 500
