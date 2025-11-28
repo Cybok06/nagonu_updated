@@ -1263,4 +1263,3 @@ def invoice_view(order_id):
         user=user,
         customer=customer_name,
     )
-s
