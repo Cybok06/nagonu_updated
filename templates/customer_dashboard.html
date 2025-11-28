@@ -103,13 +103,12 @@
               <div class="balance-label text-white-50">Wallet Balance</div>
               <div class="balance-amount text-white">GHS {{ '%.2f'|format(balance) }}</div>
 
-            
-          
-
-          <!-- JSON blob for the mini chart -->
-          <script id="cust-daily-sales-data" type="application/json">
-            {{ {'labels': daily_sales_labels or [], 'values': daily_sales_values or []} | tojson }}
-          </script>
+              <!-- JSON blob for the mini chart -->
+              <script id="cust-daily-sales-data" type="application/json">
+                {{ {'labels': daily_sales_labels or [], 'values': daily_sales_values or []} | tojson }}
+              </script>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -417,7 +416,11 @@
             <tbody>
               {% for order in recent_orders %}
                 <tr>
-                  <td><span class="badge bg-primary">{{ order.order_id or "N/A" }}</span></td>
+                  <td>
+                    <a href="/invoice/{{ order.order_id }}" class="text-decoration-none">
+                      <span class="badge bg-primary">{{ order.order_id or "N/A" }}</span>
+                    </a>
+                  </td>
                   <td>
                     {% if order["items"] and order["items"][0]["serviceName"] %}
                       {{ order["items"][0]["serviceName"] }}
@@ -978,23 +981,20 @@
           .catch(function(){ return { ok: response.ok, json: {} }; });
       }).then(function(result){
         if (result.ok && result.json && result.json.success) {
+          // ✅ Auto-clear cart & auto-redirect, no "OK" click needed
+          try {
+            cart = [];
+            localStorage.removeItem(CART_KEY);
+          } catch(e){}
+          if (typeof updateCartUI === "function") updateCartUI();
+
           setProcessing(false);
           cleanupOverlays();
 
-          Swal.fire({
-            title: "Success!",
-            text: result.json.message || "Payment completed.",
-            icon: "success"
-          }).then(function(){
-            cart = [];
-            localStorage.removeItem(CART_KEY);
-            updateCartUI();
-            var section = document.getElementById("checkout-section");
-            if (section) section.classList.add("d-none");
-            var modal = bootstrap.Modal.getInstance(document.getElementById("cartModal"));
-            if (modal && modal.hide) modal.hide();
-            cleanupOverlays();
-          });
+          var redirectUrl = (result.json.redirect_url || ("/invoice/" + (result.json.order_id || "")));
+          if (redirectUrl) {
+            window.location.href = redirectUrl;
+          }
 
         } else {
           setProcessing(false);
