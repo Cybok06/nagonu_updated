@@ -138,17 +138,27 @@
       </li>
 
       <li class="nav-item">
-        <a href="{{ url_for('admin_orders.admin_view_orders') }}" class="nav-link {% if current == 'admin_orders.admin_view_orders' %}active{% endif %}">
-          <i class="bi bi-bag-check-fill nav-ico"></i><span class="nav-label">Orders</span>
-          {% if pending_orders_count > 0 %}<span class="badge bg-warning text-dark">{{ pending_orders_count }}</span>{% endif %}
+        <a href="{{ url_for('admin_orders.admin_view_orders') }}"
+           class="nav-link {% if current == 'admin_orders.admin_view_orders' %}active{% endif %}"
+           {% if undelivered_orders_count > 0 %}
+             data-bs-toggle="tooltip"
+             data-bs-placement="right"
+             title="You have {{ undelivered_orders_count }} order{% if undelivered_orders_count != 1 %}s{% endif %} undelivered"
+           {% endif %}>
+          <i class="bi bi-bag-check-fill nav-ico"></i>
+          <span class="nav-label">Orders</span>
+          {% if undelivered_orders_count > 0 %}
+            <span class="badge bg-warning text-dark">{{ undelivered_orders_count }}</span>
+          {% endif %}
         </a>
       </li>
-     <li class="nav-item">
-  <a href="{{ url_for('admin_store.admin_stores_page') }}"
-     class="nav-link {% if current == 'admin_store.admin_stores_page' %}active{% endif %}">
-    <i class="bi bi-shop-window nav-ico"></i><span class="nav-label">Stores</span>
-  </a>
-</li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('admin_store.admin_stores_page') }}"
+           class="nav-link {% if current == 'admin_store.admin_stores_page' %}active{% endif %}">
+          <i class="bi bi-shop-window nav-ico"></i><span class="nav-label">Stores</span>
+        </a>
+      </li>
 
       <li class="nav-item">
         <a href="{{ url_for('admin_transactions.admin_view_transactions') }}" class="nav-link {% if current == 'admin_transactions.admin_view_transactions' %}active{% endif %}">
@@ -167,15 +177,17 @@
           <i class="bi bi-wallet2 nav-ico"></i><span class="nav-label">Balances</span>
         </a>
       </li>
-<li class="nav-item">
-      <a href="{{ url_for('shares.shares_dashboard') }}" class="nav-link {% if is_shares %}active{% endif %}">
-        <i class="bi bi-graph-up-arrow nav-ico"></i>
-        <span class="nav-label">Shares / Wallet</span>
-        {% if wallet_available is defined %}
-          <span class="badge bg-info text-dark">GHS {{ '%.2f'|format(wallet_available) }}</span>
-        {% endif %}
-      </a>
-    </li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('shares.shares_dashboard') }}" class="nav-link {% if is_shares %}active{% endif %}">
+          <i class="bi bi-graph-up-arrow nav-ico"></i>
+          <span class="nav-label">Shares / Wallet</span>
+          {% if wallet_available is defined %}
+            <span class="badge bg-info text-dark">GHS {{ '%.2f'|format(wallet_available) }}</span>
+          {% endif %}
+        </a>
+      </li>
+
       <li class="nav-item">
         <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker') }}" class="nav-link {% if current == 'admin_wassce_checker.admin_wassce_checker' %}active{% endif %}">
           <i class="bi bi-book nav-ico"></i><span class="nav-label">Results Checker</span>
@@ -243,17 +255,27 @@
         <i class="bi bi-collection nav-ico"></i><span class="nav-label">Services</span>
       </a>
     </li>
-     <li class="nav-item">
-  <a href="{{ url_for('admin_store.admin_stores_page') }}"
-     class="nav-link {% if current == 'admin_store.admin_stores_page' %}active{% endif %}">
-    <i class="bi bi-shop-window nav-ico"></i><span class="nav-label">Stores</span>
-  </a>
-</li>
 
     <li class="nav-item">
-      <a href="{{ url_for('admin_orders.admin_view_orders') }}" class="nav-link {% if current == 'admin_orders.admin_view_orders' %}active{% endif %}">
-        <i class="bi bi-bag-check-fill nav-ico"></i><span class="nav-label">Orders</span>
-        {% if pending_orders_count > 0 %}<span class="badge bg-warning text-dark">{{ pending_orders_count }}</span>{% endif %}
+      <a href="{{ url_for('admin_store.admin_stores_page') }}"
+         class="nav-link {% if current == 'admin_store.admin_stores_page' %}active{% endif %}">
+        <i class="bi bi-shop-window nav-ico"></i><span class="nav-label">Stores</span>
+      </a>
+    </li>
+
+    <li class="nav-item">
+      <a href="{{ url_for('admin_orders.admin_view_orders') }}"
+         class="nav-link {% if current == 'admin_orders.admin_view_orders' %}active{% endif %}"
+         {% if undelivered_orders_count > 0 %}
+           data-bs-toggle="tooltip"
+           data-bs-placement="right"
+           title="You have {{ undelivered_orders_count }} order{% if undelivered_orders_count != 1 %}s{% endif %} undelivered"
+         {% endif %}>
+        <i class="bi bi-bag-check-fill nav-ico"></i>
+        <span class="nav-label">Orders</span>
+        {% if undelivered_orders_count > 0 %}
+          <span class="badge bg-warning text-dark">{{ undelivered_orders_count }}</span>
+        {% endif %}
       </a>
     </li>
 
@@ -274,7 +296,8 @@
         <i class="bi bi-wallet2 nav-ico"></i><span class="nav-label">Balances</span>
       </a>
     </li>
-<li class="nav-item">
+
+    <li class="nav-item">
       <a href="{{ url_for('shares.shares_dashboard') }}" class="nav-link {% if is_shares %}active{% endif %}">
         <i class="bi bi-graph-up-arrow nav-ico"></i>
         <span class="nav-label">Shares / Wallet</span>
@@ -283,6 +306,7 @@
         {% endif %}
       </a>
     </li>
+
     <li class="nav-item">
       <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker') }}" class="nav-link {% if current == 'admin_wassce_checker.admin_wassce_checker' %}active{% endif %}">
         <i class="bi bi-book nav-ico"></i><span class="nav-label">Results Checker</span>
@@ -348,7 +372,14 @@
       }catch(e){}
     });
   })();
+
+  // Enable Bootstrap tooltips
+  document.addEventListener('DOMContentLoaded', function () {
+    if (window.bootstrap) {
+      var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+      tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+      });
+    }
+  });
 </script>
-
-
-
