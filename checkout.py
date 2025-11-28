@@ -1,23 +1,25 @@
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, render_template, abort
 from bson import ObjectId
 from datetime import datetime, timedelta
-import os, uuid, random, requests, traceback, json, ast, re, base64
+import os, uuid, random, requests, traceback, json, ast, re, base64, threading
 
 from db import db
 
 checkout_bp = Blueprint("checkout", __name__)
 
 # MongoDB Collections
-balances_col = db["balances"]
-orders_col = db["orders"]
-transactions_col = db["transactions"]
-services_col = db["services"]
+balances_col       = db["balances"]
+orders_col         = db["orders"]
+transactions_col   = db["transactions"]
+services_col       = db["services"]
 service_profits_col = db["service_profits"]  # per-customer overrides
+users_col          = db["users"]  # ✅ for invoice view
+
 
 # ===== DataVerse Provider Config (HARDCODED as requested) ====================
 DATAVERSE_BASE_URL = "https://dataversegh.pro/wp-json/custom/v1"
 DATAVERSE_USERNAME = "Nyebro"
-DATAVERSE_PASSWORD = "EWzk0g0xetm7c5g2rDjB9opR"  # UPDATED PASSWORD
+DATAVERSE_PASSWORD = "lp2IgRFWYLuqxBVcHcM9e7rG"  # UPDATED PASSWORD
 
 # ===== Portal-02 Provider Config =============================================
 PORTAL02_BASE_URL = "https://www.portal-02.com/api/v1"
@@ -28,14 +30,11 @@ PORTAL02_WEBHOOK_URL = os.getenv(
 )
 
 # Default offer slugs (can be overridden per-service or per-item)
-# MTN "Master Beneficiary Data Bundle"
-PORTAL02_OFFER_SLUG_MTN_NORMAL = "master_beneficiary_data_bundle"
-# Telecel Expiry Bundle
-PORTAL02_OFFER_SLUG_TELECEL = "telecel_expiry_bundle"
-# AirtelTigo iShare Data Bundle
-PORTAL02_OFFER_SLUG_ISHARE = "ishare_data_bundle"
+PORTAL02_OFFER_SLUG_MTN_NORMAL = "master_beneficiary_data_bundle"  # MTN normal
+PORTAL02_OFFER_SLUG_TELECEL    = "telecel_expiry_bundle"
+PORTAL02_OFFER_SLUG_ISHARE     = "ishare_data_bundle"
 
-# Network ID fallback (kept for internal use / reporting, not for provider)
+# Network ID fallback (internal use)
 NETWORK_ID_FALLBACK = {
     "MTN": 3,
     "VODAFONE": 2,
@@ -50,9 +49,11 @@ def jlog(event: str, **kv):
     except Exception:
         print(f"[LOG_FALLBACK] {event} {kv}")
 
+
 # ===== Helpers ================================================================
 def generate_order_id():
     return f"NAN{random.randint(10000, 99999)}"
+
 
 def _money(v):
     try:
@@ -60,11 +61,13 @@ def _money(v):
     except Exception:
         return 0.0
 
+
 def _to_float(x, default=None):
     try:
         return float(x)
     except Exception:
         return default
+
 
 def _coerce_value_obj(v):
     """
@@ -88,17 +91,21 @@ def _coerce_value_obj(v):
                 return {}
     return {}
 
+
 # ===== Profit helpers (absolute profit amount) ================================
 def _get_service_default_profit_percent(service_doc):
     return _to_float(service_doc.get("default_profit_percent"), 0.0) or 0.0
+
 
 def _get_customer_profit_override_percent(service_id, customer_id_obj):
     ov = service_profits_col.find_one({"service_id": service_id, "customer_id": customer_id_obj})
     return _to_float(ov.get("profit_percent"), None) if ov else None
 
+
 def _effective_profit_percent(service_doc, customer_id_obj):
     override = _get_customer_profit_override_percent(service_doc["_id"], customer_id_obj)
     return override if override is not None else _get_service_default_profit_percent(service_doc)
+
 
 def _pick_offer_base_amount_from_service(svc_doc, value_obj, raw_value):
     """
@@ -129,6 +136,7 @@ def _pick_offer_base_amount_from_service(svc_doc, value_obj, raw_value):
         pass
     return None
 
+
 def _derive_base_profit(amount_total, base_amount_hint, eff_percent):
     a = _money(amount_total)
     if a <= 0:
@@ -150,6 +158,7 @@ def _derive_base_profit(amount_total, base_amount_hint, eff_percent):
         profit = 0.0
         base = a
     return base, profit
+
 
 # ===== Field resolvers =======================================================
 def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
@@ -177,6 +186,7 @@ def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
         if name in NETWORK_ID_FALLBACK:
             return int(NETWORK_ID_FALLBACK[name])
     return None
+
 
 def _resolve_dataverse_network(svc_doc: dict | None, item: dict) -> str | None:
     """
@@ -231,13 +241,10 @@ def _resolve_dataverse_network(svc_doc: dict | None, item: dict) -> str | None:
 
     return None
 
+
 def _resolve_package_size_gb(value_obj: dict, item: dict) -> int | None:
     """
     Resolve bundle size (integer GB) to use as Portal/DataVerse "volume".
-    Tries (in order):
-      - explicit gb/size fields in value_obj
-      - volume field (interpreting >50 as MB, otherwise GB)
-      - parsing numbers from item['value'] like '1GB', '5 GB'
     """
     if not isinstance(value_obj, dict):
         value_obj = value_obj or {}
@@ -256,7 +263,6 @@ def _resolve_package_size_gb(value_obj: dict, item: dict) -> int | None:
     if vol not in (None, "", []):
         try:
             vol_f = float(vol)
-            # If looks large, assume MB and convert
             if vol_f > 50:
                 gb = max(1, round(vol_f / 1024.0))
             else:
@@ -274,7 +280,6 @@ def _resolve_package_size_gb(value_obj: dict, item: dict) -> int | None:
                 return int(float(m.group(1)))
             except Exception:
                 pass
-        # fallback: first number
         m2 = re.search(r"(\d+(?:\.\d+)?)", raw_val)
         if m2:
             try:
@@ -283,6 +288,7 @@ def _resolve_package_size_gb(value_obj: dict, item: dict) -> int | None:
                 pass
 
     return None
+
 
 def _build_bundle_key(value_obj: dict, item: dict):
     """
@@ -308,12 +314,10 @@ def _build_bundle_key(value_obj: dict, item: dict):
 
     return ("bundle", norm)
 
+
 def _normalize_msisdn_gh(phone: str) -> str:
     """
     Convert Ghana numbers to international format for Portal-02.
-    Examples:
-      '0242915038' -> '233242915038'
-      '233242915038' -> '233242915038'
     """
     p = re.sub(r"\D", "", phone or "")
     if not p:
@@ -324,35 +328,27 @@ def _normalize_msisdn_gh(phone: str) -> str:
         return p
     return p
 
+
 def _resolve_portal02_offer_slug(svc_doc: dict | None, item: dict) -> str:
     """
-    Decide which offerSlug to send to Portal-02, in this order:
-      1) item['offerSlug']
-      2) svc_doc['portal02_offer_slug']
-      3) svc_doc['offerSlug']
-      4) hard-coded defaults for known services (Telecel / iShare)
-      5) global fallback PORTAL02_OFFER_SLUG_MTN_NORMAL
+    Decide which offerSlug to send to Portal-02.
     """
     if item.get("offerSlug"):
         return str(item["offerSlug"])
 
     if svc_doc:
-        # Explicit config wins
         if svc_doc.get("portal02_offer_slug"):
             return str(svc_doc["portal02_offer_slug"])
         if svc_doc.get("offerSlug"):
             return str(svc_doc["offerSlug"])
 
-        # Known service-based defaults
         nm = str(svc_doc.get("name", "")).lower()
         net = str(svc_doc.get("network", "")).lower()
         combo = f"{nm} {net}"
 
-        # Telecel expiry bundle
         if "telecel" in combo:
             return PORTAL02_OFFER_SLUG_TELECEL
 
-        # AirtelTigo iShare
         if (
             "ishare" in combo
             or "i share" in combo
@@ -361,32 +357,19 @@ def _resolve_portal02_offer_slug(svc_doc: dict | None, item: dict) -> str:
         ):
             return PORTAL02_OFFER_SLUG_ISHARE
 
-    # Default (MTN Master Beneficiary)
     return PORTAL02_OFFER_SLUG_MTN_NORMAL
 
-# ===== Basic Auth header builder =============================================
+
+# ===== Basic Auth builder for DataVerse ======================================
 def _build_basic_auth_header() -> str:
-    """
-    Build Authorization header exactly as docs:
-      Authorization: Basic base64("username:password")
-    """
     creds = f"{DATAVERSE_USERNAME}:{DATAVERSE_PASSWORD}"
     token = base64.b64encode(creds.encode("utf-8")).decode("utf-8")
     return f"Basic {token}"
 
-# ===== DataVerse provider caller (MTN EXPRESS) ===============================
+
+# ===== Provider callers (used by background worker) ==========================
 def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
                           external_ref: str, order_id: str, debug_events: list):
-    """
-    Call DataVerse place-order endpoint for a single MTN bundle.
-    Body:
-      {
-        "network": "mtn",
-        "recipient": "<phone>",
-        "package_size": <int GB>,
-        "order_id": "<unique-ref>"
-      }
-    """
     if not DATAVERSE_USERNAME or not DATAVERSE_PASSWORD:
         err = {"status": "error", "message": "DATAVERSE credentials not configured", "http_status": 500}
         jlog("dataverse_config_error", order_id=order_id, ref=external_ref)
@@ -396,7 +379,7 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Authorization": _build_basic_auth_header(),  # DOC-COMPLIANT AUTH
+        "Authorization": _build_basic_auth_header(),
     }
     body = {
         "network": network,
@@ -427,17 +410,20 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
         )
         text = resp.text or ""
         try:
-            payload = resp.json()
+            payload_raw = resp.json()
         except Exception:
-            payload = {"raw": text} if text else {}
+            payload_raw = text.strip() if text else None
 
-        ok = (
-            resp.status_code == 200
-            and isinstance(payload, dict)
-            and str(payload.get("status", "")).lower() in ("success", "true")
-        )
-        if isinstance(payload, dict):
-            payload.setdefault("http_status", resp.status_code)
+        if isinstance(payload_raw, dict):
+            payload = payload_raw
+        else:
+            payload = {"raw": payload_raw} if payload_raw is not None else {}
+        payload.setdefault("http_status", resp.status_code)
+
+        status_field = str(payload.get("status", "")).lower()
+        ok_http = (resp.status_code == 200)
+        ok_status = (status_field in ("success", "true", "ok"))
+        ok = ok_http and (status_field == "" or ok_status)
 
         dbg = {
             "status": resp.status_code,
@@ -459,22 +445,10 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
         jlog("dataverse_network_error", order_id=order_id, ref=external_ref, error=str(e))
         return False, {"status": "error", "message": str(e), "http_status": 599}
 
-# ===== Portal-02 provider caller ============================================
+
 def _send_portal02_order(phone: str, network: str, volume_gb: int,
                          offer_slug: str,
                          external_ref: str, order_id: str, debug_events: list):
-    """
-    Call Portal-02 /order/:network endpoint for a single bundle.
-
-    Request body (SINGLE) – EXACTLY as docs:
-      {
-        "type": "single",
-        "volume": <int>,
-        "phone": "<msisdn>",
-        "offerSlug": "<slug>",
-        "webhookUrl": "<our webhook>"
-      }
-    """
     if not PORTAL02_API_KEY or PORTAL02_API_KEY == "dk_your_api_key_here":
         err = {
             "success": False,
@@ -493,9 +467,9 @@ def _send_portal02_order(phone: str, network: str, volume_gb: int,
     }
     body = {
         "type": "single",
-        "volume": int(volume_gb),     # e.g. 1, 2, 5, 10...
-        "phone": phone,               # already normalized to 233...
-        "offerSlug": offer_slug,      # e.g. "master_beneficiary_data_bundle", "telecel_expiry_bundle", "ishare_data_bundle"
+        "volume": int(volume_gb),
+        "phone": phone,
+        "offerSlug": offer_slug,
         "webhookUrl": PORTAL02_WEBHOOK_URL,
     }
 
@@ -553,12 +527,11 @@ def _send_portal02_order(phone: str, network: str, volume_gb: int,
         jlog("portal02_network_error", order_id=order_id, ref=external_ref, error=str(e))
         return False, {"success": False, "error": str(e), "type": "NETWORK_ERROR", "http_status": 599}
 
+
 # ===== Unavailability checker ================================================
 def _service_unavailability_reason(svc_doc: dict):
     """
     Returns (is_unavailable, reason_text)
-    reason_text is exactly 'Out of stock' or 'Closed'.
-    Missing service is treated as 'Closed'.
     """
     if not svc_doc:
         return True, "Closed"
@@ -574,15 +547,17 @@ def _service_unavailability_reason(svc_doc: dict):
 
     return False, ""
 
+
 # ===== Duplicate-in-processing guard =========================================
 DUP_WINDOW_MINUTES = 30
 
+
 def _normalize_amount_key(v):
-    """Use a stable numeric value for matching the requested line amount."""
     try:
         return float(f"{float(v):.2f}")
     except Exception:
         return 0.0
+
 
 def _has_processing_conflict_strict(
     phone: str,
@@ -592,21 +567,12 @@ def _has_processing_conflict_strict(
     bundle_key: tuple | None,
     amount_key: float,
 ) -> bool:
-    """
-    True if there exists an order in 'processing' (within window) for:
-      - same phone
-      - same network_id
-      - same bundle_key
-      - same amount (line amount the customer pays)
-    Optionally narrowed by same serviceId when available.
-    """
     if not phone or network_id is None or bundle_key is None:
-        return False  # cannot assert strict duplicate without the triad
+        return False
 
     window_start = datetime.utcnow() - timedelta(minutes=DUP_WINDOW_MINUTES)
     kind, bval = bundle_key
 
-    # Preferred match: documents that already store network_id/bundle_key/amount in items
     elem = {
         "phone": phone,
         "network_id": network_id,
@@ -625,7 +591,6 @@ def _has_processing_conflict_strict(
     if orders_col.find_one(q, {"_id": 1}):
         return True
 
-    # Fallback compatibility for older orders (match via value_obj and amount)
     alt = {
         "phone": phone,
         "network_id": network_id,
@@ -645,7 +610,111 @@ def _has_processing_conflict_strict(
     }
     return bool(orders_col.find_one(q2, {"_id": 1}))
 
-# ===== Route (NO background auto-update) =====================================
+
+# ===== BACKGROUND WORKER =====================================================
+def _background_process_providers(order_id: str, api_jobs: list[dict]):
+    """
+    Runs in a separate thread AFTER the HTTP response is sent.
+    It picks queued lines and calls DataVerse / Portal-02, then updates the order doc.
+    """
+    jlog("checkout_bg_worker_start", order_id=order_id, jobs=len(api_jobs))
+    local_debug = []
+
+    for job in api_jobs:
+        try:
+            line_ref = job["provider_request_order_id"]
+            phone = job["phone"]
+            package_size_gb = job["package_size_gb"]
+            provider = job["provider"]
+            portal_network_slug = job.get("portal02_network_slug")
+            svc_id = job.get("service_id")
+
+            svc_doc = None
+            if svc_id:
+                try:
+                    svc_doc = services_col.find_one(
+                        {"_id": svc_id},
+                        {
+                            "type": 1,
+                            "network_id": 1,
+                            "name": 1,
+                            "network": 1,
+                            "offers": 1,
+                            "default_profit_percent": 1,
+                            "service_category": 1,
+                            "status": 1,
+                            "availability": 1,
+                            "service_network": 1,
+                            "portal02_offer_slug": 1,
+                            "offerSlug": 1,
+                        },
+                    )
+                except Exception:
+                    svc_doc = None
+
+            ok = False
+            payload = {}
+
+            if provider == "dataverse":
+                ok, payload = _send_dataverse_order(
+                    phone=phone,
+                    network="mtn",
+                    package_size_gb=package_size_gb,
+                    external_ref=line_ref,
+                    order_id=order_id,
+                    debug_events=local_debug,
+                )
+            elif provider == "portal02":
+                offer_slug = _resolve_portal02_offer_slug(svc_doc or {}, job.get("raw_item") or {})
+                normalized_phone = _normalize_msisdn_gh(phone)
+                ok, payload = _send_portal02_order(
+                    phone=normalized_phone,
+                    network=portal_network_slug,
+                    volume_gb=package_size_gb,
+                    offer_slug=offer_slug,
+                    external_ref=line_ref,
+                    order_id=order_id,
+                    debug_events=local_debug,
+                )
+
+            provider_ref = None
+            provider_order_id = None
+            if isinstance(payload, dict):
+                provider_ref = payload.get("reference") or payload.get("order_reference")
+                provider_order_id = payload.get("orderId") or payload.get("order_id")
+
+            # Update this specific line inside the order items
+            orders_col.update_one(
+                {
+                    "order_id": order_id,
+                    "items.provider_request_order_id": line_ref,
+                },
+                {
+                    "$set": {
+                        "items.$.api_status": "success" if ok else "processing",
+                        "items.$.api_response": payload,
+                        "items.$.provider_reference": provider_ref,
+                        "items.$.provider_order_id": provider_order_id,
+                    }
+                },
+            )
+        except Exception as e:
+            jlog("checkout_bg_worker_line_error", order_id=order_id, error=str(e))
+
+    if local_debug:
+        # append debug entries
+        try:
+            orders_col.update_one(
+                {"order_id": order_id},
+                {"$push": {"debug.events": {"$each": local_debug}}},
+            )
+        except Exception:
+            pass
+
+    jlog("checkout_bg_worker_end", order_id=order_id, jobs=len(api_jobs))
+
+
+# ===== Route (FAST RESPONSE, PROVIDERS IN BACKGROUND) ========================
 @checkout_bp.route("/checkout", methods=["POST"])
 def process_checkout():
     try:
@@ -667,13 +736,14 @@ def process_checkout():
         if not cart or not isinstance(cart, list):
             return jsonify({"success": False, "message": "Cart is empty or invalid"}), 400
 
-        # Total requested (customer-facing price — includes profit)
+        # Total requested (customer-facing)
         total_requested = sum(_money(item.get("amount")) for item in cart)
         if total_requested <= 0:
             return jsonify({"success": False, "message": "Total amount must be greater than zero"}), 400
 
         order_id = generate_order_id()
 
+        # Balance check
         bal_doc = balances_col.find_one({"user_id": user_id}) or {}
         current_balance = _money(bal_doc.get("amount", 0))
         jlog("checkout_balance", order_id=order_id, balance=current_balance, total=total_requested)
@@ -683,22 +753,19 @@ def process_checkout():
         results = []
         debug_events = []
 
-        # We will charge for: successful provider lines + any line we keep "processing"
-        total_delivered_api_amount = 0.0   # stays 0 because we do not mark anything delivered immediately
+        total_delivered_api_amount = 0.0  # stays 0.0 (we don't mark delivered immediately)
         total_processing_amount = 0.0
         api_requested_total = 0.0
         has_processing = False
-
-        # Rollup profit
         profit_amount_total = 0.0
 
-        # Prevent same-cart duplicates for (phone, network_id, bundle_key, amount)
-        seen_keys = set()  # (phone, network_id, bundle_value, kind, amount_key)
+        seen_keys = set()
+        api_jobs = []  # lines to be sent to providers in the background worker
 
         for idx, item in enumerate(cart, start=1):
             phone = (item.get("phone") or "").strip()
             value_obj = _coerce_value_obj(item.get("value_obj") or item.get("value"))
-            amt_total = _money(item.get("amount"))  # customer-facing total (base + profit)
+            amt_total = _money(item.get("amount"))
             amount_key = _normalize_amount_key(amt_total)
 
             service_id_raw = item.get("serviceId")
@@ -706,7 +773,6 @@ def process_checkout():
             svc_type = None
             svc_name = item.get("serviceName") or None
 
-            # Resolve service and its type/category (+ offers for base recovery)
             if service_id_raw:
                 try:
                     svc_doc = services_col.find_one(
@@ -729,20 +795,18 @@ def process_checkout():
                     if svc_doc:
                         st = svc_doc.get("type")
                         svc_type = (st.strip().upper() if isinstance(st, str) else st)
-                        # prefer svc_doc name
                         svc_name = svc_doc.get("name") or svc_doc.get("network") or svc_name
                 except Exception:
                     svc_doc = None
                     svc_type = None
 
-            # ===== HARD GATE: availability / status =====
+            # HARD GATE: availability
             is_unavail, reason_text = _service_unavailability_reason(svc_doc)
             if is_unavail:
-                # Stop the entire checkout and return explicit reason
                 return jsonify(
                     {
                         "success": False,
-                        "message": reason_text,  # "Out of stock" or "Closed"
+                        "message": reason_text,
                         "unavailable": {
                             "serviceId": service_id_raw,
                             "serviceName": svc_name,
@@ -751,11 +815,10 @@ def process_checkout():
                     }
                 ), 400
 
-            # ---------- Resolve fields used for duplicate guard ----------
+            # Duplicate guards
             network_id = _resolve_network_id(item, value_obj, svc_doc)
-            bundle_key = _build_bundle_key(value_obj, item)   # generic duplication key
+            bundle_key = _build_bundle_key(value_obj, item)
 
-            # ----- IN-CART duplicate guard (same number + same network + same bundle + same amount) -----
             if phone and (network_id is not None) and (bundle_key is not None):
                 cart_key = (phone, int(network_id), bundle_key[1], bundle_key[0], amount_key)
                 if cart_key in seen_keys:
@@ -763,7 +826,7 @@ def process_checkout():
                         {
                             "phone": phone,
                             "base_amount": 0.0,
-                            "amount": 0.0,  # not charged
+                            "amount": 0.0,
                             "originally_requested_amount": amt_total,
                             "profit_amount": 0.0,
                             "profit_percent_used": 0.0,
@@ -785,18 +848,16 @@ def process_checkout():
                     continue
                 seen_keys.add(cart_key)
 
-            # ----- DUPLICATE-IN-PROCESSING GUARD (strict + amount) -------------------------
             is_dup_strict = _has_processing_conflict_strict(
                 phone, service_id_raw, svc_name, network_id, bundle_key, amount_key
             )
             if is_dup_strict:
-                # ✅ This line is NOT charged and NOT sent to API
                 results.append(
                     {
                         "phone": phone,
                         "base_amount": 0.0,
-                        "amount": 0.0,  # not charged
-                        "originally_requested_amount": amt_total,  # for audit
+                        "amount": 0.0,
+                        "originally_requested_amount": amt_total,
                         "profit_amount": 0.0,
                         "profit_percent_used": 0.0,
                         "value": item.get("value"),
@@ -816,7 +877,7 @@ def process_checkout():
                 )
                 continue
 
-            # --- Compute base_amount & profit_amount (ABSOLUTE) ---
+            # base & profit
             base_hint = _to_float(item.get("base_amount"))
             if base_hint is None:
                 base_hint = _pick_offer_base_amount_from_service(svc_doc or {}, value_obj, item.get("value"))
@@ -826,8 +887,7 @@ def process_checkout():
             base_amount, profit_amount = _derive_base_profit(amt_total, base_hint, eff_p)
             profit_amount_total += profit_amount
 
-            # ---------------- DETERMINE PROVIDER vs MANUAL ----------------
-            # No service doc at all → manual processing (still charge)
+            # No service doc → manual processing
             if not svc_doc:
                 has_processing = True
                 total_processing_amount += amt_total
@@ -853,12 +913,7 @@ def process_checkout():
                 )
                 continue
 
-            # Provider selection:
-            #  - DataVerse for MTN EXPRESS
-            #  - Portal-02 for:
-            #       * MTN NORMAL (mtn)
-            #       * TELECEL service (telecel)
-            #       * AT - iShare / AirtelTigo iShare (airteltigo)
+            # Provider selection
             resolved_network = _resolve_dataverse_network(svc_doc, item)
             svc_name_norm = (svc_name or "").strip().lower()
             svc_network_norm = (svc_doc.get("network") or "").strip().lower() if svc_doc else ""
@@ -873,17 +928,12 @@ def process_checkout():
                 or "at - ishare" in combo_name_net
             )
 
-            # Allow "API" and "ON" as API-enabled flags
             svc_type_flag = (svc_type or "").strip().upper() if isinstance(svc_type, str) else ""
             type_allows_api = svc_type_flag in ("ON", "API")
-
-            # For TELECEL + AT iShare we FORCE API even if type is OFF
             api_allowed = type_allows_api or is_telecel_bundle or is_ishare_bundle
 
-            # DataVerse: MTN EXPRESS only
             use_dataverse = (resolved_network == "mtn" and is_mtn_express and api_allowed)
 
-            # Portal-02: MTN NORMAL / TELECEL / AIRTELTIGO iShare
             portal02_network_slug = None
             if api_allowed:
                 if resolved_network == "mtn" and is_mtn_normal:
@@ -914,10 +964,6 @@ def process_checkout():
             )
 
             if not (use_dataverse or use_portal02):
-                # Any case where:
-                #  - API disabled, or
-                #  - network not mapped to provider
-                # → manual processing
                 has_processing = True
                 total_processing_amount += amt_total
 
@@ -961,10 +1007,9 @@ def process_checkout():
                 )
                 continue
 
-            # From here: ONLY API-eligible lines reach this point → provider call
+            # From here: API-eligible line → we will send it via BACKGROUND worker
             api_requested_total += amt_total
 
-            # Need phone + package_size_gb / volume_gb
             package_size_gb = _resolve_package_size_gb(value_obj, item)
             if not phone or package_size_gb is None:
                 has_processing = True
@@ -998,59 +1043,18 @@ def process_checkout():
                 )
                 continue
 
-            # We have a valid API-eligible line → call appropriate provider
+            # Prepare background job meta
             external_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
-            provider_name = None
-            provider_network_slug = None
-            ok = False
-            payload = {}
+            provider_name = "dataverse" if use_dataverse else "portal02"
+            provider_network_slug = "mtn" if use_dataverse else portal02_network_slug
 
-            if use_dataverse:
-                provider_name = "dataverse"
-                provider_network_slug = "mtn"
-                ok, payload = _send_dataverse_order(
-                    phone=phone,
-                    network="mtn",
-                    package_size_gb=package_size_gb,
-                    external_ref=external_ref,
-                    order_id=order_id,
-                    debug_events=debug_events,
-                )
-            elif use_portal02:
-                provider_name = "portal02"
-                provider_network_slug = portal02_network_slug
-                offer_slug = _resolve_portal02_offer_slug(svc_doc, item)
-                normalized_phone = _normalize_msisdn_gh(phone)
-                ok, payload = _send_portal02_order(
-                    phone=normalized_phone,
-                    network=portal02_network_slug,
-                    volume_gb=package_size_gb,
-                    offer_slug=offer_slug,
-                    external_ref=external_ref,
-                    order_id=order_id,
-                    debug_events=debug_events,
-                )
-
-            provider_ref = None
-            provider_order_id = None
-            if isinstance(payload, dict):
-                # DataVerse: reference / order_reference, order_id
-                # Portal-02: reference, orderId
-                provider_ref = (
-                    payload.get("reference")
-                    or payload.get("order_reference")
-                )
-                provider_order_id = (
-                    payload.get("orderId")
-                    or payload.get("order_id")
-                )
-
-            # Regardless of provider success, we keep status as processing and charge
             has_processing = True
             total_processing_amount += amt_total
+
+            # store line with "queued" status; background worker will update
             results.append(
                 {
-                    "phone": phone,  # keep original format for UI
+                    "phone": phone,
                     "base_amount": base_amount,
                     "amount": amt_total,
                     "profit_amount": profit_amount,
@@ -1062,32 +1066,42 @@ def process_checkout():
                     "service_type": svc_type,
                     "provider": provider_name,
                     "provider_network": provider_network_slug,
-                    "provider_reference": provider_ref,            # reference from provider response
-                    "provider_order_id": provider_order_id,        # numeric provider order_id, if any
-                    "provider_request_order_id": external_ref,     # what we sent as order_id / external ref
+                    "provider_reference": None,
+                    "provider_order_id": None,
+                    "provider_request_order_id": external_ref,
                     "network_id": network_id,
                     "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
                     "line_amount_key": amount_key,
-                    "line_status": "processing",     # important: not 'delivered'
-                    "api_status": "success" if ok else "processing",
-                    "api_response": payload,
+                    "line_status": "processing",
+                    "api_status": "queued",      # <--- key change
+                    "api_response": {"note": "Queued for background API call"},
                 }
             )
 
-        # keep last debug entries
+            api_jobs.append(
+                {
+                    "provider_request_order_id": external_ref,
+                    "phone": phone,
+                    "provider": provider_name,
+                    "portal02_network_slug": portal02_network_slug,
+                    "package_size_gb": package_size_gb,
+                    "service_id": svc_doc["_id"],
+                    "raw_item": item,
+                }
+            )
+
         if len(debug_events) > 10:
             debug_events = debug_events[-10:]
 
-        # Charge now for: ALL processing lines (which includes all successful provider hits)
         total_to_charge_now = round(total_delivered_api_amount + total_processing_amount, 2)
 
-        # ==== Nothing to charge now (e.g., all lines were skipped as duplicates) ====
+        # If nothing to charge (all skipped)
         if total_to_charge_now <= 0:
             orders_col.insert_one(
                 {
                     "user_id": user_id,
                     "order_id": order_id,
-                    "items": results,  # contains skipped_duplicate lines (amount 0)
+                    "items": results,
                     "total_amount": 0.0,
                     "charged_amount": 0.0,
                     "profit_amount_total": 0.0,
@@ -1098,13 +1112,11 @@ def process_checkout():
                     "debug": {"events": debug_events},
                 }
             )
-
             skipped_count = sum(
                 1
                 for it in results
                 if it.get("line_status") in ("skipped_duplicate_processing", "skipped_duplicate_in_cart")
             )
-
             return (
                 jsonify(
                     {
@@ -1114,6 +1126,7 @@ def process_checkout():
                             "and amount already has an order in processing or duplicated in cart."
                         ).format(n=skipped_count),
                         "order_id": order_id,
+                        "redirect_url": f"/invoice/{order_id}",
                         "status": "skipped",
                         "charged_amount": 0.0,
                         "profit_amount_total": 0.0,
@@ -1124,14 +1137,13 @@ def process_checkout():
                 200,
             )
 
-        # Deduct balance for the amount we are charging now
+        # Deduct balance NOW
         balances_col.update_one(
             {"user_id": user_id},
             {"$inc": {"amount": -total_to_charge_now}, "$set": {"updated_at": datetime.utcnow()}},
             upsert=True,
         )
 
-        # Overall order status: ALWAYS processing (even if all provider calls succeeded)
         status = "processing"
 
         # Persist order
@@ -1140,10 +1152,10 @@ def process_checkout():
                 "user_id": user_id,
                 "order_id": order_id,
                 "items": results,
-                "total_amount": total_requested,  # cart grand total (UI computed)
-                "charged_amount": total_to_charge_now,  # charged now
+                "total_amount": total_requested,
+                "charged_amount": total_to_charge_now,
                 "profit_amount_total": round(profit_amount_total, 2),
-                "status": status,  # processing
+                "status": status,
                 "paid_from": method,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow(),
@@ -1151,7 +1163,7 @@ def process_checkout():
             }
         )
 
-        # Record transaction for the amount actually charged now
+        # Record transaction
         transactions_col.insert_one(
             {
                 "user_id": user_id,
@@ -1165,7 +1177,7 @@ def process_checkout():
                 "verified_at": datetime.utcnow(),
                 "meta": {
                     "order_status": status,
-                    "api_delivered_amount": round(total_delivered_api_amount, 2),  # likely 0.0
+                    "api_delivered_amount": round(total_delivered_api_amount, 2),
                     "processing_amount": round(total_processing_amount, 2),
                     "profit_amount_total": round(profit_amount_total, 2),
                 },
@@ -1179,7 +1191,18 @@ def process_checkout():
         )
         processing_count = sum(1 for it in results if it.get("line_status") == "processing")
 
-        # Response message (always processing to frontend)
+        # 🔥 Spawn background worker for provider calls (does not block response)
+        if api_jobs:
+            try:
+                t = threading.Thread(
+                    target=_background_process_providers,
+                    args=(order_id, api_jobs),
+                    daemon=True,
+                )
+                t.start()
+            except Exception as e:
+                jlog("checkout_bg_spawn_error", order_id=order_id, error=str(e))
+
         msg = (
             "📝 Order received and is processing. "
             "We’ve charged your wallet. Order ID: {oid}"
@@ -1191,6 +1214,7 @@ def process_checkout():
                     "success": True,
                     "message": msg,
                     "order_id": order_id,
+                    "redirect_url": f"/invoice/{order_id}",  # frontend already uses this
                     "status": status,
                     "charged_amount": total_to_charge_now,
                     "profit_amount_total": round(profit_amount_total, 2),
@@ -1204,5 +1228,39 @@ def process_checkout():
 
     except Exception:
         jlog("checkout_uncaught", error=traceback.format_exc())
-        # Only truly exceptional cases return a 500; normal API failures never surface as 'failed'
         return jsonify({"success": False, "message": "Server error"}), 500
+
+
+# ===== Invoice view (same blueprint) =========================================
+@checkout_bp.route("/invoice/<order_id>")
+def invoice_view(order_id):
+    """
+    Render a single invoice by Nagonu Order ID (e.g. NAN12345)
+    Uses invoice.html template you already created.
+    """
+    order = orders_col.find_one({"order_id": order_id})
+    if not order:
+        abort(404)
+
+    user = {}
+    try:
+        uid = order.get("user_id")
+        if uid:
+            user = users_col.find_one({"_id": uid}) or {}
+    except Exception:
+        user = {}
+
+    customer_name = (
+        user.get("name")
+        or user.get("full_name")
+        or user.get("username")
+        or "Customer"
+    )
+
+    return render_template(
+        "invoice.html",
+        order=order,
+        user=user,
+        customer=customer_name,
+    )
+s
