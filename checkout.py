@@ -8,18 +8,21 @@ from db import db
 checkout_bp = Blueprint("checkout", __name__)
 
 # MongoDB Collections
-balances_col       = db["balances"]
-orders_col         = db["orders"]
-transactions_col   = db["transactions"]
-services_col       = db["services"]
+balances_col        = db["balances"]
+orders_col          = db["orders"]
+transactions_col    = db["transactions"]
+services_col        = db["services"]
 service_profits_col = db["service_profits"]  # per-customer overrides
-users_col          = db["users"]  # ✅ for invoice view
+users_col           = db["users"]  # ✅ for invoice view
 
 
 # ===== DataVerse Provider Config (HARDCODED as requested) ====================
 DATAVERSE_BASE_URL = "https://dataversegh.pro/wp-json/custom/v1"
+
+# 🔐 Credentials from your DataVerse panel
 DATAVERSE_USERNAME = "Nyebro"
-DATAVERSE_PASSWORD = "lp2IgRFWYLuqxBVcHcM9e7rG"  # UPDATED PASSWORD
+DATAVERSE_PASSWORD = "TlFBuXm7UZLE4uo8hg4YoC78"  # <-- NEW PASSWORD (from docs)
+
 
 # ===== Portal-02 Provider Config =============================================
 PORTAL02_BASE_URL = "https://www.portal-02.com/api/v1"
@@ -40,6 +43,7 @@ NETWORK_ID_FALLBACK = {
     "VODAFONE": 2,
     "AIRTELTIGO": 1,
 }
+
 
 # ===== Tiny JSON logger =======================================================
 def jlog(event: str, **kv):
@@ -190,10 +194,11 @@ def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
 
 def _resolve_dataverse_network(svc_doc: dict | None, item: dict) -> str | None:
     """
-    Resolve generic 'network' slug we also reuse for Portal-02:
+    Resolve generic 'network' slug we also reuse:
       - 'mtn'
       - 'telecel'
       - 'airteltigo'
+    For DataVerse we later map 'airteltigo' -> 'ishare' per their docs.
     """
     doc = svc_doc
 
@@ -362,6 +367,11 @@ def _resolve_portal02_offer_slug(svc_doc: dict | None, item: dict) -> str:
 
 # ===== Basic Auth builder for DataVerse ======================================
 def _build_basic_auth_header() -> str:
+    """
+    Builds:
+        Authorization: Basic BASE64(username:password)
+    using your DataVerse credentials.
+    """
     creds = f"{DATAVERSE_USERNAME}:{DATAVERSE_PASSWORD}"
     token = base64.b64encode(creds.encode("utf-8")).decode("utf-8")
     return f"Basic {token}"
@@ -370,10 +380,28 @@ def _build_basic_auth_header() -> str:
 # ===== Provider callers (used by background worker) ==========================
 def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
                           external_ref: str, order_id: str, debug_events: list):
+    """
+    Sends a single bundle order to DataVerse.
+
+    POST https://dataversegh.pro/wp-json/custom/v1/place-order
+    Body JSON:
+        {
+          "network": "mtn" | "telecel" | "ishare" | "bigtime",
+          "recipient": "0539948030",
+          "package_size": 5,
+          "order_id": "TXN-12345"
+        }
+    """
     if not DATAVERSE_USERNAME or not DATAVERSE_PASSWORD:
         err = {"status": "error", "message": "DATAVERSE credentials not configured", "http_status": 500}
         jlog("dataverse_config_error", order_id=order_id, ref=external_ref)
         return False, err
+
+    # Normalise network slug for DataVerse
+    net = (network or "mtn").strip().lower()
+    # Their docs say: mtn, telecel, ishare, bigtime
+    if net == "airteltigo":
+        net = "ishare"
 
     url = f"{DATAVERSE_BASE_URL.rstrip('/')}/place-order"
     headers = {
@@ -382,7 +410,7 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
         "Authorization": _build_basic_auth_header(),
     }
     body = {
-        "network": network,
+        "network": net,
         "recipient": phone,
         "package_size": int(package_size_gb),
         "order_id": external_ref,
@@ -394,7 +422,7 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
         order_id=order_id,
         ref=external_ref,
         body={
-            "network": network,
+            "network": net,
             "recipient": masked,
             "package_size": body["package_size"],
             "order_id": external_ref,
@@ -627,6 +655,7 @@ def _background_process_providers(order_id: str, api_jobs: list[dict]):
             package_size_gb = job["package_size_gb"]
             provider = job["provider"]
             portal_network_slug = job.get("portal02_network_slug")
+            dataverse_network_slug = job.get("dataverse_network")  # NEW (for DataVerse)
             svc_id = job.get("service_id")
 
             svc_doc = None
@@ -656,14 +685,17 @@ def _background_process_providers(order_id: str, api_jobs: list[dict]):
             payload = {}
 
             if provider == "dataverse":
+                # For DataVerse we use dataverse_network_slug (mtn / telecel / airteltigo-ishare)
+                net = dataverse_network_slug or "mtn"
                 ok, payload = _send_dataverse_order(
                     phone=phone,
-                    network="mtn",
+                    network=net,
                     package_size_gb=package_size_gb,
                     external_ref=line_ref,
                     order_id=order_id,
                     debug_events=local_debug,
                 )
+
             elif provider == "portal02":
                 offer_slug = _resolve_portal02_offer_slug(svc_doc or {}, job.get("raw_item") or {})
                 normalized_phone = _normalize_msisdn_gh(phone)
@@ -932,6 +964,7 @@ def process_checkout():
             type_allows_api = svc_type_flag in ("ON", "API")
             api_allowed = type_allows_api or is_telecel_bundle or is_ishare_bundle
 
+            # DataVerse: currently only MTN Express uses DataVerse
             use_dataverse = (resolved_network == "mtn" and is_mtn_express and api_allowed)
 
             portal02_network_slug = None
@@ -1078,17 +1111,21 @@ def process_checkout():
                 }
             )
 
-            api_jobs.append(
-                {
-                    "provider_request_order_id": external_ref,
-                    "phone": phone,
-                    "provider": provider_name,
-                    "portal02_network_slug": portal02_network_slug,
-                    "package_size_gb": package_size_gb,
-                    "service_id": svc_doc["_id"],
-                    "raw_item": item,
-                }
-            )
+            job_payload = {
+                "provider_request_order_id": external_ref,
+                "phone": phone,
+                "provider": provider_name,
+                "portal02_network_slug": portal02_network_slug,
+                "package_size_gb": package_size_gb,
+                "service_id": svc_doc["_id"],
+                "raw_item": item,
+            }
+
+            # For DataVerse, also remember which network we resolved (mtn / telecel / airteltigo)
+            if provider_name == "dataverse":
+                job_payload["dataverse_network"] = resolved_network or "mtn"
+
+            api_jobs.append(job_payload)
 
         if len(debug_events) > 10:
             debug_events = debug_events[-10:]
