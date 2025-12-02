@@ -384,6 +384,7 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
     Sends a single bundle order to DataVerse.
 
     POST https://dataversegh.pro/wp-json/custom/v1/place-order
+
     Body JSON:
         {
           "network": "mtn" | "telecel" | "ishare" | "bigtime",
@@ -403,7 +404,6 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
     if net == "airteltigo":
         net = "ishare"
 
-    url = f"{DATAVERSE_BASE_URL.rstrip('/')}/place-order"
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -417,61 +417,101 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
     }
 
     masked = phone[:3] + "***" + phone[-2:] if phone and len(phone) >= 5 else "***"
-    jlog(
-        "dataverse_request_body",
-        order_id=order_id,
-        ref=external_ref,
-        body={
-            "network": net,
-            "recipient": masked,
-            "package_size": body["package_size"],
-            "order_id": external_ref,
-        },
-    )
 
-    try:
-        resp = requests.post(
-            url,
-            headers=headers,
-            json=body,
-            timeout=45,
+    base = DATAVERSE_BASE_URL.rstrip('/')
+    # Try both with and without trailing slash – some nginx setups are picky
+    candidate_urls = [
+        f"{base}/place-order",
+        f"{base}/place-order/",
+    ]
+
+    last_payload = {"status": "error", "message": "No response", "http_status": 0}
+    last_ok = False
+
+    for attempt, url in enumerate(candidate_urls, start=1):
+        jlog(
+            "dataverse_request_body",
+            order_id=order_id,
+            ref=external_ref,
+            attempt=attempt,
+            url=url,
+            body={
+                "network": net,
+                "recipient": masked,
+                "package_size": body["package_size"],
+                "order_id": external_ref,
+            },
         )
-        text = resp.text or ""
+
         try:
-            payload_raw = resp.json()
-        except Exception:
-            payload_raw = text.strip() if text else None
+            # Do NOT follow redirects automatically to avoid POST -> GET issues
+            resp = requests.post(
+                url,
+                headers=headers,
+                json=body,
+                timeout=45,
+                allow_redirects=False,
+            )
+            text = resp.text or ""
+            try:
+                payload_raw = resp.json()
+            except Exception:
+                payload_raw = text.strip() if text else None
 
-        if isinstance(payload_raw, dict):
-            payload = payload_raw
-        else:
-            payload = {"raw": payload_raw} if payload_raw is not None else {}
-        payload.setdefault("http_status", resp.status_code)
+            if isinstance(payload_raw, dict):
+                payload = payload_raw
+            else:
+                payload = {"raw": payload_raw} if payload_raw is not None else {}
+            payload.setdefault("http_status", resp.status_code)
 
-        status_field = str(payload.get("status", "")).lower()
-        ok_http = (resp.status_code == 200)
-        ok_status = (status_field in ("success", "true", "ok"))
-        ok = ok_http and (status_field == "" or ok_status)
+            status_field = str(payload.get("status", "")).lower()
+            ok_http = (resp.status_code == 200)
+            ok_status = (status_field in ("success", "true", "ok"))
+            ok = ok_http and (status_field == "" or ok_status)
 
-        dbg = {
-            "status": resp.status_code,
-            "body_len": len(text),
-        }
-        jlog("dataverse_response", order_id=order_id, ref=external_ref, payload=payload)
-        jlog("dataverse_call", order_id=order_id, ref=external_ref, ok=ok, debug=dbg)
-        debug_events.append(
-            {
-                "when": datetime.utcnow(),
-                "stage": "dataverse-place-order",
-                "ok": ok,
-                "http_status": resp.status_code,
+            dbg = {
+                "status": resp.status_code,
+                "body_len": len(text),
+                "attempt": attempt,
+                "url": url,
             }
-        )
-        return ok, payload
+            jlog("dataverse_response", order_id=order_id, ref=external_ref, payload=payload)
+            jlog("dataverse_call", order_id=order_id, ref=external_ref, ok=ok, debug=dbg)
 
-    except requests.RequestException as e:
-        jlog("dataverse_network_error", order_id=order_id, ref=external_ref, error=str(e))
-        return False, {"status": "error", "message": str(e), "http_status": 599}
+            debug_events.append(
+                {
+                    "when": datetime.utcnow(),
+                    "stage": f"dataverse-place-order-attempt-{attempt}",
+                    "ok": ok,
+                    "http_status": resp.status_code,
+                    "url": url,
+                }
+            )
+
+            if ok:
+                return True, payload  # success, stop trying
+
+            last_payload = payload
+            last_ok = False
+
+            # Only try alternate URL on "endpoint shape" issues
+            if resp.status_code not in (301, 302, 307, 308, 404, 405):
+                break  # don't spam if it's clearly auth/forbidden/etc.
+
+        except requests.RequestException as e:
+            jlog(
+                "dataverse_network_error",
+                order_id=order_id,
+                ref=external_ref,
+                error=str(e),
+                attempt=attempt,
+            )
+            last_payload = {"status": "error", "message": str(e), "http_status": 599}
+            last_ok = False
+            # For network errors, we continue to next candidate URL
+
+    # If we get here, all attempts failed
+    return last_ok, last_payload
 
 
 def _send_portal02_order(phone: str, network: str, volume_gb: int,
@@ -655,7 +695,7 @@ def _background_process_providers(order_id: str, api_jobs: list[dict]):
             package_size_gb = job["package_size_gb"]
             provider = job["provider"]
             portal_network_slug = job.get("portal02_network_slug")
-            dataverse_network_slug = job.get("dataverse_network")  # NEW (for DataVerse)
+            dataverse_network_slug = job.get("dataverse_network")  # for DataVerse
             svc_id = job.get("service_id")
 
             svc_doc = None
@@ -1106,7 +1146,7 @@ def process_checkout():
                     "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
                     "line_amount_key": amount_key,
                     "line_status": "processing",
-                    "api_status": "queued",      # <--- key change
+                    "api_status": "queued",      # <--- queued for background call
                     "api_response": {"note": "Queued for background API call"},
                 }
             )
