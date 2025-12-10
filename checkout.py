@@ -408,6 +408,8 @@ def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
         "Accept": "application/json",
         "Content-Type": "application/json",
         "Authorization": _build_basic_auth_header(),
+        "User-Agent": "PostmanRuntime/7.36.1",
+
     }
     body = {
         "network": net,
