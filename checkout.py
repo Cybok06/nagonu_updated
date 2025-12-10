@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, session, render_template, abort
 from bson import ObjectId
 from datetime import datetime, timedelta
-import os, uuid, random, requests, traceback, json, ast, re, base64, threading
+import os, uuid, random, requests, traceback, json, ast, re, threading
 
 from db import db
 
@@ -16,15 +16,15 @@ service_profits_col = db["service_profits"]  # per-customer overrides
 users_col           = db["users"]  # ✅ for invoice view
 
 
-# ===== DataVerse Provider Config (HARDCODED as requested) ====================
-DATAVERSE_BASE_URL = "https://dataversegh.pro/wp-json/custom/v1"
+# ===== DataConnect Provider Config (replaces old DataVerse) ===================
+DATACONNECT_BASE_URL = "https://dataconnectgh.com/api/v1"
+DATACONNECT_API_KEY = os.getenv(
+    "DATACONNECT_API_KEY",
+    "90bcf2f236b8c95547b58b531f5c597df8a061a8",  # fallback; you can remove/harden
+)
 
-# 🔐 Credentials from your DataVerse panel
-DATAVERSE_USERNAME = "Nyebro"
-DATAVERSE_PASSWORD = "TlFBuXm7UZLE4uo8hg4YoC78"  # <-- NEW PASSWORD (from docs)
 
-
-# ===== Portal-02 Provider Config =============================================
+# ===== Portal-02 Provider Config ==============================================
 PORTAL02_BASE_URL = "https://www.portal-02.com/api/v1"
 PORTAL02_API_KEY = os.getenv("PORTAL02_API_KEY", "dk_mJmQDFQWmDId4RT_c5HrEghcgwujPAFf")
 PORTAL02_WEBHOOK_URL = os.getenv(
@@ -192,13 +192,13 @@ def _resolve_network_id(item: dict, value_obj: dict, svc_doc: dict | None):
     return None
 
 
-def _resolve_dataverse_network(svc_doc: dict | None, item: dict) -> str | None:
+def _resolve_dataconnect_network(svc_doc: dict | None, item: dict) -> str | None:
     """
     Resolve generic 'network' slug we also reuse:
       - 'mtn'
       - 'telecel'
       - 'airteltigo'
-    For DataVerse we later map 'airteltigo' -> 'ishare' per their docs.
+    Used for routing (DataConnect vs Portal-02).
     """
     doc = svc_doc
 
@@ -249,7 +249,7 @@ def _resolve_dataverse_network(svc_doc: dict | None, item: dict) -> str | None:
 
 def _resolve_package_size_gb(value_obj: dict, item: dict) -> int | None:
     """
-    Resolve bundle size (integer GB) to use as Portal/DataVerse "volume".
+    Resolve bundle size (integer GB) to use as Portal/DataConnect "volume".
     """
     if not isinstance(value_obj, dict):
         value_obj = value_obj or {}
@@ -365,155 +365,113 @@ def _resolve_portal02_offer_slug(svc_doc: dict | None, item: dict) -> str:
     return PORTAL02_OFFER_SLUG_MTN_NORMAL
 
 
-# ===== Basic Auth builder for DataVerse ======================================
-def _build_basic_auth_header() -> str:
-    """
-    Builds:
-        Authorization: Basic BASE64(username:password)
-    using your DataVerse credentials.
-    """
-    creds = f"{DATAVERSE_USERNAME}:{DATAVERSE_PASSWORD}"
-    token = base64.b64encode(creds.encode("utf-8")).decode("utf-8")
-    return f"Basic {token}"
-
-
 # ===== Provider callers (used by background worker) ==========================
-def _send_dataverse_order(phone: str, network: str, package_size_gb: int,
-                          external_ref: str, order_id: str, debug_events: list):
+def _send_dataconnect_order(
+    phone: str,
+    network_id: int,
+    shared_bundle: int,
+    external_ref: str,
+    order_id: str,
+    debug_events: list,
+):
     """
-    Sends a single bundle order to DataVerse.
+    Sends a single bundle order to DataConnect.
 
-    POST https://dataversegh.pro/wp-json/custom/v1/place-order
+    POST https://dataconnectgh.com/api/v1/buy-other-package
 
     Body JSON:
         {
-          "network": "mtn" | "telecel" | "ishare" | "bigtime",
-          "recipient": "0539948030",
-          "package_size": 5,
-          "order_id": "TXN-12345"
+            "recipient_msisdn": "0551053716",
+            "network_id": 3,
+            "shared_bundle": 1000
         }
     """
-    if not DATAVERSE_USERNAME or not DATAVERSE_PASSWORD:
-        err = {"status": "error", "message": "DATAVERSE credentials not configured", "http_status": 500}
-        jlog("dataverse_config_error", order_id=order_id, ref=external_ref)
+    if not DATACONNECT_API_KEY:
+        err = {
+            "success": False,
+            "message": "DATACONNECT API key not configured",
+            "http_status": 500,
+        }
+        jlog("dataconnect_config_error", order_id=order_id, ref=external_ref)
         return False, err
 
-    # Normalise network slug for DataVerse
-    net = (network or "mtn").strip().lower()
-    # Their docs say: mtn, telecel, ishare, bigtime
-    if net == "airteltigo":
-        net = "ishare"
-
+    url = f"{DATACONNECT_BASE_URL.rstrip('/')}/buy-other-package"
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Authorization": _build_basic_auth_header(),
-        "User-Agent": "PostmanRuntime/7.36.1",
-
+        "x-api-key": DATACONNECT_API_KEY,
     }
     body = {
-        "network": net,
-        "recipient": phone,
-        "package_size": int(package_size_gb),
-        "order_id": external_ref,
+        "recipient_msisdn": phone,
+        "network_id": int(network_id),
+        "shared_bundle": int(shared_bundle),
     }
 
     masked = phone[:3] + "***" + phone[-2:] if phone and len(phone) >= 5 else "***"
 
-    base = DATAVERSE_BASE_URL.rstrip('/')
-    # Try both with and without trailing slash – some nginx setups are picky
-    candidate_urls = [
-        f"{base}/place-order",
-        f"{base}/place-order/",
-    ]
+    jlog(
+        "dataconnect_request_body",
+        order_id=order_id,
+        ref=external_ref,
+        url=url,
+        body={
+            "recipient_msisdn": masked,
+            "network_id": body["network_id"],
+            "shared_bundle": body["shared_bundle"],
+        },
+    )
 
-    last_payload = {"status": "error", "message": "No response", "http_status": 0}
-    last_ok = False
-
-    for attempt, url in enumerate(candidate_urls, start=1):
-        jlog(
-            "dataverse_request_body",
-            order_id=order_id,
-            ref=external_ref,
-            attempt=attempt,
-            url=url,
-            body={
-                "network": net,
-                "recipient": masked,
-                "package_size": body["package_size"],
-                "order_id": external_ref,
-            },
+    try:
+        resp = requests.post(
+            url,
+            headers=headers,
+            json=body,
+            timeout=45,
         )
-
+        text = resp.text or ""
         try:
-            # Do NOT follow redirects automatically to avoid POST -> GET issues
-            resp = requests.post(
-                url,
-                headers=headers,
-                json=body,
-                timeout=45,
-                allow_redirects=False,
-            )
-            text = resp.text or ""
-            try:
-                payload_raw = resp.json()
-            except Exception:
-                payload_raw = text.strip() if text else None
+            payload = resp.json()
+        except Exception:
+            payload = {"raw": text} if text else {}
 
-            if isinstance(payload_raw, dict):
-                payload = payload_raw
-            else:
-                payload = {"raw": payload_raw} if payload_raw is not None else {}
+        ok = (
+            resp.status_code in (200, 201)
+            and isinstance(payload, dict)
+            and bool(payload.get("success")) is True
+        )
+        if isinstance(payload, dict):
             payload.setdefault("http_status", resp.status_code)
 
-            status_field = str(payload.get("status", "")).lower()
-            ok_http = (resp.status_code == 200)
-            ok_status = (status_field in ("success", "true", "ok"))
-            ok = ok_http and (status_field == "" or ok_status)
+        dbg = {
+            "status": resp.status_code,
+            "body_len": len(text),
+        }
+        jlog("dataconnect_response", order_id=order_id, ref=external_ref, payload=payload)
+        jlog("dataconnect_call", order_id=order_id, ref=external_ref, ok=ok, debug=dbg)
 
-            dbg = {
-                "status": resp.status_code,
-                "body_len": len(text),
-                "attempt": attempt,
-                "url": url,
+        debug_events.append(
+            {
+                "when": datetime.utcnow(),
+                "stage": "dataconnect-buy-other-package",
+                "ok": ok,
+                "http_status": resp.status_code,
             }
-            jlog("dataverse_response", order_id=order_id, ref=external_ref, payload=payload)
-            jlog("dataverse_call", order_id=order_id, ref=external_ref, ok=ok, debug=dbg)
+        )
+        return ok, payload
 
-            debug_events.append(
-                {
-                    "when": datetime.utcnow(),
-                    "stage": f"dataverse-place-order-attempt-{attempt}",
-                    "ok": ok,
-                    "http_status": resp.status_code,
-                    "url": url,
-                }
-            )
-
-            if ok:
-                return True, payload  # success, stop trying
-
-            last_payload = payload
-            last_ok = False
-
-            # Only try alternate URL on "endpoint shape" issues
-            if resp.status_code not in (301, 302, 307, 308, 404, 405):
-                break  # don't spam if it's clearly auth/forbidden/etc.
-
-        except requests.RequestException as e:
-            jlog(
-                "dataverse_network_error",
-                order_id=order_id,
-                ref=external_ref,
-                error=str(e),
-                attempt=attempt,
-            )
-            last_payload = {"status": "error", "message": str(e), "http_status": 599}
-            last_ok = False
-            # For network errors, we continue to next candidate URL
-
-    # If we get here, all attempts failed
-    return last_ok, last_payload
+    except requests.RequestException as e:
+        jlog(
+            "dataconnect_network_error",
+            order_id=order_id,
+            ref=external_ref,
+            error=str(e),
+        )
+        return False, {
+            "success": False,
+            "error": str(e),
+            "type": "NETWORK_ERROR",
+            "http_status": 599,
+        }
 
 
 def _send_portal02_order(phone: str, network: str, volume_gb: int,
@@ -685,7 +643,7 @@ def _has_processing_conflict_strict(
 def _background_process_providers(order_id: str, api_jobs: list[dict]):
     """
     Runs in a separate thread AFTER the HTTP response is sent.
-    It picks queued lines and calls DataVerse / Portal-02, then updates the order doc.
+    It picks queued lines and calls DataConnect / Portal-02, then updates the order doc.
     """
     jlog("checkout_bg_worker_start", order_id=order_id, jobs=len(api_jobs))
     local_debug = []
@@ -694,11 +652,13 @@ def _background_process_providers(order_id: str, api_jobs: list[dict]):
         try:
             line_ref = job["provider_request_order_id"]
             phone = job["phone"]
-            package_size_gb = job["package_size_gb"]
+            package_size_gb = job.get("package_size_gb")
             provider = job["provider"]
             portal_network_slug = job.get("portal02_network_slug")
-            dataverse_network_slug = job.get("dataverse_network")  # for DataVerse
             svc_id = job.get("service_id")
+
+            dataconnect_network_id = job.get("network_id")
+            dataconnect_shared_bundle = job.get("shared_bundle")
 
             svc_doc = None
             if svc_id:
@@ -726,13 +686,12 @@ def _background_process_providers(order_id: str, api_jobs: list[dict]):
             ok = False
             payload = {}
 
-            if provider == "dataverse":
-                # For DataVerse we use dataverse_network_slug (mtn / telecel / airteltigo-ishare)
-                net = dataverse_network_slug or "mtn"
-                ok, payload = _send_dataverse_order(
+            if provider == "dataconnect":
+                # DataConnect order
+                ok, payload = _send_dataconnect_order(
                     phone=phone,
-                    network=net,
-                    package_size_gb=package_size_gb,
+                    network_id=dataconnect_network_id,
+                    shared_bundle=dataconnect_shared_bundle,
                     external_ref=line_ref,
                     order_id=order_id,
                     debug_events=local_debug,
@@ -754,8 +713,16 @@ def _background_process_providers(order_id: str, api_jobs: list[dict]):
             provider_ref = None
             provider_order_id = None
             if isinstance(payload, dict):
-                provider_ref = payload.get("reference") or payload.get("order_reference")
-                provider_order_id = payload.get("orderId") or payload.get("order_id")
+                provider_ref = (
+                    payload.get("transaction_code")
+                    or payload.get("reference")
+                    or payload.get("order_reference")
+                )
+                provider_order_id = (
+                    payload.get("orderId")
+                    or payload.get("order_id")
+                    or payload.get("transaction_code")
+                )
 
             # Update this specific line inside the order items
             orders_col.update_one(
@@ -988,7 +955,7 @@ def process_checkout():
                 continue
 
             # Provider selection
-            resolved_network = _resolve_dataverse_network(svc_doc, item)
+            resolved_network = _resolve_dataconnect_network(svc_doc, item)
             svc_name_norm = (svc_name or "").strip().lower()
             svc_network_norm = (svc_doc.get("network") or "").strip().lower() if svc_doc else ""
             combo_name_net = f"{svc_name_norm} {svc_network_norm}"
@@ -1006,8 +973,8 @@ def process_checkout():
             type_allows_api = svc_type_flag in ("ON", "API")
             api_allowed = type_allows_api or is_telecel_bundle or is_ishare_bundle
 
-            # DataVerse: currently only MTN Express uses DataVerse
-            use_dataverse = (resolved_network == "mtn" and is_mtn_express and api_allowed)
+            # DataConnect: currently only MTN Express uses DataConnect (like old DataVerse slot)
+            use_dataconnect = (resolved_network == "mtn" and is_mtn_express and api_allowed)
 
             portal02_network_slug = None
             if api_allowed:
@@ -1033,12 +1000,12 @@ def process_checkout():
                 is_telecel_bundle=is_telecel_bundle,
                 is_ishare_bundle=is_ishare_bundle,
                 api_allowed=api_allowed,
-                use_dataverse=use_dataverse,
+                use_dataconnect=use_dataconnect,
                 use_portal02=use_portal02,
                 portal02_network_slug=portal02_network_slug,
             )
 
-            if not (use_dataverse or use_portal02):
+            if not (use_dataconnect or use_portal02):
                 has_processing = True
                 total_processing_amount += amt_total
 
@@ -1050,7 +1017,7 @@ def process_checkout():
                     api_status = "not_applicable_type_off"
                 else:
                     note = (
-                        "API is used for MTN EXPRESS (DataVerse) and MTN NORMAL / TELECEL / AIRTELTIGO iShare "
+                        "API is used for MTN EXPRESS (DataConnect) and MTN NORMAL / TELECEL / AIRTELTIGO iShare "
                         "via Portal-02, but this line did not match any mapped combination; queued for manual processing."
                     )
                     api_status = "not_applicable_network"
@@ -1086,6 +1053,19 @@ def process_checkout():
             api_requested_total += amt_total
 
             package_size_gb = _resolve_package_size_gb(value_obj, item)
+
+            # Resolve shared_bundle for DataConnect from your stored offer structure
+            shared_bundle = None
+            if isinstance(value_obj, dict):
+                sb = value_obj.get("volume") or value_obj.get("shared_bundle") or value_obj.get("mb")
+                if sb not in (None, "", []):
+                    try:
+                        shared_bundle = int(float(sb))
+                    except Exception:
+                        shared_bundle = None
+            if shared_bundle is None and package_size_gb is not None:
+                shared_bundle = int(package_size_gb * 1000)
+
             if not phone or package_size_gb is None:
                 has_processing = True
                 total_processing_amount += amt_total
@@ -1120,38 +1100,47 @@ def process_checkout():
 
             # Prepare background job meta
             external_ref = f"{order_id}_{idx}_{uuid.uuid4().hex[:6]}"
-            provider_name = "dataverse" if use_dataverse else "portal02"
-            provider_network_slug = "mtn" if use_dataverse else portal02_network_slug
+
+            if use_dataconnect:
+                provider_name = "dataconnect"
+                provider_network_slug = resolved_network  # for debug only
+            else:
+                provider_name = "portal02"
+                provider_network_slug = portal02_network_slug
 
             has_processing = True
             total_processing_amount += amt_total
 
             # store line with "queued" status; background worker will update
-            results.append(
-                {
-                    "phone": phone,
-                    "base_amount": base_amount,
-                    "amount": amt_total,
-                    "profit_amount": profit_amount,
-                    "profit_percent_used": eff_p,
-                    "value": item.get("value"),
-                    "value_obj": value_obj,
-                    "serviceId": service_id_raw,
-                    "serviceName": svc_name,
-                    "service_type": svc_type,
-                    "provider": provider_name,
-                    "provider_network": provider_network_slug,
-                    "provider_reference": None,
-                    "provider_order_id": None,
-                    "provider_request_order_id": external_ref,
-                    "network_id": network_id,
-                    "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
-                    "line_amount_key": amount_key,
-                    "line_status": "processing",
-                    "api_status": "queued",      # <--- queued for background call
-                    "api_response": {"note": "Queued for background API call"},
-                }
-            )
+            line_record = {
+                "phone": phone,
+                "base_amount": base_amount,
+                "amount": amt_total,
+                "profit_amount": profit_amount,
+                "profit_percent_used": eff_p,
+                "value": item.get("value"),
+                "value_obj": value_obj,
+                "serviceId": service_id_raw,
+                "serviceName": svc_name,
+                "service_type": svc_type,
+                "provider": provider_name,
+                "provider_network": provider_network_slug,
+                "provider_reference": None,
+                "provider_order_id": None,
+                "provider_request_order_id": external_ref,
+                "network_id": network_id,
+                "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                "line_amount_key": amount_key,
+                "line_status": "processing",
+                "api_status": "queued",      # <--- queued for background call
+                "api_response": {"note": "Queued for background API call"},
+            }
+
+            # For transparency/debug you can store shared_bundle on the line as well
+            if use_dataconnect:
+                line_record["shared_bundle"] = shared_bundle
+
+            results.append(line_record)
 
             job_payload = {
                 "provider_request_order_id": external_ref,
@@ -1163,9 +1152,9 @@ def process_checkout():
                 "raw_item": item,
             }
 
-            # For DataVerse, also remember which network we resolved (mtn / telecel / airteltigo)
-            if provider_name == "dataverse":
-                job_payload["dataverse_network"] = resolved_network or "mtn"
+            if provider_name == "dataconnect":
+                job_payload["network_id"] = network_id
+                job_payload["shared_bundle"] = shared_bundle
 
             api_jobs.append(job_payload)
 
