@@ -307,18 +307,34 @@
     .price-tag{ font-weight:950; font-size:1.05rem; color:#0f172a; letter-spacing:-.01em; }
     .muted-line{ color:var(--muted); font-size:.9rem; }
 
+    /* ✅ FORCE 2 CARDS PER ROW (MOBILE + PC) */
     .products-grid{
       display:grid;
-      grid-template-columns: repeat(12, 1fr);
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 16px;
     }
-    .products-grid .pcol{ grid-column: span 12; }
-    @media (min-width: 576px){ .products-grid .pcol{ grid-column: span 6; } }
-    @media (min-width: 992px){ .products-grid .pcol{ grid-column: span 4; } }
+    .products-grid .pcol{ grid-column: auto; }
 
+    .reco-grid{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .reco-item{ grid-column: auto; }
+
+    /* keep services rail layout */
     .services-layout{ display:grid; grid-template-columns: 1fr; gap: 16px; }
     @media (min-width: 992px){
       .services-layout{ grid-template-columns: 1fr 340px; align-items:start; }
+    }
+
+    /* small screens: reduce gap a bit so 2-up fits nicer */
+    @media (max-width: 420px){
+      .products-grid{ gap: 12px; }
+      .reco-grid{ gap: 10px; }
+      .service-body{ padding: 12px 12px 14px; }
+      .service-title{ font-size: 1rem; }
+      .thumb.thumb-service{ height: 150px; }
     }
 
     .rail{
@@ -428,15 +444,6 @@
     .table tbody tr{ border-color:rgba(15,23,42,.08)!important; }
     .table tbody tr:hover{ background:rgba(248,250,252,.9); }
     .table{ font-size:.88rem; }
-
-    .reco-grid{
-      display:grid;
-      grid-template-columns: repeat(12, 1fr);
-      gap: 12px;
-    }
-    .reco-item{ grid-column: span 12; }
-    @media (min-width: 576px){ .reco-item{ grid-column: span 6; } }
-    @media (min-width: 992px){ .reco-item{ grid-column: span 4; } }
 
     .reco-tile{
       border:1px solid rgba(15,23,42,.10);
@@ -715,14 +722,13 @@
 
           <div class="services-layout">
             <div>
-              <div class="row g-4">
+              <!-- ✅ 2 per row on ALL screen sizes -->
+              <div class="row g-3">
                 {% if not services %}
                   <div class="col-12 text-center text-muted">No services available.</div>
                 {% else %}
                   {% for svc in services %}
-                    {% set layout_choice = (store.layout or 'grid-2') %}
-                    {% set colClass = 'col-12 col-lg-6' if layout_choice == 'grid-2' else 'col-12' %}
-                    <div class="{{ colClass }}">
+                    <div class="col-6">
                       {{ service_card(svc) }}
                     </div>
                   {% endfor %}
@@ -808,6 +814,7 @@
           {% if not products %}
             <div class="text-center text-muted reveal">No products added yet.</div>
           {% else %}
+            <!-- ✅ 2 per row on ALL screen sizes -->
             <div class="products-grid">
               {% for p in products %}
                 <div class="pcol">
@@ -923,6 +930,126 @@
       </div>
     </div>
   </div>
+<!-- ===================== CHECK ORDER STATUS (ADD THIS BLOCK) ===================== -->
+<!-- ✅ Place this inside your Store Page HTML (e.g. inside #main container, under the tabs card OR above the services grid) -->
+
+<style>
+  /* ---- Check Status Card (scoped) ---- */
+  .check-status-card{
+    background: rgba(255,255,255,.86);
+    backdrop-filter: saturate(160%) blur(10px);
+    border: 1px solid rgba(15,23,42,.10);
+    border-radius: 18px;
+    box-shadow: 0 18px 45px rgba(15,23,42,.08);
+    overflow: hidden;
+  }
+  .check-status-head{
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(15,23,42,.08);
+    background: rgba(255,255,255,.65);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap: 12px;
+  }
+  .check-status-title{
+    font-weight: 950;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    font-size: .78rem;
+    color: #475569;
+    margin:0;
+    display:flex;
+    align-items:center;
+    gap:.5rem;
+    white-space:nowrap;
+  }
+  .check-status-sub{
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: .88rem;
+    line-height: 1.35;
+  }
+  .check-status-body{
+    padding: 14px 16px 16px;
+  }
+  .check-status-actions{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .check-status-btn{
+    border-radius: 999px;
+    font-weight: 950;
+    padding: .72rem 1.15rem;
+    border: 1px solid rgba(2,132,199,.28);
+    background: linear-gradient(135deg, var(--primary, #0ea5e9), #0284c7);
+    color:#fff;
+    box-shadow: 0 16px 34px rgba(14,165,233,.20);
+    text-decoration:none;
+    display:inline-flex;
+    align-items:center;
+    gap:.55rem;
+    transition: transform .12s ease, filter .12s ease;
+  }
+  .check-status-btn:hover{ transform: translateY(-1px); filter: brightness(.98); color:#fff; }
+
+  .check-status-note{
+    font-size: .86rem;
+    color: #64748b;
+    margin:0;
+    display:flex;
+    align-items:center;
+    gap:.45rem;
+  }
+
+  /* Nice spacing between this card and content around it */
+  .check-status-wrap{ margin: 14px 0 18px; }
+
+  @media (max-width:576px){
+    .check-status-actions{ justify-content: flex-start; }
+    .check-status-btn{ width:100%; justify-content:center; }
+    .check-status-note{ width:100%; }
+  }
+</style>
+
+<div class="check-status-wrap reveal">
+  <div class="check-status-card">
+    <div class="check-status-head">
+      <div>
+        <p class="check-status-title">
+          <i class="bi bi-receipt-cutoff"></i>
+          Check Order Status
+        </p>
+        <p class="check-status-sub">
+          Track your order progress after payment.
+        </p>
+      </div>
+
+      <span class="badge-soft d-none d-md-inline-flex">
+        <i class="bi bi-shield-check"></i> Secure
+      </span>
+    </div>
+
+    <div class="check-status-body">
+      <div class="check-status-actions">
+        <!-- ✅ This is your link -->
+        <a class="check-status-btn" href="/check-status">
+          <i class="bi bi-search"></i>
+          Check Status
+        </a>
+
+        <p class="check-status-note">
+          <i class="bi bi-info-circle"></i>
+          Use the same phone number you used during checkout.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ===================== /CHECK ORDER STATUS BLOCK ===================== -->
 
   <!-- FOOTER -->
   <footer class="footer mt-4 py-3">
