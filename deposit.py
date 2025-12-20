@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash
 from bson import ObjectId
 from datetime import datetime
-import os, requests, json
+import requests, json
 
 from db import db
 
@@ -10,11 +10,19 @@ balances_col = db["balances"]
 transactions_col = db["transactions"]
 users_col = db["users"]
 
-# Default: 0.5% fee (override via env if needed)
-DEPOSIT_FEE_RATE = float(os.getenv("DEPOSIT_FEE_RATE", "0.005"))
+# ==========================
+# ✅ HARDCODED PAYSTACK KEYS
+# ==========================
+PAYSTACK_PUBLIC_KEY = "pk_live_9bfdd68d9b3205e311a3709b19143081ecaf74ee"
+PAYSTACK_SECRET_KEY = "sk_live_e8b4e4a02b170e36ee385b839517ce4f1d0bd92b"
+
+# ✅ Hardcode fee rate too (0.5%)
+DEPOSIT_FEE_RATE = 0.005
+
 
 def _r2(x: float) -> float:
     return round(float(x or 0), 2)
+
 
 @deposit_bp.route("/deposit")
 def deposit_page():
@@ -26,15 +34,14 @@ def deposit_page():
         user = users_col.find_one({"_id": ObjectId(session["user_id"])})
         email = user.get("email", "") if user else ""
 
-    paystack_pk = os.getenv("PAYSTACK_PUBLIC_KEY", "")
-
     return render_template(
         "deposit.html",
         user_id=session["user_id"],
         email=email,
-        paystack_pk=paystack_pk,
-        deposit_fee_rate=DEPOSIT_FEE_RATE,  # 0.5% sent to UI
+        paystack_pk=PAYSTACK_PUBLIC_KEY,     # ✅ send hardcoded PK to UI
+        deposit_fee_rate=DEPOSIT_FEE_RATE,   # 0.5% sent to UI
     )
+
 
 @deposit_bp.route("/verify_transaction")
 def verify_transaction():
@@ -45,12 +52,7 @@ def verify_transaction():
         flash("❌ Invalid deposit request", "danger")
         return redirect(url_for("customer_dashboard.customer_dashboard"))
 
-    paystack_sk = os.getenv("PAYSTACK_SECRET_KEY")
-    if not paystack_sk:
-        flash("❌ Payment processor not configured. Contact support.", "danger")
-        return redirect(url_for("customer_dashboard.customer_dashboard"))
-
-    headers = {"Authorization": f"Bearer {paystack_sk}"}
+    headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}
     url = f"https://api.paystack.co/transaction/verify/{reference}"
 
     try:
@@ -69,7 +71,7 @@ def verify_transaction():
         # Amount from Paystack is in pesewas → GHS
         paid_gross_ghs = _r2((data.get("amount", 0) or 0) / 100.0)
         currency = data.get("currency", "GHS")
-        channel  = data.get("channel", "")
+        channel = data.get("channel", "")
         paid_ref = data.get("reference")
         metadata = data.get("metadata") or {}
 
@@ -92,8 +94,7 @@ def verify_transaction():
             net_credit_ghs = None
 
         if net_credit_ghs is None:
-            # Fallback only if metadata is missing: derive net from gross
-            # (kept to avoid zero-credit if old clients don't send metadata)
+            # Fallback only if metadata is missing (old clients)
             net_credit_ghs = _r2(paid_gross_ghs / (1.0 + fee_rate))
 
         # Guardrails — never over-credit
@@ -102,7 +103,7 @@ def verify_transaction():
         if net_credit_ghs > paid_gross_ghs:
             net_credit_ghs = paid_gross_ghs
 
-        # For records: compute fee for audit (what the user paid minus what we credit)
+        # For records: compute fee for audit
         fee_ghs = _r2(paid_gross_ghs - net_credit_ghs)
 
         # Credit NET to wallet
@@ -126,8 +127,8 @@ def verify_transaction():
             "verified_at": datetime.utcnow(),
             "created_at": datetime.utcnow(),
             "meta": {
-                "paid_gross_ghs": paid_gross_ghs,         # actual charged
-                "net_credit_ghs": net_credit_ghs,         # what we credited
+                "paid_gross_ghs": paid_gross_ghs,
+                "net_credit_ghs": net_credit_ghs,
                 "fee_ghs": fee_ghs,
                 "fee_rate": fee_rate,
                 "source": "deposit_fee_0p5_strict_net_credit"
