@@ -44,7 +44,12 @@ from admin_afa import admin_afa_bp
 from cart_api import cart_api_bp
 from check_status import check_status_bp
 from shares import shares_bp
-from routes.stores import stores_bp
+
+# ✅ UPDATED: store blueprint now lives in routes/store_page.py
+from routes.store_page import stores_bp
+# ✅ IMPORTANT: importing this file attaches the create/api/media routes to stores_bp
+import routes.store_create  # noqa: F401
+
 from routes.customer_store import customer_store_bp
 from routes.admin_store import admin_store_bp
 from order_status import order_status_bp   # 👈 add this
@@ -138,7 +143,10 @@ def create_app():
     app.register_blueprint(index_bp)     # serves "/" dynamically with offers & public buy
     app.register_blueprint(check_status_bp)
     app.register_blueprint(shares_bp)
+
+    # ✅ Store module (public store page + create + CRUD + media) now comes from store_page/store_create split
     app.register_blueprint(stores_bp)
+
     app.register_blueprint(customer_store_bp)
     app.register_blueprint(admin_store_bp)
     app.register_blueprint(order_status_bp)   # 👈 add this
