@@ -4,8 +4,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 import os, json, re, ast, traceback, base64
-import requests
 
+import requests
 from bson import ObjectId
 from flask import (
     Blueprint,
@@ -22,7 +22,10 @@ from flask import (
 from db import db
 import gridfs
 
-# --- Collections ---
+
+# ---------------------------------------------------------------------
+# Collections
+# ---------------------------------------------------------------------
 services_col = db["services"]
 stores_col = db["stores"]
 balances_col = db["balances"]
@@ -41,7 +44,10 @@ fs = gridfs.GridFS(db)
 
 stores_bp = Blueprint("stores", __name__)
 
-# ===== import helpers already in your app (from checkout.py) =====
+
+# ---------------------------------------------------------------------
+# Import helpers from checkout.py (keep compatibility)
+# ---------------------------------------------------------------------
 _checkout_helpers: Dict[str, Any] = {}
 try:
     from checkout import (  # type: ignore
@@ -136,7 +142,9 @@ NETWORK_ID_FALLBACK: Dict[str, int] = {
 }
 
 
-# ---------- small utils ----------
+# ---------------------------------------------------------------------
+# Small utils
+# ---------------------------------------------------------------------
 def _norm(s: str) -> str:
     return (s or "").strip().lower()
 
@@ -189,7 +197,9 @@ def _sorted_services(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return raw
 
 
+# ---------------------------------------------------------------------
 # ✅ WhatsApp helpers
+# ---------------------------------------------------------------------
 def _wa_digits(v: Any) -> str:
     d = re.sub(r"\D+", "", str(v or ""))
     if d.startswith("0") and len(d) == 10:
@@ -256,8 +266,8 @@ def _extract_store_whatsapp(store_doc: Dict[str, Any]) -> Dict[str, str]:
 
 
 # =====================================================================
-# ✅ IMPORTANT:
-# Base price is service.store_offers (authoritative) fallback to service.offers
+# ✅ Offers source:
+# - Page pricing: store_offers authoritative, fallback to offers
 # =====================================================================
 def _svc_offers_list(svc: Dict[str, Any]) -> List[Dict[str, Any]]:
     so = svc.get("store_offers")
@@ -276,6 +286,34 @@ def _offer_base_amount(of: Dict[str, Any]) -> Optional[float]:
     if base is not None:
         return base
     return _to_float(of.get("amount"))
+
+
+# =====================================================================
+# ✅ NEW PROFIT RULE HELPERS (PRO, SAFE)
+# =====================================================================
+def _effective_store_profit_percent(svc_doc: Optional[Dict[str, Any]]) -> float:
+    """
+    Store checkout profit percent.
+    Priority:
+      1) svc_doc.store_offers_profit
+      2) svc_doc.default_profit_percent
+      3) 0.0
+    """
+    if not svc_doc:
+        return 0.0
+    try:
+        v = svc_doc.get("store_offers_profit")
+        if v is not None and str(v).strip() != "":
+            return float(v)
+    except Exception:
+        pass
+    try:
+        v2 = svc_doc.get("default_profit_percent")
+        if v2 is not None and str(v2).strip() != "":
+            return float(v2)
+    except Exception:
+        pass
+    return 0.0
 
 
 # ✅ UPDATED: products loader (NOW loads from store_products_col first)
@@ -479,7 +517,9 @@ def _load_store_products(store_doc: Dict[str, Any], wa_number_raw: str = "") -> 
     return out
 
 
-# ---------- parse + labels ----------
+# ---------------------------------------------------------------------
+# Parse + labels
+# ---------------------------------------------------------------------
 _NUM = re.compile(r"^\s*-?\d+(\.\d+)?\s*$", re.IGNORECASE)
 _GB = re.compile(r"(\d+(?:\.\d+)?)[\s]*G(?:B|IG)?\b", re.IGNORECASE)
 _MB = re.compile(r"(\d+(?:\.\d+)?)[\s]*MB\b", re.IGNORECASE)
@@ -732,6 +772,7 @@ def _load_services_for_store_view(scope: str, ids: List[str]) -> List[Dict[str, 
         "image_url": 1,
         "offers": 1,
         "store_offers": 1,
+        "store_offers_profit": 1,  # ✅ IMPORTANT for profit logic
         "service_category": 1,
         "priority": 1,
         "display_order": 1,
@@ -1001,9 +1042,9 @@ def _upsert_store_from_payload(owner_id: ObjectId, data: Dict[str, Any]) -> Tupl
     return True, {"slug": slug, "status": status}
 
 
-# ============================================================================
+# =====================================================================
 # PAGES (PUBLIC)
-# ============================================================================
+# =====================================================================
 @stores_bp.route("/s/<slug>", methods=["GET"])
 def store_public_page(slug: str):
     store_doc = stores_col.find_one(
@@ -1022,7 +1063,6 @@ def store_public_page(slug: str):
 
     scope = store_doc.get("service_scope") or "all"
     service_ids = store_doc.get("service_ids") or []
-
     services = _load_services_for_store_view(scope, service_ids)
 
     # legacy fallback (only if you were using products as services)
@@ -1095,7 +1135,7 @@ def api_store_email(slug: str):
         return jsonify({"success": False, "message": "Server error"}), 500
 
 
-# ✅ API: Store products (matches frontend fetch /api/store-products/*)
+# ✅ API: Store products payload builder
 def _products_payload(store_doc: Dict[str, Any]) -> Dict[str, Any]:
     wa = _extract_store_whatsapp(store_doc or {})
     products = _load_store_products(store_doc or {}, wa.get("number_raw") or "")
@@ -1227,7 +1267,9 @@ def api_store_products_by_owner(owner_id: str):
         return jsonify({"success": False, "message": "Server error"}), 500
 
 
-# ============================================================================ PAYSTACK FLOW (Store)
+# =====================================================================
+# PAYSTACK FLOW (Store)
+# =====================================================================
 def _verify_paystack(reference: str) -> Tuple[bool, Dict[str, Any], str]:
     if not PAYSTACK_SECRET_KEY or not _is_sk(PAYSTACK_SECRET_KEY):
         return (False, {}, "Payment processor not configured.")
@@ -1390,6 +1432,7 @@ def _server_reprice_store_cart(
                         "type": 1,
                         "service_category": 1,
                         "default_profit_percent": 1,
+                        "store_offers_profit": 1,
                         "status": 1,
                         "availability": 1,
                         "network_id": 1,
@@ -1495,6 +1538,53 @@ def _send_dataverse_mtn_bundle(
         return False, payload
 
 
+# =====================================================================
+# ✅ IMPORTANT FIX: Profit MUST be computed from SYSTEM offers (svc.offers)
+# - base_amount = svc.offers[].amount
+# - profit% = svc.store_offers_profit (fallback default_profit_percent)
+# - profit = base_amount * profit%
+# =====================================================================
+def _system_offer_base_amount_from_service(
+    svc_doc: Optional[Dict[str, Any]],
+    value_obj: Any,
+    value_raw: Any,
+) -> Optional[float]:
+    """
+    ✅ System base amount must come from svc_doc.offers (NOT store_offers).
+    We match closest offer by volume/minutes.
+    """
+    if not svc_doc:
+        return None
+
+    offers = svc_doc.get("offers")
+    if not isinstance(offers, list) or not offers:
+        return None
+
+    unit = _service_unit(svc_doc)
+    vol_needed = _extract_volume(value_obj if isinstance(value_obj, dict) else value_raw, unit)
+
+    best_idx: Optional[int] = None
+    best_diff = float("inf")
+
+    for idx, of in enumerate(offers):
+        try:
+            parsed = _parse_value_field(of.get("value"))
+            vol = _extract_volume(parsed, unit)
+            if vol_needed is not None and vol is not None:
+                diff = abs(float(vol) - float(vol_needed))
+                if diff < best_diff:
+                    best_idx, best_diff = idx, diff
+            elif best_idx is None:
+                best_idx = idx
+        except Exception:
+            continue
+
+    if best_idx is None:
+        return None
+
+    return _to_float((offers[best_idx] or {}).get("amount"))
+
+
 @stores_bp.route("/store-checkout/<slug>", methods=["POST"])
 def store_checkout_paystack(slug: str):
     try:
@@ -1504,7 +1594,7 @@ def store_checkout_paystack(slug: str):
         ps_info = body.get("paystack") or {}
         ps_ref = (ps_info.get("reference") or "").strip()
 
-        jlog("store_public_checkout_incoming", slug=slug, payload=body)
+        jlog("store_public_checkout_incoming", slug=slug, payload={"method": method, "has_ref": bool(ps_ref), "cart_len": len(cart) if isinstance(cart, list) else -1})
 
         store_doc = stores_col.find_one({"slug": slug, "status": {"$ne": "deleted"}})
         if not store_doc:
@@ -1513,6 +1603,7 @@ def store_checkout_paystack(slug: str):
         if not cart or not isinstance(cart, list):
             return jsonify({"success": False, "message": "Cart is empty or invalid"}), 400
 
+        # idempotency: same reference should not create multiple orders
         if ps_ref:
             prior = orders_col.find_one({"store_slug": slug, "paystack_reference": ps_ref})
             if prior:
@@ -1529,6 +1620,7 @@ def store_checkout_paystack(slug: str):
                     }
                 ), 200
 
+        # server-side repricing (prevents client tampering)
         cart, total_requested = _server_reprice_store_cart(store_doc, cart)
         if total_requested <= 0:
             return jsonify({"success": False, "message": "Total amount must be greater than zero"}), 400
@@ -1556,7 +1648,6 @@ def store_checkout_paystack(slug: str):
                 expected_pes=expected_pay_pes,
                 paid_ghs=paid_ghs,
                 expected_ghs=expected_pay_ghs,
-                cart=cart,
             )
             return jsonify(
                 {
@@ -1569,6 +1660,7 @@ def store_checkout_paystack(slug: str):
 
         fee_delta_ghs = max(0.0, round(paid_ghs - expected_pay_ghs, 2))
 
+        # transaction doc (align with checkout.py)
         txn_doc = {
             "user_id": (ObjectId(session["user_id"]) if session.get("user_id") else None),
             "amount": round(paid_ghs, 2),
@@ -1588,7 +1680,7 @@ def store_checkout_paystack(slug: str):
                 "expected_pay_total_ghs": expected_pay_ghs,
                 "paid_total_ghs": paid_ghs,
                 "gateway_fee_overage_ghs": fee_delta_ghs,
-                "note": "Customer payment captured via store inline checkout (aligns with checkout.py transaction shape).",
+                "note": "Customer payment captured via store inline checkout (server repriced).",
             },
         }
 
@@ -1604,6 +1696,7 @@ def store_checkout_paystack(slug: str):
         order_id = generate_order_id()
         results: List[Dict[str, Any]] = []
         debug_events: List[Dict[str, Any]] = []
+
         profit_amount_total = 0.0
         total_processing_amount = 0.0
         seen_keys = set()
@@ -1629,6 +1722,7 @@ def store_checkout_paystack(slug: str):
                             "network": 1,
                             "offers": 1,
                             "store_offers": 1,
+                            "store_offers_profit": 1,   # ✅ needed
                             "default_profit_percent": 1,
                             "service_category": 1,
                             "status": 1,
@@ -1656,41 +1750,27 @@ def store_checkout_paystack(slug: str):
 
             value_obj = _coerce_value_obj(item.get("value_obj") or item.get("value"))
 
-            # ✅ base_hint MUST be derived from store_offers if present
-            base_hint = _to_float(item.get("base_amount"))
-            if base_hint is None and svc_doc:
-                try:
-                    offers_for_base = _svc_offers_list(svc_doc)
-                    if offers_for_base:
-                        unit = _service_unit(svc_doc)
-                        vol_needed = _extract_volume(
-                            value_obj if isinstance(value_obj, dict) else item.get("value"), unit
-                        )
+            # -----------------------------------------------------------------
+            # ✅ PROFIT LOGIC (as you requested)
+            # base_amount = SYSTEM base from svc.offers[].amount
+            # profit_percent = svc.store_offers_profit (fallback default_profit_percent)
+            # profit_amount = base_amount * profit%
+            # -----------------------------------------------------------------
+            system_base = _to_float(item.get("base_amount"))
+            if system_base is None:
+                system_base = _system_offer_base_amount_from_service(svc_doc, value_obj, item.get("value"))
 
-                        best_idx = None
-                        best_diff = float("inf")
-                        for j, of in enumerate(offers_for_base):
-                            parsed = _parse_value_field(of.get("value"))
-                            vol = _extract_volume(parsed, unit)
-                            if vol_needed is not None and vol is not None:
-                                d = abs(float(vol) - float(vol_needed))
-                                if d < best_diff:
-                                    best_idx, best_diff = j, d
-                            elif best_idx is None:
-                                best_idx = j
-                        if best_idx is not None:
-                            base_hint = _offer_base_amount(offers_for_base[best_idx])
-                except Exception:
-                    base_hint = None
-
-            eff_p = _effective_profit_percent(svc_doc, None) if svc_doc else 0.0
-            base_amount, profit_amount = _derive_base_profit(amt_total, base_hint, eff_p)
+            profit_percent_used = _effective_store_profit_percent(svc_doc)
+            base_amount = round(float(system_base or 0.0), 2)
+            profit_amount = round(base_amount * (float(profit_percent_used) / 100.0), 2) if base_amount > 0 else 0.0
             profit_amount_total += profit_amount
 
+            # network + api
             network_id = _resolve_network_id(item, value_obj, svc_doc) if svc_doc else None
             network_name = (svc_doc.get("network") or "").strip().lower() if svc_doc else ""
             is_api_enabled = str(svc_type).upper() == "API" if svc_type else False
 
+            # bundle key (dedupe)
             shared_bundle_for_key = None
             if svc_doc:
                 unit = _service_unit(svc_doc)
@@ -1796,7 +1876,7 @@ def store_checkout_paystack(slug: str):
                     "amount": amt_total,
                     "base_amount": base_amount,
                     "profit_amount": profit_amount,
-                    "profit_percent_used": eff_p,
+                    "profit_percent_used": profit_percent_used,
                     "value": item.get("value"),
                     "value_obj": value_obj,
                     "serviceId": service_id_raw,
@@ -1871,4 +1951,43 @@ def store_checkout_paystack(slug: str):
             jlog("store_public_checkout_uncaught", slug=slug, error=traceback.format_exc())
         except Exception:
             pass
+        return jsonify({"success": False, "message": "Server error"}), 500
+
+
+# ---------------------------------------------------------------------
+# Optional helper endpoint (safe): fetch order summary by order_id
+# (does not expose sensitive paystack raw)
+# ---------------------------------------------------------------------
+@stores_bp.route("/api/store-order/<order_id>", methods=["GET"])
+def api_store_order(order_id: str):
+    try:
+        order_id = (order_id or "").strip()
+        if not order_id:
+            return jsonify({"success": False, "message": "order_id required"}), 400
+
+        doc = orders_col.find_one(
+            {"order_id": order_id},
+            {
+                "_id": 0,
+                "order_id": 1,
+                "store_slug": 1,
+                "status": 1,
+                "total_amount": 1,
+                "charged_amount": 1,
+                "profit_amount_total": 1,
+                "items": 1,
+                "created_at": 1,
+                "updated_at": 1,
+            },
+        )
+        if not doc:
+            return jsonify({"success": False, "message": "Order not found"}), 404
+
+        # datetime safe
+        for k in ("created_at", "updated_at"):
+            if isinstance(doc.get(k), datetime):
+                doc[k] = doc[k].isoformat()
+
+        return jsonify({"success": True, "order": doc}), 200
+    except Exception:
         return jsonify({"success": False, "message": "Server error"}), 500
