@@ -1,7 +1,7 @@
-from flask import Blueprint, render_template, session, redirect, url_for
+from flask import Blueprint, render_template, session, redirect, url_for, request, jsonify
 from db import db
 from bson import ObjectId
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional, Union
 from datetime import datetime, timedelta
 
 admin_dashboard_bp = Blueprint("admin_dashboard", __name__)
@@ -10,9 +10,13 @@ admin_dashboard_bp = Blueprint("admin_dashboard", __name__)
 orders_col = db["orders"]
 users_col = db["users"]
 balance_logs_col = db["balance_logs"]          # audit logs to compute deposits/deductions
-balances_col = db["balances"]                  # <-- for USER ACCOUNT BALANCE total
+balances_col = db["balances"]                  # for USER ACCOUNT BALANCE total
 afa_col = db["afa_registrations"]
 transactions_col = db["transactions"]          # for transaction KPIs
+
+# ✅ Store withdrawal requests collection
+store_withdraw_requests_col = db["store_withdraw_requests"]
+
 
 # ----------------------------
 # Helpers
@@ -48,10 +52,11 @@ def top_customers_by_orders(limit: int = 10) -> Tuple[List[str], List[int]]:
     obj_ids = [oid for oid in (doc.get("_id") for doc in agg) if isinstance(oid, ObjectId)]
     users_map = _users_display_map(obj_ids)
 
-    labels, values = [], []
+    labels: List[str] = []
+    values: List[int] = []
     for doc in agg:
-        uid = doc["_id"]
-        count = int(doc.get("order_count", 0))
+        uid = doc.get("_id")
+        count = int(doc.get("order_count", 0) or 0)
         if isinstance(uid, ObjectId):
             label = users_map.get(str(uid), f"User {str(uid)[:6].upper()}")
         else:
@@ -79,9 +84,10 @@ def top_customers_by_profit(limit: int = 10) -> Tuple[List[str], List[float]]:
     obj_ids = [oid for oid in (doc.get("_id") for doc in agg) if isinstance(oid, ObjectId)]
     users_map = _users_display_map(obj_ids)
 
-    labels, values = [], []
+    labels: List[str] = []
+    values: List[float] = []
     for doc in agg:
-        uid = doc["_id"]
+        uid = doc.get("_id")
         profit = float(doc.get("profit_sum", 0) or 0)
         if isinstance(uid, ObjectId):
             label = users_map.get(str(uid), f"User {str(uid)[:6].upper()}")
@@ -92,61 +98,45 @@ def top_customers_by_profit(limit: int = 10) -> Tuple[List[str], List[float]]:
     return labels, values
 
 
+# ✅ FIXED FOREVER: Top offers purchased (safe pipeline; no bracket chaos)
 def top_offers_by_purchases(limit: int = 10) -> List[Dict[str, Any]]:
     pipeline: List[Dict[str, Any]] = [
         {"$unwind": "$items"},
-        {"$project": {
+
+        {"$addFields": {
             "service": {"$ifNull": ["$items.serviceName", "Unknown"]},
+            "offer_label": {"$ifNull": ["$items.value_obj.label", None]},
+            "offer_volume": {"$ifNull": ["$items.value_obj.volume", None]},
+            "offer_id": {"$ifNull": ["$items.value_obj.id", None]},
+            "offer_value": {"$ifNull": ["$items.value", None]},
+            "offer_bundle": {"$ifNull": ["$items.shared_bundle", None]},
+        }},
+
+        {"$addFields": {
             "offer_raw": {
                 "$ifNull": [
-                    {"$ifNull": ["$items.value_obj.label", None]},
+                    {"$cond": [{"$and": [{"$ne": ["$offer_label", None]}, {"$ne": ["$offer_label", ""]}]}, "$offer_label", None]},
                     {"$ifNull": [
-                        "$items.value_obj.volume",
+                        {"$cond": [{"$and": [{"$ne": ["$offer_volume", None]}, {"$ne": ["$offer_volume", ""]}]}, "$offer_volume", None]},
                         {"$ifNull": [
-                            "$items.value_obj.id",
+                            {"$cond": [{"$and": [{"$ne": ["$offer_id", None]}, {"$ne": ["$offer_id", ""]}]}, "$offer_id", None]},
                             {"$ifNull": [
-                                "$items.value",
-                                {"$ifNull": ["$items.shared_bundle", "N/A"]}
+                                {"$cond": [{"$and": [{"$ne": ["$offer_value", None]}, {"$ne": ["$offer_value", ""]}]}, "$offer_value", None]},
+                                {"$ifNull": ["$offer_bundle", "N/A"]}
                             ]}
                         ]}
                     ]}
                 ]
             }
         }},
-        {"$addFields": {
-            "offer": {
-                "$cond": [
-                    {"$eq": [{"$type": "$offer_raw"}, "object"]},
-                    {"$ifNull": ["$offer_raw.label", {"$ifNull": ["$offer_raw.volume", {"$ifNull": ["$offer_raw.id", "N/A"]}]}]},
-                    {"$toString": "$offer_raw"}
-                ]
-            }
-        }},
-        {"$addFields": {
-            "offer": {"$cond": [{"$eq": [{"$type": "$offer"}, "object"]}, {"$toString": "$offer"}, "$offer"]}
-        }},
-        {"$addFields": {"offer_num": {"$convert": {"input": "$offer", "to": "double", "onError": None, "onNull": None}}}},
-        {"$addFields": {
-            "offer_fmt": {
-                "$cond": [
-                    {"$ne": ["$offer_num", None]},
-                    {"$cond": [
-                        {"$and": [{"$gte": ["$offer_num", 1000]}, {"$eq": [{"$mod": ["$offer_num", 1000]}, 0]}]},
-                        {"$concat": [{"$toString": {"$toInt": {"$divide": ["$offer_num", 1000]}}}, "GB"]},
-                        {"$cond": [
-                            {"$and": [{"$gt": ["$offer_num", 0]}, {"$lt": ["$offer_num", 1000]}, {"$eq": [{"$mod": ["$offer_num", 1]}, 0]}]},
-                            {"$concat": [{"$toString": {"$toInt": "$offer_num"}}, "MB"]},
-                            "$offer"
-                        ]}
-                    ]},
-                    "$offer"
-                ]
-            }
-        }},
-        {"$group": {"_id": {"service": "$service", "offer": "$offer_fmt"}, "count": {"$sum": 1}}},
+
+        {"$addFields": {"offer": {"$toString": "$offer_raw"}}},
+
+        {"$group": {"_id": {"service": "$service", "offer": "$offer"}, "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": int(limit)},
     ]
+
     try:
         agg = list(orders_col.aggregate(pipeline))
     except Exception:
@@ -157,8 +147,8 @@ def top_offers_by_purchases(limit: int = 10) -> List[Dict[str, Any]]:
         _id = doc.get("_id") or {}
         results.append({
             "service": (_id.get("service") or "Unknown") or "Unknown",
-            "offer": _id.get("offer", "N/A"),
-            "count": int(doc.get("count", 0)),
+            "offer": (_id.get("offer") or "N/A"),
+            "count": int(doc.get("count", 0) or 0),
         })
     return results
 
@@ -188,7 +178,10 @@ def compute_customer_counts() -> Dict[str, int]:
     try:
         total_customers = users_col.count_documents({"role": "customer"})
         blocked_customers = users_col.count_documents({"role": "customer", "status": "blocked"})
-        active_customers = users_col.count_documents({"role": "customer", "$or": [{"status": {"$exists": False}}, {"status": {"$ne": "blocked"}}]})
+        active_customers = users_col.count_documents({
+            "role": "customer",
+            "$or": [{"status": {"$exists": False}}, {"status": {"$ne": "blocked"}}]
+        })
     except Exception:
         total_customers = blocked_customers = active_customers = 0
     return {
@@ -280,13 +273,8 @@ def compute_transaction_kpis() -> Dict[str, float]:
         "txn_today_amount": txn_today_amount,
     }
 
-# ===== NEW: User balances summary (for KPI card) ==============================
 
-def compute_user_balances_summary() -> Dict[str, float | int]:
-    """
-    Sums balances.amount across all users.
-    Also returns total balance docs and how many are > 0.
-    """
+def compute_user_balances_summary() -> Dict[str, Union[float, int]]:
     try:
         doc = next(balances_col.aggregate([
             {"$group": {
@@ -306,25 +294,36 @@ def compute_user_balances_summary() -> Dict[str, float | int]:
         "positive_balance_count": int((doc or {}).get("positive_count", 0) or 0),
     }
 
-# ===== Profit by day (today + last 5 full days) ===============================
 
 def _day_range(d: datetime.date):
     start = datetime.combine(d, datetime.min.time())
     end = start + timedelta(days=1)
     return start, end
 
+
 def compute_daily_profits(days_back: int = 6) -> Dict[str, Any]:
     today = datetime.utcnow().date()
     days = [today - timedelta(days=i) for i in range(days_back)][::-1]
     if not days:
-        return {"labels": [], "values": [], "today_profit": 0.0, "yesterday_profit": 0.0, "change_pct": 0.0, "trend": "flat", "statement": "No data."}
+        return {
+            "labels": [],
+            "values": [],
+            "today_profit": 0.0,
+            "yesterday_profit": 0.0,
+            "change_pct": 0.0,
+            "trend": "flat",
+            "statement": "No data."
+        }
 
     window_start, _ = _day_range(days[0])
     _, window_end = _day_range(days[-1])
 
     pipeline = [
         {"$match": {"created_at": {"$gte": window_start, "$lt": window_end}}},
-        {"$project": {"d": {"$dateTrunc": {"date": "$created_at", "unit": "day"}}, "p": {"$ifNull": ["$profit_amount_total", 0]}}},
+        {"$project": {
+            "d": {"$dateTrunc": {"date": "$created_at", "unit": "day"}},
+            "p": {"$ifNull": ["$profit_amount_total", 0]}
+        }},
         {"$group": {"_id": "$d", "profit": {"$sum": {"$convert": {"input": "$p", "to": "double", "onError": 0, "onNull": 0}}}}}
     ]
     try:
@@ -332,13 +331,14 @@ def compute_daily_profits(days_back: int = 6) -> Dict[str, Any]:
     except Exception:
         agg = []
 
-    by_day = {}
+    by_day: Dict[Any, float] = {}
     for row in agg:
         dt = row.get("_id")
         if isinstance(dt, datetime):
             by_day[dt.date()] = float(row.get("profit", 0) or 0)
 
-    labels, values = [], []
+    labels: List[str] = []
+    values: List[float] = []
     for d in days:
         labels.append("Today" if d == today else d.strftime("%b %d"))
         values.append(round(by_day.get(d, 0.0), 2))
@@ -356,11 +356,13 @@ def compute_daily_profits(days_back: int = 6) -> Dict[str, Any]:
         statement = "Today’s profit is the same as yesterday."
     elif today_profit > yesterday_profit:
         trend = "up"
-        diff = round(today_profit - yesterday_profit, 2); pct = round(change_pct, 2)
+        diff = round(today_profit - yesterday_profit, 2)
+        pct = round(change_pct, 2)
         statement = f"Today’s profit has risen by {pct}% compared to yesterday (up GHS {diff:,.2f})."
     else:
         trend = "down"
-        diff = round(yesterday_profit - today_profit, 2); pct = round(abs(change_pct), 2)
+        diff = round(yesterday_profit - today_profit, 2)
+        pct = round(abs(change_pct), 2)
         statement = f"Today’s profit has fallen by {pct}% compared to yesterday (down GHS {diff:,.2f})."
 
     return {
@@ -373,7 +375,6 @@ def compute_daily_profits(days_back: int = 6) -> Dict[str, Any]:
         "statement": statement,
     }
 
-# ===== Accumulative Sales by Agent (with customer fallback) ===================
 
 def _display_for_actor(actor_id: str, users_map: Dict[str, str], source: str) -> str:
     label = None
@@ -467,8 +468,104 @@ def agents_cumulative_sales(limit: int = 10) -> Tuple[List[str], List[float], Li
 
     return labels, values, table_rows
 
+
+# ✅ Withdrawal Requests KPI counters
+def compute_withdraw_requests_pending() -> int:
+    try:
+        return int(store_withdraw_requests_col.count_documents({"status": "pending"}))
+    except Exception:
+        return 0
+
+
+def compute_withdraw_requests_total_open() -> int:
+    # “open” = pending or processing
+    try:
+        return int(store_withdraw_requests_col.count_documents({"status": {"$in": ["pending", "processing"]}}))
+    except Exception:
+        return 0
+
+
 # ----------------------------
-# Route
+# API for modal (dashboard will call these)
+# ----------------------------
+
+@admin_dashboard_bp.route("/admin/withdrawals/list")
+def admin_withdrawals_list():
+    if not session.get("admin_logged_in"):
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    # return latest 50
+    try:
+        docs = list(store_withdraw_requests_col.find({}, sort=[("created_at", -1)], limit=50))
+    except Exception:
+        docs = []
+
+    def _safe_str(x):
+        try:
+            return str(x)
+        except Exception:
+            return ""
+
+    out: List[Dict[str, Any]] = []
+    for d in docs:
+        out.append({
+            "_id": _safe_str(d.get("_id")),
+            "status": (d.get("status") or "pending"),
+            "amount": d.get("amount", 0),
+            "currency": d.get("currency", "GHS"),
+            "owner_id": _safe_str(d.get("owner_id") or d.get("user_id") or ""),
+            "store_slug": d.get("store_slug") or d.get("store") or "",
+            "method": d.get("method") or d.get("payout_method") or d.get("type") or "",
+            "account": d.get("account") or d.get("msisdn") or d.get("wallet") or "",
+            "network": d.get("network") or "",
+            "recipient_name": d.get("recipient_name") or "",
+            "created_at": (d.get("created_at").isoformat() if isinstance(d.get("created_at"), datetime) else ""),
+        })
+    return jsonify({"ok": True, "items": out})
+
+
+@admin_dashboard_bp.route("/admin/withdrawals/update", methods=["POST"])
+def admin_withdrawals_update():
+    if not session.get("admin_logged_in"):
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    req_id = (data.get("id") or "").strip()
+    new_status = (data.get("status") or "").strip().lower()
+
+    allowed = {"paid", "processing", "canceled", "cancelled", "pending"}
+    if not req_id or new_status not in allowed:
+        return jsonify({"ok": False, "error": "invalid payload"}), 400
+
+    # normalize
+    if new_status == "cancelled":
+        new_status = "canceled"
+
+    try:
+        oid = ObjectId(req_id)
+    except Exception:
+        return jsonify({"ok": False, "error": "invalid id"}), 400
+
+    update_doc = {
+        "$set": {
+            "status": new_status,
+            "updated_at": datetime.utcnow(),
+            "updated_by": session.get("admin_id") or session.get("user_id") or "admin"
+        }
+    }
+
+    try:
+        res = store_withdraw_requests_col.update_one({"_id": oid}, update_doc)
+        if res.matched_count == 0:
+            return jsonify({"ok": False, "error": "not found"}), 404
+    except Exception:
+        return jsonify({"ok": False, "error": "update failed"}), 500
+
+    return jsonify({"ok": True})
+
+
+# ----------------------------
+# Dashboard Route
 # ----------------------------
 
 @admin_dashboard_bp.route("/admin/dashboard")
@@ -487,11 +584,11 @@ def admin_dashboard():
     sum_charged_amount = totals["sum_charged_amount"]
     sum_profit_amount = totals["sum_profit_amount"]
 
-    # NEW: Total amount at USER ACCOUNT BALANCE
+    # Total amount at USER ACCOUNT BALANCE
     bal_summary = compute_user_balances_summary()
-    total_user_balance_amount = bal_summary["total_balance_amount"]
-    balance_doc_count = bal_summary["balance_doc_count"]
-    positive_balance_count = bal_summary["positive_balance_count"]
+    total_user_balance_amount = float(bal_summary["total_balance_amount"])
+    balance_doc_count = int(bal_summary["balance_doc_count"])
+    positive_balance_count = int(bal_summary["positive_balance_count"])
 
     # Daily profits (today + previous 5)
     dp = compute_daily_profits(days_back=6)
@@ -517,14 +614,18 @@ def admin_dashboard():
     start = datetime.combine(today, datetime.min.time())
     end = start + timedelta(days=1)
     try:
-        afa_total  = afa_col.count_documents({})
+        afa_total = afa_col.count_documents({})
         afa_pending = afa_col.count_documents({"status": "pending"})
-        afa_today   = afa_col.count_documents({"created_at": {"$gte": start, "$lt": end}})
+        afa_today = afa_col.count_documents({"created_at": {"$gte": start, "$lt": end}})
     except Exception:
         afa_total = afa_pending = afa_today = 0
 
     # Transactions KPIs
     tx = compute_transaction_kpis()
+
+    # ✅ Withdrawal requests KPI
+    withdraw_requests_pending = compute_withdraw_requests_pending()
+    withdraw_requests_open = compute_withdraw_requests_total_open()
 
     return render_template(
         "admin_dashboard.html",
@@ -534,10 +635,14 @@ def admin_dashboard():
         sum_charged_amount=sum_charged_amount,
         sum_profit_amount=sum_profit_amount,
 
-        # NEW: user balances KPI
+        # user balances KPI
         total_user_balance_amount=total_user_balance_amount,
         balance_doc_count=balance_doc_count,
         positive_balance_count=positive_balance_count,
+
+        # ✅ withdrawal requests KPI
+        withdraw_requests_pending=withdraw_requests_pending,
+        withdraw_requests_open=withdraw_requests_open,
 
         # Profit trend + last 5 days (plus today)
         today_profit=dp["today_profit"],
