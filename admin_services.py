@@ -1,5 +1,4 @@
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash, jsonify, Request
-from flask import current_app
 from db import db
 from datetime import datetime
 from bson import ObjectId
@@ -16,9 +15,8 @@ services_col = db["services"]
 users_col = db["users"]                     # customers live here
 service_profits_col = db["service_profits"] # {service_id, customer_id, profit_percent, created_at, updated_at}
 
-# ---- File upload config ----
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
-UPLOAD_FOLDER = os.path.join(os.getcwd(), "uploads")  # match app.py
+UPLOAD_FOLDER = os.path.join(os.getcwd(), "uploads")
 
 def _ensure_upload_folder():
     if not os.path.exists(UPLOAD_FOLDER):
@@ -27,21 +25,16 @@ def _ensure_upload_folder():
 def _allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# ---- Auth helper ----
 def _require_admin():
     return session.get("role") == "admin"
 
-# ---- Service type guard (API toggle) ----
-# ON = "API", OFF = "OFF"
 _ALLOWED_TYPES = {"API", "OFF"}
-
 def _norm_type(t: str | None) -> str | None:
     if not t:
         return None
     t = t.strip().upper()
     return t if t in _ALLOWED_TYPES else None
 
-# ---- Coercers ----
 def _to_float(s):
     try:
         return float(s)
@@ -56,16 +49,11 @@ def _to_int(s):
     except Exception:
         return None
 
-# ---- Volume parsing/formatting ----
 _MB_RE = re.compile(r"^\s*([\d,]+(?:\.\d+)?)\s*MB\s*$", re.I)
 _GB_RE = re.compile(r"^\s*([\d,]+(?:\.\d+)?)\s*G(?:B|IG)?\s*$", re.I)
 _INT_RE = re.compile(r"^\s*[\d,]+\s*$")
 
 def _parse_volume_to_mb(v):
-    """
-    Accept '1GB', '500 MB', '1024', '1,024MB', 1000 -> returns int MB
-    Returns None if unknown.
-    """
     if v is None:
         return None
     if isinstance(v, (int, float)):
@@ -85,7 +73,6 @@ def _parse_volume_to_mb(v):
     if _INT_RE.match(txt):
         return int(txt.replace(",", ""))
 
-    # try JSON/dict with 'volume'
     try:
         if txt.startswith("{") and txt.endswith("}"):
             as_json = json.loads(txt)
@@ -94,7 +81,6 @@ def _parse_volume_to_mb(v):
     except Exception:
         pass
 
-    # try pythonic dict "{'id':5,'volume':1000}"
     try:
         d = literal_eval(txt)
         if isinstance(d, dict) and "volume" in d:
@@ -117,12 +103,6 @@ def _format_volume(vol_mb):
     return f"{int(vol_mb)}MB"
 
 def _extract_pkg_id(value_raw):
-    """
-    Try to extract 'id' from:
-    - JSON: {"id":5,"volume":1000}
-    - python dict string: "{'id': 5, 'volume': 1000}"
-    - plain int string "5"
-    """
     if value_raw is None:
         return None
     if isinstance(value_raw, (int, float)):
@@ -150,13 +130,8 @@ def _extract_pkg_id(value_raw):
     return None
 
 def _to_mtn_value_string(pkg_id: int | None, volume_mb: int | None, fallback_value_raw: str | None):
-    """
-    Always produce MTN-style string: "{'id': <int>, 'volume': <int>}"
-    """
     if volume_mb is None:
         volume_mb = _parse_volume_to_mb(fallback_value_raw)
-    if pkg_id is None:
-        pkg_id = None
     volume_mb = _to_int(volume_mb) if volume_mb is not None else None
     pkg_id = _to_int(pkg_id) if pkg_id is not None else None
     if pkg_id is None or volume_mb is None:
@@ -164,9 +139,6 @@ def _to_mtn_value_string(pkg_id: int | None, volume_mb: int | None, fallback_val
     return f"{{'id': {pkg_id}, 'volume': {volume_mb}}}"
 
 def _compute_value_text_from_mtn_string(value_str: str):
-    """
-    For UI: turn "{'id': 5, 'volume': 1000}" -> "1GB (Pkg 5)"
-    """
     if not isinstance(value_str, str):
         return "-"
     try:
@@ -183,55 +155,35 @@ def _compute_value_text_from_mtn_string(value_str: str):
             return _format_volume(vol_mb)
         return value_str or "-"
 
-# ---- Offers parser (normalizes to MTN style) ----
-def _parse_offers(req: Request):
+# ===========================
+# OFFERS PARSER (WITH PREFIX)
+# ===========================
+def _parse_offers(req: Request, prefix: str = "offers"):
     """
-    Structured:
-      offers_amount[]  -> float
-      offers_profit[]  -> float (optional)
-      offers_pkg_id[]  -> int (optional)
-      offers_volume[]  -> int MB or "1GB" etc. (optional)
-    Legacy/freetext:
-      offers_value[]   -> any of the above formats
+    prefix='offers'         -> uses offers_amount[], offers_value[]
+    prefix='store_offers'   -> uses store_offers_amount[], store_offers_value[]
     """
-    amounts = req.form.getlist("offers_amount[]")
-    profits = req.form.getlist("offers_profit[]")
-    pkg_ids = req.form.getlist("offers_pkg_id[]")
-    volumes = req.form.getlist("offers_volume[]")
-    values_freetext = req.form.getlist("offers_value[]")
+    amount_key = f"{prefix}_amount[]"
+    value_key  = f"{prefix}_value[]"
 
-    n = max(len(amounts), len(profits), len(pkg_ids), len(volumes), len(values_freetext))
+    amounts = req.form.getlist(amount_key)
+    values_freetext = req.form.getlist(value_key)
+
+    n = max(len(amounts), len(values_freetext))
     offers = []
     auto_id_seed = 1
 
-    provided_ids = []
-    for x in pkg_ids:
-        pid = _to_int(x)
-        if pid is not None:
-            provided_ids.append(pid)
-    if provided_ids:
-        auto_id_seed = max(provided_ids) + 1
-
     for i in range(n):
         amount = (amounts[i] if i < len(amounts) else "").strip()
-        profit = (profits[i] if i < len(profits) else "").strip()
-        pkg_id_raw = (pkg_ids[i] if i < len(pkg_ids) else "").strip()
-        volume_raw = (volumes[i] if i < len(volumes) else "").strip()
         value_txt = (values_freetext[i] if i < len(values_freetext) else "").strip()
 
-        if not amount and not profit and not pkg_id_raw and not volume_raw and not value_txt:
+        if not amount and not value_txt:
             continue
 
         base_amount = _to_float(amount)
-        per_offer_profit = _to_float(profit)
 
-        pkg_id = _to_int(pkg_id_raw) if pkg_id_raw else None
-        if pkg_id is None:
-            pkg_id = _extract_pkg_id(value_txt)
-
-        vol_mb = _parse_volume_to_mb(volume_raw) if volume_raw else None
-        if vol_mb is None:
-            vol_mb = _parse_volume_to_mb(value_txt)
+        pkg_id = _extract_pkg_id(value_txt)
+        vol_mb = _parse_volume_to_mb(value_txt)
 
         if pkg_id is None:
             pkg_id = auto_id_seed
@@ -243,8 +195,8 @@ def _parse_offers(req: Request):
 
         offers.append({
             "amount": base_amount,
-            "value": value_str,      # normalized MTN style
-            "profit": per_offer_profit
+            "value": value_str,
+            "profit": None
         })
 
     return offers
@@ -283,9 +235,6 @@ def _quote_total(amount: float, profit_percent: float) -> dict:
     total = round(amount + profit_amt, 2)
     return {"amount": round(amount, 2), "profit": profit_amt, "total": total, "profit_percent": pp}
 
-# =======================
-#   INTERNAL HELPERS
-# =======================
 def _display_name(user_doc):
     nm = (user_doc.get("business_name") or "").strip()
     if nm:
@@ -304,16 +253,27 @@ def manage_services():
         return redirect(url_for("login.login"))
 
     services = list(services_col.find({}, {
-        "name": 1, "image_url": 1, "offers": 1, "default_profit_percent": 1, "created_at": 1, "type": 1
+        "name": 1,
+        "image_url": 1,
+        "offers": 1,
+        "store_offers": 1,   # NEW
+        "default_profit_percent": 1,
+        "created_at": 1,
+        "type": 1,
+        "status": 1,
+        "availability": 1
     }).sort([("_id", -1)]))
 
     for s in services:
         s["_id_str"] = str(s["_id"])
         s["default_profit_percent"] = _get_service_default_profit(s)
-        if isinstance(s.get("offers"), list):
-            for of in s["offers"]:
-                v = of.get("value")
-                of["value_text"] = _compute_value_text_from_mtn_string(v) if isinstance(v, str) else "-"
+
+        # compute value_text for default + store
+        for key in ("offers", "store_offers"):
+            if isinstance(s.get(key), list):
+                for of in s[key]:
+                    v = of.get("value")
+                    of["value_text"] = _compute_value_text_from_mtn_string(v) if isinstance(v, str) else "-"
 
     service_ids = [s["_id"] for s in services]
     overrides_by_service = defaultdict(list)
@@ -356,10 +316,7 @@ def create_service():
     service_name = (request.form.get("service_name") or "").strip()
     image_url = (request.form.get("image_url") or "").strip()
     default_profit_percent = _to_float(request.form.get("default_profit_percent"))
-    service_type = _norm_type(request.form.get("service_type")) or "API"  # default ON
-
-    network = (request.form.get("network") or "").strip() or None
-    network_id = _to_int(request.form.get("network_id"))
+    service_type = _norm_type(request.form.get("service_type")) or "API"
 
     if not service_name:
         flash("Service name is required.", "danger")
@@ -368,21 +325,24 @@ def create_service():
         flash("Please upload/select an image for the service.", "danger")
         return redirect(url_for("admin_services.manage_services"))
 
-    offers = _parse_offers(request)
+    offers = _parse_offers(request, "offers")
+
+    # NEW: optionally copy default to store on create
+    copy_default_to_store = (request.form.get("copy_default_to_store") or "").strip()
+    store_offers = offers if copy_default_to_store else []
 
     doc = {
         "name": service_name,
         "image_url": image_url,
         "offers": offers,
+        "store_offers": store_offers,  # NEW
         "default_profit_percent": default_profit_percent if default_profit_percent is not None else 0.0,
         "type": service_type,
+        "status": "OPEN",
+        "availability": "AVAILABLE",
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     }
-    if network:
-        doc["network"] = network
-    if network_id is not None:
-        doc["network_id"] = network_id
 
     services_col.insert_one(doc)
     flash("Service added successfully.", "success")
@@ -407,10 +367,7 @@ def update_service(service_id):
     service_name = (request.form.get("service_name") or "").strip()
     image_url = (request.form.get("image_url") or "").strip()
     default_profit_percent = _to_float(request.form.get("default_profit_percent"))
-    service_type = _norm_type(request.form.get("service_type"))  # optional
-
-    network = (request.form.get("network") or "").strip() or None
-    network_id = _to_int(request.form.get("network_id"))
+    service_type = _norm_type(request.form.get("service_type"))
 
     if not service_name:
         flash("Service name is required.", "danger")
@@ -419,22 +376,21 @@ def update_service(service_id):
         flash("Please upload/select an image for the service.", "danger")
         return redirect(url_for("admin_services.manage_services"))
 
-    offers = _parse_offers(request)
+    # NEW: parse both sets
+    offers = _parse_offers(request, "offers")
+    store_offers = _parse_offers(request, "store_offers")
 
     update_doc = {
         "name": service_name,
         "image_url": image_url,
         "offers": offers,
+        "store_offers": store_offers,  # NEW
         "updated_at": datetime.utcnow()
     }
     if default_profit_percent is not None:
         update_doc["default_profit_percent"] = default_profit_percent
     if service_type:
         update_doc["type"] = service_type
-    if network is not None:
-        update_doc["network"] = network
-    if network_id is not None:
-        update_doc["network_id"] = network_id
 
     services_col.update_one({"_id": _id}, {"$set": update_doc})
     flash("Service updated successfully.", "success")
@@ -471,9 +427,6 @@ def delete_service(service_id):
 
     return redirect(url_for("admin_services.manage_services"))
 
-# =======================
-#   FILE UPLOAD API
-# =======================
 @admin_services_bp.route("/upload_service_image", methods=["POST"])
 def upload_service_image():
     if not _require_admin():
@@ -527,7 +480,6 @@ def set_service_default_profit(service_id):
 
 @admin_services_bp.route("/admin/services/<service_id>/profit/customer", methods=["POST"])
 def set_customer_profit_for_service(service_id):
-    """Upsert: create or update a customer-specific override for a service."""
     if not _require_admin():
         return redirect(url_for("login.login"))
 
@@ -566,7 +518,6 @@ def set_customer_profit_for_service(service_id):
 
 @admin_services_bp.route("/admin/services/<service_id>/profit/customer/<customer_id>/delete", methods=["POST"])
 def delete_customer_profit_for_service(service_id, customer_id):
-    """Remove a single customer override for a service."""
     if not _require_admin():
         return redirect(url_for("login.login"))
 
@@ -584,7 +535,6 @@ def delete_customer_profit_for_service(service_id, customer_id):
         flash("Override not found.", "warning")
     return redirect(url_for("admin_services.manage_services"))
 
-# ------ JSON lookups ------
 @admin_services_bp.route("/api/services/<service_id>/profit", methods=["GET"])
 def get_effective_profit(service_id):
     if not _require_admin():
@@ -642,7 +592,6 @@ def quote_price():
     q = _quote_total(amount, eff)
     return jsonify({"success": True, "data": q})
 
-# ---- TYPE TOGGLE (API ↔ OFF) ----
 @admin_services_bp.route("/admin/services/<service_id>/type", methods=["POST"])
 def set_service_type(service_id):
     if not _require_admin():
@@ -652,7 +601,6 @@ def set_service_type(service_id):
     except Exception:
         return jsonify({"success": False, "error": "Invalid service id"}), 400
 
-    # Accept form OR JSON body
     desired_raw = request.form.get("type")
     if desired_raw is None and request.is_json:
         payload = request.get_json(silent=True) or {}
@@ -671,10 +619,7 @@ def set_service_type(service_id):
 
     return jsonify({"success": True, "service_id": str(_id), "type": desired})
 
-
-# --- Normalizers -------------------------------------------------
 def _norm_status_flag(v: str | None) -> str | None:
-    """Map many inputs to 'OPEN' or 'CLOSED'."""
     if v is None:
         return None
     s = str(v).strip().lower()
@@ -685,7 +630,6 @@ def _norm_status_flag(v: str | None) -> str | None:
     return None
 
 def _norm_availability_flag(v: str | None) -> str | None:
-    """Map many inputs to 'AVAILABLE' or 'OUT_OF_STOCK'."""
     if v is None:
         return None
     s = str(v).strip().lower()
@@ -695,11 +639,8 @@ def _norm_availability_flag(v: str | None) -> str | None:
         return "OUT_OF_STOCK"
     return None
 
-# --- Routes ------------------------------------------------------
-
 @admin_services_bp.route("/admin/services/<service_id>/status", methods=["POST"])
 def set_service_status(service_id):
-    """Set OPEN/CLOSED operational status for a service."""
     if not _require_admin():
         return jsonify({"success": False, "error": "Unauthorized"}), 401
     try:
@@ -725,10 +666,8 @@ def set_service_status(service_id):
 
     return jsonify({"success": True, "service_id": str(_id), "status": status_val})
 
-
 @admin_services_bp.route("/admin/services/<service_id>/availability", methods=["POST"])
 def set_service_availability(service_id):
-    """Set AVAILABLE / OUT_OF_STOCK inventory flag for a service."""
     if not _require_admin():
         return jsonify({"success": False, "error": "Unauthorized"}), 401
     try:
@@ -753,49 +692,3 @@ def set_service_availability(service_id):
         return jsonify({"success": False, "error": "Service not found"}), 404
 
     return jsonify({"success": True, "service_id": str(_id), "availability": avail_val})
-
-
-# (Optional) One-shot endpoint to update BOTH in a single request
-@admin_services_bp.route("/admin/services/<service_id>/flags", methods=["POST"])
-def set_service_flags(service_id):
-    """Set status and/or availability in one call."""
-    if not _require_admin():
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    try:
-        _id = ObjectId(service_id)
-    except Exception:
-        return jsonify({"success": False, "error": "Invalid service id"}), 400
-
-    # Accept form or JSON
-    data = {}
-    if request.is_json:
-        data = request.get_json(silent=True) or {}
-    status_raw = request.form.get("status", data.get("status"))
-    avail_raw  = request.form.get("availability", data.get("availability"))
-
-    update_doc = {"updated_at": datetime.utcnow()}
-    out = {"success": True, "service_id": str(_id)}
-
-    if status_raw is not None:
-        status_val = _norm_status_flag(status_raw)
-        if not status_val:
-            return jsonify({"success": False, "error": "status must be 'OPEN' or 'CLOSED'"}), 400
-        update_doc["status"] = status_val
-        out["status"] = status_val
-
-    if avail_raw is not None:
-        avail_val = _norm_availability_flag(avail_raw)
-        if not avail_val:
-            return jsonify({"success": False, "error": "availability must be 'AVAILABLE' or 'OUT_OF_STOCK'"}), 400
-        update_doc["availability"] = avail_val
-        out["availability"] = avail_val
-
-    if len(update_doc) == 1:  # only updated_at present
-        return jsonify({"success": False, "error": "Nothing to update"}), 400
-
-    res = services_col.update_one({"_id": _id}, {"$set": update_doc})
-    if not res.matched_count:
-        return jsonify({"success": False, "error": "Service not found"}), 404
-
-    return jsonify(out)
-
