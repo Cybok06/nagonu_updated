@@ -71,7 +71,72 @@
       </div>
 
      
-      <!-- ========== SECTION: Core KPIs (organized grid) ========== -->
+      
+ <!-- ========== SECTION: Today’s Profit + 6-day chart ========== -->
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="section-title">Today & Recent Trend</div>
+        </div>
+
+        <!-- Today’s Profit + Statement -->
+        <div class="col-12 col-xxl-5">
+          <div class="card shadow-sm h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <h6 class="text-muted mb-0">Today’s Profit</h6>
+                <span class="card-icon success"><i class="bi bi-graph-up-arrow text-success"></i></span>
+              </div>
+              <div class="display-5 kpi mt-2">
+                <span class="ghs" data-amt="{{ (today_profit or 0)|float }}">GHS 0.00</span>
+              </div>
+
+              <div class="small text-muted mt-2">
+                Yesterday: <span class="ghs" data-amt="{{ (yesterday_profit or 0)|float }}">GHS 0.00</span>
+                <span class="ms-2">
+                  {% set trend_class = 'trend-flat' %}
+                  {% if profit_trend == 'up' %}{% set trend_class = 'trend-up' %}{% endif %}
+                  {% if profit_trend == 'down' %}{% set trend_class = 'trend-down' %}{% endif %}
+                  <span class="trend-chip {{ trend_class }}">
+                    {% if profit_trend == 'up' %}
+                      +{{ profit_change_pct or 0 }}%
+                    {% elif profit_trend == 'down' %}
+                      -{{ (profit_change_pct or 0)|abs }}%
+                    {% else %}
+                      0%
+                    {% endif %}
+                  </span>
+                </span>
+              </div>
+
+              <div class="mt-2">
+                <small class="text-muted">{{ profit_statement }}</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6-day Profit Chart -->
+        <div class="col-12 col-xxl-7">
+          <div class="card shadow-sm h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <span class="fw-semibold">Profit (Last 5 Days + Today)</span>
+            </div>
+            <div class="card-body">
+              {% if daily_profit_values and daily_profit_values|length > 0 %}
+                <div class="chart-wrap">
+                  <canvas id="dailyProfitChart" aria-label="Daily profit chart" role="img"></canvas>
+                </div>
+              {% else %}
+                <div class="text-center text-muted py-5">
+                  <div class="mb-2">No profit data yet.</div>
+                  <small>As orders accrue, this chart will populate.</small>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+<!-- ========== SECTION: Core KPIs (organized grid) ========== -->
       <div class="row g-3 mb-4">
         <div class="col-12">
           <div class="section-title">Core KPIs</div>
@@ -257,71 +322,6 @@
           </div>
         </div>
       </div>
- <!-- ========== SECTION: Today’s Profit + 6-day chart ========== -->
-      <div class="row g-3 mb-4">
-        <div class="col-12">
-          <div class="section-title">Today & Recent Trend</div>
-        </div>
-
-        <!-- Today’s Profit + Statement -->
-        <div class="col-12 col-xxl-5">
-          <div class="card shadow-sm h-100">
-            <div class="card-body">
-              <div class="d-flex justify-content-between align-items-center">
-                <h6 class="text-muted mb-0">Today’s Profit</h6>
-                <span class="card-icon success"><i class="bi bi-graph-up-arrow text-success"></i></span>
-              </div>
-              <div class="display-5 kpi mt-2">
-                <span class="ghs" data-amt="{{ (today_profit or 0)|float }}">GHS 0.00</span>
-              </div>
-
-              <div class="small text-muted mt-2">
-                Yesterday: <span class="ghs" data-amt="{{ (yesterday_profit or 0)|float }}">GHS 0.00</span>
-                <span class="ms-2">
-                  {% set trend_class = 'trend-flat' %}
-                  {% if profit_trend == 'up' %}{% set trend_class = 'trend-up' %}{% endif %}
-                  {% if profit_trend == 'down' %}{% set trend_class = 'trend-down' %}{% endif %}
-                  <span class="trend-chip {{ trend_class }}">
-                    {% if profit_trend == 'up' %}
-                      +{{ profit_change_pct or 0 }}%
-                    {% elif profit_trend == 'down' %}
-                      -{{ (profit_change_pct or 0)|abs }}%
-                    {% else %}
-                      0%
-                    {% endif %}
-                  </span>
-                </span>
-              </div>
-
-              <div class="mt-2">
-                <small class="text-muted">{{ profit_statement }}</small>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 6-day Profit Chart -->
-        <div class="col-12 col-xxl-7">
-          <div class="card shadow-sm h-100">
-            <div class="card-header d-flex justify-content-between align-items-center">
-              <span class="fw-semibold">Profit (Last 5 Days + Today)</span>
-            </div>
-            <div class="card-body">
-              {% if daily_profit_values and daily_profit_values|length > 0 %}
-                <div class="chart-wrap">
-                  <canvas id="dailyProfitChart" aria-label="Daily profit chart" role="img"></canvas>
-                </div>
-              {% else %}
-                <div class="text-center text-muted py-5">
-                  <div class="mb-2">No profit data yet.</div>
-                  <small>As orders accrue, this chart will populate.</small>
-                </div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- ========== SECTION: Wallet Flows ========== -->
       <div class="row g-3 mb-4">
         <div class="col-12">
