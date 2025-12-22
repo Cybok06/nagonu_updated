@@ -236,7 +236,14 @@ def compute_transaction_kpis() -> Dict[str, float]:
     start = datetime.combine(today, datetime.min.time())
     end = start + timedelta(days=1)
 
-    base_match = {"status": "success", "type": "purchase"}
+    base_match = {
+        "status": "success",
+        "$or": [
+            {"type": "purchase"},
+            {"source": "paystack_inline"},
+            {"type": "debit"},
+        ],
+    }
 
     try:
         txn_total_count = transactions_col.count_documents(base_match)
