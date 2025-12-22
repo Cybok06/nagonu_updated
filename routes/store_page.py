@@ -116,8 +116,8 @@ _raw_pk = _clean_key(os.getenv("PAYSTACK_PUBLIC_KEY", "")) or _clean_key(os.gete
 _raw_sk = _clean_key(os.getenv("PAYSTACK_SECRET_KEY", "")) or _clean_key(os.getenv("PAYSTACK_SK", ""))
 
 # your defaults (kept)
-_default_pk = "pk_test_c68f0ab942e5650fc128958f8726780981aba716"
-_default_sk = "sk_test_f0f1aa11a048d860ea1b8eb95af775c5b24d2dbb"
+_default_pk = "pk_live_4c909336372002195e900f36649a37c56d0b8cdb"
+_default_sk = "sk_live_4316292a9beb8d5e619f6f97864bed7ed7f19fb7"
 
 PAYSTACK_PUBLIC_KEY: str = _raw_pk or _default_pk
 PAYSTACK_SECRET_KEY: str = _raw_sk or _default_sk
@@ -2152,3 +2152,4 @@ def api_store_order(order_id: str):
         return jsonify({"success": True, "order": doc}), 200
     except Exception:
         return jsonify({"success": False, "message": "Server error"}), 500
+
