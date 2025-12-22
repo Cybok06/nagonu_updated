@@ -56,16 +56,14 @@ def check_status():
                 "status": (od.get("status") or "").title(),
                 "created_at": _fmt_dt(od.get("created_at")),
                 "updated_at": _fmt_dt(od.get("updated_at")),
-                "paid_from": od.get("paid_from") or "-",
-                "charged_amount": round(float(od.get("charged_amount") or 0.0), 2),
+                "paid_amount": round(float(od.get("charged_amount") or 0.0), 2),
                 # use 'lines' to avoid colliding with dict.items() in Jinja
                 "lines": [{
                     "service": (it.get("serviceName") or "-"),
                     "value": (it.get("value") or "-"),
-                    "api_status": (it.get("api_status") or "-"),
+                    "amount": round(float(it.get("amount") or 0.0), 2),
                     "line_status": (it.get("line_status") or "-"),
-                    "provider": (it.get("provider") or "-"),
-                    "trx_ref": (it.get("trx_ref") or "-")
+                    "time": _fmt_dt(it.get("updated_at") or it.get("created_at") or od.get("updated_at") or od.get("created_at")),
                 } for it in items]
             })
 
