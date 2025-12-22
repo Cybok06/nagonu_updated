@@ -918,14 +918,11 @@ def process_checkout():
                 )
                 continue
 
-            # base & profit
+            # base & profit (requested): profit = amount - base_amount
             base_hint = _to_float(item.get("base_amount"))
-            if base_hint is None:
-                base_hint = _pick_offer_base_amount_from_service(svc_doc or {}, value_obj, item.get("value"))
-            eff_p = 0.0
-            if svc_doc:
-                eff_p = _effective_profit_percent(svc_doc, user_id)
-            base_amount, profit_amount = _derive_base_profit(amt_total, base_hint, eff_p)
+            base_amount = round(float(base_hint if base_hint is not None else 0.0), 2)
+            profit_amount = max(0.0, round(amt_total - base_amount, 2))
+            profit_percent_used = round((profit_amount / base_amount) * 100.0, 2) if base_amount > 0 else 0.0
             profit_amount_total += profit_amount
 
             # No service doc → manual processing
@@ -938,7 +935,7 @@ def process_checkout():
                         "base_amount": base_amount,
                         "amount": amt_total,
                         "profit_amount": profit_amount,
-                        "profit_percent_used": eff_p,
+                        "profit_percent_used": profit_percent_used,
                         "value": item.get("value"),
                         "value_obj": value_obj,
                         "serviceId": service_id_raw,
@@ -972,6 +969,8 @@ def process_checkout():
             svc_type_flag = (svc_type or "").strip().upper() if isinstance(svc_type, str) else ""
             type_allows_api = svc_type_flag in ("ON", "API")
             api_allowed = type_allows_api or is_telecel_bundle or is_ishare_bundle
+            if svc_type_flag == "OFF":
+                api_allowed = False
 
             # DataConnect: currently only MTN Express uses DataConnect (like old DataVerse slot)
             use_dataconnect = (resolved_network == "mtn" and is_mtn_express and api_allowed)
@@ -1028,7 +1027,7 @@ def process_checkout():
                         "base_amount": base_amount,
                         "amount": amt_total,
                         "profit_amount": profit_amount,
-                        "profit_percent_used": eff_p,
+                        "profit_percent_used": profit_percent_used,
                         "value": item.get("value"),
                         "value_obj": value_obj,
                         "serviceId": service_id_raw,
@@ -1075,7 +1074,7 @@ def process_checkout():
                         "base_amount": base_amount,
                         "amount": amt_total,
                         "profit_amount": profit_amount,
-                        "profit_percent_used": eff_p,
+                        "profit_percent_used": profit_percent_used,
                         "value": item.get("value"),
                         "value_obj": value_obj,
                         "serviceId": service_id_raw,
@@ -1117,7 +1116,7 @@ def process_checkout():
                 "base_amount": base_amount,
                 "amount": amt_total,
                 "profit_amount": profit_amount,
-                "profit_percent_used": eff_p,
+                "profit_percent_used": profit_percent_used,
                 "value": item.get("value"),
                 "value_obj": value_obj,
                 "serviceId": service_id_raw,
