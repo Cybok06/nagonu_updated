@@ -1387,9 +1387,24 @@
       } catch (_) { return null; }
     }
 
-    function gbLabelFromOffer(o) {
+    function gbLabelFromOffer(o, svcName) {
+      const svc = (svcName || "").toLowerCase();
+      if (svc === "afa talktime") {
+        let v = o ? o.value : undefined;
+        const maybeObj = parseMaybeObject(v);
+        if (maybeObj) v = maybeObj;
+        if (v && typeof v === "object" && v.volume != null) {
+          const mins = Number(v.volume);
+          if (!isNaN(mins)) return Math.round(mins) + " mins";
+        }
+        if (typeof v === "string") {
+          const m = v.match(/(\d+(?:\.\d+)?)/);
+          if (m) return Math.round(parseFloat(m[1])) + " mins";
+        }
+      }
       if (o && typeof o.value_text === "string" && o.value_text.trim()) {
         const vt = o.value_text.trim();
+        if (/min/i.test(vt)) return vt;
         const mbMatch = vt.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*mb\s*$/i);
         if (mbMatch) return _formatGb(parseFloat(mbMatch[1]) / 1000);
       }
@@ -1464,7 +1479,7 @@
         svc.offers = (svc.offers || []).map(o => {
           const amountNum = Number(o.amount);
           const amount = Number.isFinite(amountNum) ? amountNum : 0;
-          return Object.assign({}, o, { amount: amount, value_text: gbLabelFromOffer(o) });
+          return Object.assign({}, o, { amount: amount, value_text: (o.value_text || gbLabelFromOffer(o, svc.name)) });
         });
 
         const card = btn.closest(".service-card");
