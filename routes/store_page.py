@@ -116,8 +116,8 @@ _raw_pk = _clean_key(os.getenv("PAYSTACK_PUBLIC_KEY", "")) or _clean_key(os.gete
 _raw_sk = _clean_key(os.getenv("PAYSTACK_SECRET_KEY", "")) or _clean_key(os.getenv("PAYSTACK_SK", ""))
 
 # your defaults (kept)
-_default_pk = "pk_live_4c909336372002195e900f36649a37c56d0b8cdb"
-_default_sk = "sk_live_4316292a9beb8d5e619f6f97864bed7ed7f19fb7"
+_default_pk = "pk_test_c68f0ab942e5650fc128958f8726780981aba716"
+_default_sk = "sk_test_f0f1aa11a048d860ea1b8eb95af775c5b24d2dbb"
 
 PAYSTACK_PUBLIC_KEY: str = _raw_pk or _default_pk
 PAYSTACK_SECRET_KEY: str = _raw_sk or _default_sk
@@ -640,6 +640,10 @@ def _value_text_for_display(value: Any, unit: str) -> str:
         return _format_volume_unit(vol, unit) if vol is not None else "-"
     if isinstance(value, str):
         cleaned = _PKG_TAIL.sub("", value).strip()
+        parsed = _parse_value_field(cleaned)
+        if isinstance(parsed, dict):
+            vol = _extract_volume(parsed, unit)
+            return _format_volume_unit(vol, unit) if vol is not None else "-"
         vol = _extract_volume(cleaned, unit)
         return _format_volume_unit(vol, unit) if vol is not None else (cleaned or "-")
     return value or "-"
@@ -672,18 +676,17 @@ def _build_pricing_map(pricing: Dict[str, Any]) -> Tuple[float, Dict[str, Dict[s
 
 
 # ---------- apply pricing to a service (for page render) ----------
-def _offer_value_text(o: Dict[str, Any]) -> str:
+def _offer_value_text(o: Dict[str, Any], unit: str) -> str:
     vt = o.get("value_text")
     if isinstance(vt, str) and vt.strip():
         try:
-            unit = "data"
             cleaned = _PKG_TAIL.sub("", vt).strip()
             vol = _extract_volume(cleaned, unit)
             if vol is not None:
                 return _format_volume_unit(vol, unit)
         except Exception:
             pass
-    lab = _value_text_for_display(o.get("value"), "data")
+    lab = _value_text_for_display(o.get("value"), unit)
     return lab or "-"
 
 def _apply_store_pricing_to_service(
@@ -692,6 +695,7 @@ def _apply_store_pricing_to_service(
     per_service_map: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
     s = dict(svc)
+    unit = _service_unit(s)
     src_offers = _svc_offers_list(s)
     svc_id_str = str(s.get("_id"))
     per_entry = per_service_map.get(svc_id_str, {})
@@ -710,7 +714,7 @@ def _apply_store_pricing_to_service(
                 if base_amount is not None
                 else None
             )
-        vt = _offer_value_text(of)
+        vt = _offer_value_text(of, unit)
         norm_offers.append(
             {
                 "value_text": vt,
@@ -731,13 +735,14 @@ def _load_all_services_for_store_edit() -> List[Dict[str, Any]]:
     ✅ IMPORTANT: This function is imported by routes/store_create.py
     DO NOT remove/rename it.
     """
-    fields = {"_id": 1, "name": 1, "offers": 1, "store_offers": 1}
+    fields = {"_id": 1, "name": 1, "offers": 1, "store_offers": 1, "unit": 1}
     raw = list(services_col.find({}, fields))
     raw.sort(key=lambda x: _norm(x.get("name") or ""))
 
     clean: List[Dict[str, Any]] = []
     for r in raw:
         s: Dict[str, Any] = {"_id_str": str(r.get("_id")), "name": r.get("name") or ""}
+        unit = _service_unit(r)
         src_offers = _svc_offers_list(r)
 
         new_off: List[Dict[str, Any]] = []
@@ -746,7 +751,7 @@ def _load_all_services_for_store_edit() -> List[Dict[str, Any]]:
                 {
                     "amount": _offer_base_amount(o),
                     "value": o.get("value"),
-                    "value_text": _offer_value_text(o),
+                    "value_text": _offer_value_text(o, unit),
                 }
             )
 
@@ -1741,23 +1746,22 @@ def store_checkout_paystack(slug: str):
             value_obj = _coerce_value_obj(item.get("value_obj") or item.get("value"))
 
             # -----------------------------------------------------------------
-            # ✅ PROFIT LOGIC (as you requested)
-            # base_amount = SYSTEM base from svc.offers[].amount
-            # profit_percent = svc.store_offers_profit (fallback default_profit_percent)
-            # profit_amount = base_amount * profit%
+            # Profit logic (requested):
+            # profit_amount = store base price - system offer base (svc.offers)
             # -----------------------------------------------------------------
-            system_base = _to_float(item.get("base_amount"))
-            if system_base is None:
-                system_base = _system_offer_base_amount_from_service(svc_doc, value_obj, item.get("value"))
-
-            profit_percent_used = _effective_store_profit_percent(svc_doc)
-            base_amount = round(float(system_base or 0.0), 2)
-            profit_amount = round(base_amount * (float(profit_percent_used) / 100.0), 2) if base_amount > 0 else 0.0
+            system_offer_base = _system_offer_base_amount_from_service(svc_doc, value_obj, item.get("value"))
+            base_amount = round(float(_to_float(item.get("base_amount")) or 0.0), 2)
+            profit_amount = 0.0
+            profit_percent_used = 0.0
+            if system_offer_base is not None and base_amount > 0:
+                profit_amount = max(0.0, round(base_amount - float(system_offer_base), 2))
+                if system_offer_base > 0:
+                    profit_percent_used = round((profit_amount / float(system_offer_base)) * 100.0, 2)
             profit_amount_total += profit_amount
             store_profit_percent = _store_profit_percent_for_item(
                 store_doc, svc_doc, value_obj, item.get("value"), base_amount
             )
-            store_profit_amount = round(amt_total * (float(store_profit_percent) / 100.0), 2) if amt_total > 0 else 0.0
+            store_profit_amount = max(0.0, round(amt_total - base_amount, 2))
             store_profit_field = {"store_profit_amount": store_profit_amount} if paystack_verified else {}
 
             # network + api
@@ -1854,6 +1858,8 @@ def store_checkout_paystack(slug: str):
             svc_type_flag = (svc_type or "").strip().upper() if isinstance(svc_type, str) else ""
             type_allows_api = svc_type_flag in ("ON", "API")
             api_allowed = type_allows_api or is_telecel_bundle or is_ishare_bundle
+            if svc_type_flag == "OFF":
+                api_allowed = False
 
             use_dataconnect = (resolved_network == "mtn" and is_mtn_express and api_allowed)
 
