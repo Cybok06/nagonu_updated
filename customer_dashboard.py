@@ -13,6 +13,8 @@ balances_col         = db["balances"]
 orders_col           = db["orders"]
 service_profits_col  = db["service_profits"]   # per-customer overrides
 users_col            = db["users"]             # for display name
+stores_col           = db["stores"]
+store_accounts_col   = db["store_accounts"]
 settings_col         = db["settings"]          # legacy AFA settings (price/open/stock)
 afa_settings_col     = db["afa_settings"]      # primary AFA settings (price/open/stock)
 afa_col              = db["afa_registrations"] # AFA registrations
@@ -600,6 +602,31 @@ def customer_dashboard():
         .limit(5)
     )
 
+    # Outstanding payouts: sum of total_profit_balance across owned store accounts
+    outstanding_payouts = 0.0
+    try:
+        store_slugs = [
+            s.get("slug")
+            for s in stores_col.find(
+                {"owner_id": user_oid, "status": {"$ne": "deleted"}},
+                {"slug": 1}
+            )
+            if s.get("slug")
+        ]
+        if store_slugs:
+            pipeline = [
+                {"$match": {"store_slug": {"$in": store_slugs}}},
+                {"$group": {
+                    "_id": None,
+                    "total": {"$sum": {"$toDouble": {"$ifNull": ["$total_profit_balance", 0]}}},
+                }},
+            ]
+            agg = list(store_accounts_col.aggregate(pipeline))
+            if agg:
+                outstanding_payouts = _to_float(agg[0].get("total")) or 0.0
+    except Exception:
+        pass
+
     # ---- split into categories (Express vs others) ----
     def _is_express(svc: Dict[str, Any]) -> bool:
         cat = (svc.get("service_category") or "").strip().lower()
@@ -636,4 +663,5 @@ def customer_dashboard():
         sales_statement=ds["statement"],
         daily_sales_labels=ds["labels"],
         daily_sales_values=ds["values"],
+        outstanding_payouts=outstanding_payouts,
     )
