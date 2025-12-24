@@ -16,6 +16,7 @@ transactions_col = db["transactions"]          # for transaction KPIs
 
 # ✅ Store withdrawal requests collection
 store_withdraw_requests_col = db["store_withdraw_requests"]
+store_accounts_col = db["store_accounts"]
 
 
 # ----------------------------
@@ -300,6 +301,18 @@ def compute_user_balances_summary() -> Dict[str, Union[float, int]]:
         "balance_doc_count": int((doc or {}).get("doc_count", 0) or 0),
         "positive_balance_count": int((doc or {}).get("positive_count", 0) or 0),
     }
+
+def compute_store_accounts_outstanding() -> float:
+    try:
+        doc = next(store_accounts_col.aggregate([
+            {"$group": {
+                "_id": None,
+                "total": {"$sum": {"$convert": {"input": "$total_profit_balance", "to": "double", "onError": 0, "onNull": 0}}}
+            }}
+        ]), None)
+    except Exception:
+        doc = None
+    return float((doc or {}).get("total", 0) or 0.0)
 
 
 def _day_range(d: datetime.date):
@@ -597,6 +610,9 @@ def admin_dashboard():
     balance_doc_count = int(bal_summary["balance_doc_count"])
     positive_balance_count = int(bal_summary["positive_balance_count"])
 
+    # Outstanding payouts across all store accounts
+    outstanding_payouts = compute_store_accounts_outstanding()
+
     # Daily profits (today + previous 5)
     dp = compute_daily_profits(days_back=6)
 
@@ -646,6 +662,7 @@ def admin_dashboard():
         total_user_balance_amount=total_user_balance_amount,
         balance_doc_count=balance_doc_count,
         positive_balance_count=positive_balance_count,
+        outstanding_payouts=outstanding_payouts,
 
         # ✅ withdrawal requests KPI
         withdraw_requests_pending=withdraw_requests_pending,
