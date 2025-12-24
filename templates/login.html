@@ -193,7 +193,7 @@
       forgot?.addEventListener('click', function(e){
         // Build a richer message using the typed username
         const u = (usernameEl?.value || '').trim();
-        const base = 'Hello Nagonu Support, I want to reset my admin password.';
+        const base = 'Hello Nagonu Support, I want to reset my account password.';
         const more = u ? ' Username: ' + u + '.' : '';
         const tail = ' Please assist.';
         const msg = encodeURIComponent(base + more + tail);
