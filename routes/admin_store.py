@@ -265,6 +265,45 @@ def api_admin_list_stores():
     q = (request.args.get("q") or "").strip().lower()
     status_filter = (request.args.get("status") or "").strip().lower()
 
+    stats = {
+        "total_stores": 0,
+        "published": 0,
+        "draft": 0,
+        "suspended": 0,
+        "outstanding_payouts": 0.0,
+    }
+    try:
+        stats_pipeline = [
+            {"$match": {"status": {"$ne": "deleted"}}},
+            {"$lookup": {
+                "from": "store_accounts",
+                "localField": "slug",
+                "foreignField": "store_slug",
+                "as": "acct",
+            }},
+            {"$unwind": {"path": "$acct", "preserveNullAndEmptyArrays": True}},
+            {"$group": {
+                "_id": None,
+                "total": {"$sum": 1},
+                "published": {"$sum": {"$cond": [{"$eq": ["$status", "published"]}, 1, 0]}},
+                "draft": {"$sum": {"$cond": [{"$eq": ["$status", "draft"]}, 1, 0]}},
+                "suspended": {"$sum": {"$cond": [{"$eq": ["$status", "suspended"]}, 1, 0]}},
+                "outstanding": {"$sum": {"$toDouble": {"$ifNull": ["$acct.total_profit_balance", 0]}}},
+            }},
+        ]
+        agg_stats = list(stores_col.aggregate(stats_pipeline))
+        if agg_stats:
+            s0 = agg_stats[0]
+            stats = {
+                "total_stores": int(s0.get("total", 0) or 0),
+                "published": int(s0.get("published", 0) or 0),
+                "draft": int(s0.get("draft", 0) or 0),
+                "suspended": int(s0.get("suspended", 0) or 0),
+                "outstanding_payouts": _fmt_money(s0.get("outstanding")),
+            }
+    except Exception:
+        stats = stats
+
     try:
         limit = max(1, min(200, int(request.args.get("limit", 50))))
     except Exception:
@@ -417,7 +456,7 @@ def api_admin_list_stores():
             "updated_at": _iso(s.get("updated_at")),
         })
 
-    return jsonify({"success": True, "rows": rows, "page": page, "limit": limit})
+    return jsonify({"success": True, "rows": rows, "page": page, "limit": limit, "stats": stats})
 
 
 @admin_store_bp.route("/api/stores/<slug>", methods=["GET"])
