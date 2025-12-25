@@ -17,6 +17,7 @@ from db import db
 admin_complaints_bp = Blueprint("admin_complaints", __name__)
 complaints_col = db["complaints"]
 users_col = db["users"]
+orders_col = db["orders"]
 
 # ---- SMS config (same style as balances/payments) ----
 ARKESEL_API_KEY = "b3dheEVqUWNyeVBuUGxDVWFxZ0E"  # move to env var in production
@@ -82,6 +83,20 @@ def _service_offer_text(c: dict) -> str:
         return service
     return "service"
 
+def _resolve_store_slug(c: dict) -> str:
+    slug = c.get("store_slug") or ""
+    if slug:
+        return slug
+    order_ref = c.get("order_ref") or {}
+    order_id = order_ref.get("order_id")
+    order_oid = order_ref.get("_id")
+    order_doc = None
+    if order_id:
+        order_doc = orders_col.find_one({"order_id": order_id}, {"store_slug": 1})
+    if not order_doc and order_oid:
+        order_doc = orders_col.find_one({"_id": order_oid}, {"store_slug": 1})
+    return (order_doc or {}).get("store_slug") or ""
+
 # ---------------- Routes ----------------
 @admin_complaints_bp.route("/admin/complaints", methods=["GET"])
 def admin_view_complaints():
@@ -123,12 +138,31 @@ def admin_view_complaints():
     for c in complaints:
         u = users.get(c.get("user_id"), {})
         c["user"] = u
-        c["customer_name"] = f"{u.get('first_name', '')} {u.get('last_name', '')}".strip() or u.get("username", "")
-        c["customer_phone"] = u.get("phone", "")
+        if u:
+            c["customer_name"] = f"{u.get('first_name', '')} {u.get('last_name', '')}".strip() or u.get("username", "")
+            c["customer_phone"] = u.get("phone", "")
+        else:
+            c["customer_name"] = c.get("customer_name") or ""
+            c["customer_phone"] = c.get("customer_phone") or ""
         c["submitted_at_str"] = _fmt_dt(c.get("submitted_at"))
         c["order_date_str"] = _fmt_dt(c.get("order_date"))
         c["order_ref"] = c.get("order_ref", {}) or {}
         c["order_no_display"] = c.get("order_number_provided", "")
+        c["store_slug"] = _resolve_store_slug(c)
+        c["store_name"] = c.get("store_name") or ""
+        ref = (c.get("paystack_reference") or "").strip()
+        flagged_exists = bool(c.get("flagged_ref_exists"))
+        flagged_order_id = c.get("flagged_ref_order_id") or ""
+        if ref:
+            order_doc = orders_col.find_one(
+                {"store_slug": c["store_slug"], "paystack_reference": ref},
+                {"order_id": 1},
+            )
+            if order_doc:
+                flagged_exists = True
+                flagged_order_id = order_doc.get("order_id") or flagged_order_id
+        c["flagged_ref_exists"] = flagged_exists
+        c["flagged_ref_order_id"] = flagged_order_id
         shots = c.get("screenshots") or {}
         c["screenshots"] = {
             "data_balance": shots.get("data_balance", ""),
@@ -210,6 +244,62 @@ def _export_complaints_to_pdf(complaints):
     doc.build(elements)
     output.seek(0)
     return send_file(output, download_name="complaints.pdf", as_attachment=True)
+
+@admin_complaints_bp.route("/admin/complaints/<complaint_id>/open", methods=["GET"])
+def open_complaint_store(complaint_id):
+    if session.get("role") != "admin":
+        return redirect(url_for("login.login"))
+
+    try:
+        _id = ObjectId(complaint_id)
+    except Exception:
+        flash("Invalid complaint id.", "danger")
+        return redirect(url_for("admin_complaints.admin_view_complaints"))
+
+    c = complaints_col.find_one({"_id": _id})
+    if not c:
+        flash("Complaint not found.", "warning")
+        return redirect(url_for("admin_complaints.admin_view_complaints"))
+
+    store_slug = _resolve_store_slug(c)
+    if not store_slug:
+        flash("Missing store slug for this complaint.", "warning")
+        return redirect(url_for("admin_complaints.admin_view_complaints"))
+
+    return redirect(url_for(
+        "stores.store_public_page",
+        slug=store_slug,
+        admin_override="1",
+        complaint_id=str(_id),
+    ))
+
+
+@admin_complaints_bp.route("/api/admin/complaints/<complaint_id>/snapshot", methods=["GET"])
+def admin_complaint_snapshot(complaint_id):
+    if session.get("role") != "admin":
+        return jsonify({"success": False, "message": "Admin login required"}), 401
+
+    try:
+        _id = ObjectId(complaint_id)
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid complaint id"}), 400
+
+    c = complaints_col.find_one({"_id": _id})
+    if not c:
+        return jsonify({"success": False, "message": "Complaint not found"}), 404
+
+    store_slug = _resolve_store_slug(c)
+    if not store_slug:
+        return jsonify({"success": False, "message": "Store not found for complaint"}), 404
+
+    return jsonify({
+        "success": True,
+        "store_slug": store_slug,
+        "paystack_reference": c.get("paystack_reference"),
+        "customer_phone": c.get("customer_phone") or "",
+        "customer_name": c.get("customer_name") or "",
+        "cart_snapshot": c.get("cart_snapshot") or [],
+    })
 
 @admin_complaints_bp.route("/admin/complaints/<complaint_id>/update", methods=["POST"])
 def update_complaint_status(complaint_id):
