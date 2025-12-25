@@ -316,7 +316,6 @@
 </head>
 
 <body>
-  {% include 'admin_sidebar.html' %}
 
   <div class="customer-content">
   <!-- Top bar -->
@@ -331,6 +330,9 @@
       </div>
 
       <div class="toolbar">
+        <a class="btn-ghost" href="/admin/dashboard" aria-label="Back to admin dashboard">
+          <i class="bi bi-arrow-left"></i>Back
+        </a>
         <!-- NEW: Global Requests -->
         <div id="reqGlobal" class="req-global d-none" title="View all withdrawal requests">
           <i class="bi bi-bell-fill"></i>
