@@ -97,6 +97,37 @@
       box-shadow:0 12px 30px rgba(245,158,11,.25);
     }
 
+    /* Summary cards */
+    .summary-grid{
+      margin:1.25rem auto .75rem;
+      display:grid;
+      grid-template-columns:repeat(5,minmax(0,1fr));
+      gap:1rem;
+    }
+    @media(max-width: 1100px){ .summary-grid{grid-template-columns:repeat(3,minmax(0,1fr));} }
+    @media(max-width: 767px){ .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    @media(max-width: 520px){ .summary-grid{grid-template-columns:repeat(1,minmax(0,1fr));} }
+
+    .summary-card{
+      border-radius:var(--radius-md);
+      border:1px solid var(--clr-ring);
+      background:var(--clr-card);
+      box-shadow:var(--shadow-card);
+      padding:.9rem 1rem;
+    }
+    .summary-label{
+      font-size:.72rem;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      color:var(--clr-muted);
+    }
+    .summary-value{
+      font-size:1.2rem;
+      font-weight:900;
+      margin-top:.25rem;
+    }
+    .summary-value.money{ color:#15803d; }
+
     /* Cards grid */
     .grid{
       margin:1.25rem auto 2.5rem;
@@ -120,6 +151,52 @@
     .store-card:hover{
       transform: translateY(-2px);
       box-shadow:0 18px 45px rgba(15,23,42,.10);
+    }
+
+    /* Loading skeletons */
+    @keyframes shimmer {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    .skeleton{
+      position:relative;
+      overflow:hidden;
+      background:#eef2f7;
+      color:transparent !important;
+    }
+    .skeleton::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      transform:translateX(-100%);
+      background:linear-gradient(90deg, rgba(255,255,255,0) 0, rgba(255,255,255,.7) 50%, rgba(255,255,255,0) 100%);
+      animation: shimmer 1.2s infinite;
+    }
+    .store-card.skeleton-card{ cursor:default; }
+    .skeleton-line,
+    .skeleton-pill{
+      position:relative;
+      overflow:hidden;
+      background:#eef2f7;
+    }
+    .skeleton-line{
+      height:12px;
+      border-radius:999px;
+      margin:8px 0;
+    }
+    .skeleton-pill{
+      height:18px;
+      border-radius:999px;
+      width:120px;
+    }
+    .skeleton-line::after,
+    .skeleton-pill::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      transform:translateX(-100%);
+      background:linear-gradient(90deg, rgba(255,255,255,0) 0, rgba(255,255,255,.7) 50%, rgba(255,255,255,0) 100%);
+      animation: shimmer 1.2s infinite;
     }
     .store-card .top{
       padding:1rem 1rem .75rem;
@@ -347,6 +424,11 @@
           <option value="suspended">Suspended</option>
           <option value="draft">Draft</option>
         </select>
+        <select id="sort" class="form-select form-select-sm" style="width:200px;">
+          <option value="updated">Sort: recent updates</option>
+          <option value="sales_desc">Sort: highest sales</option>
+          <option value="profit_balance_desc">Sort: profit balance</option>
+        </select>
         <button id="btnFilter" class="btn-ghost" type="button"><i class="bi bi-filter"></i>Filter</button>
         <button id="btnSuspendAll" class="btn-warn" type="button"><i class="bi bi-pause-circle"></i>Suspend All</button>
       </div>
@@ -354,13 +436,85 @@
   </div>
 
   <main class="page-wrap">
+    <section class="summary-grid" id="summaryGrid">
+      <div class="summary-card">
+        <div class="summary-label">Total Stores</div>
+        <div class="summary-value"><span id="statTotal">0</span></div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Total Published</div>
+        <div class="summary-value"><span id="statPublished">0</span></div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Total Draft</div>
+        <div class="summary-value"><span id="statDraft">0</span></div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Total Suspended</div>
+        <div class="summary-value"><span id="statSuspended">0</span></div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Total Outstanding Payouts</div>
+        <div class="summary-value money">GHS <span id="statOutstanding">0.00</span></div>
+      </div>
+    </section>
+
     <div id="grid" class="grid">
-      <div class="store-card">
+      <div class="store-card skeleton-card">
         <div class="top">
-          <div class="spinner-inline">
-            <div class="spinner-border spinner-border-sm text-info" role="status"></div>
-            Loading stores…
-          </div>
+          <div class="skeleton-pill" style="width:140px;"></div>
+          <div class="skeleton-line" style="width:70%;"></div>
+          <div class="skeleton-line" style="width:45%;"></div>
+        </div>
+        <div class="meta">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line" style="width:55%;"></div>
+        </div>
+        <div class="actions">
+          <div class="skeleton-pill" style="width:90px;"></div>
+          <div class="skeleton-pill" style="width:90px;"></div>
+          <div class="skeleton-pill" style="width:90px;"></div>
+        </div>
+      </div>
+      <div class="store-card skeleton-card">
+        <div class="top">
+          <div class="skeleton-pill" style="width:140px;"></div>
+          <div class="skeleton-line" style="width:70%;"></div>
+          <div class="skeleton-line" style="width:45%;"></div>
+        </div>
+        <div class="meta">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line" style="width:55%;"></div>
+        </div>
+        <div class="actions">
+          <div class="skeleton-pill" style="width:90px;"></div>
+          <div class="skeleton-pill" style="width:90px;"></div>
+          <div class="skeleton-pill" style="width:90px;"></div>
+        </div>
+      </div>
+      <div class="store-card skeleton-card">
+        <div class="top">
+          <div class="skeleton-pill" style="width:140px;"></div>
+          <div class="skeleton-line" style="width:70%;"></div>
+          <div class="skeleton-line" style="width:45%;"></div>
+        </div>
+        <div class="meta">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line" style="width:55%;"></div>
+        </div>
+        <div class="actions">
+          <div class="skeleton-pill" style="width:90px;"></div>
+          <div class="skeleton-pill" style="width:90px;"></div>
+          <div class="skeleton-pill" style="width:90px;"></div>
         </div>
       </div>
     </div>
@@ -745,6 +899,7 @@
       const grid = document.getElementById('grid');
       const qEl = document.getElementById('q');
       const statusEl = document.getElementById('status');
+      const sortEl = document.getElementById('sort');
       document.getElementById('btnFilter').addEventListener('click', load);
       document.getElementById('btnSuspendAll').addEventListener('click', suspendAll);
 
@@ -755,6 +910,12 @@
       let cachedRows = [];
       let currentDetailSlug = null;
       let currentDetailData = null;
+
+      const statTotal = document.getElementById('statTotal');
+      const statPublished = document.getElementById('statPublished');
+      const statDraft = document.getElementById('statDraft');
+      const statSuspended = document.getElementById('statSuspended');
+      const statOutstanding = document.getElementById('statOutstanding');
 
       /* ---------- Utils ---------- */
       function money(n){ return (Number(n||0)).toFixed(2); }
@@ -777,6 +938,27 @@
         const t = String(s||'draft').toLowerCase();
         const c = clsStatus(t);
         return `<span class="chip ${c}">${escapeHtml(t)}</span>`;
+      }
+
+      function setStatsLoading(on){
+        const list = [statTotal, statPublished, statDraft, statSuspended, statOutstanding];
+        list.forEach(el=>{
+          if(!el) return;
+          if(on){
+            el.classList.add('skeleton');
+          }else{
+            el.classList.remove('skeleton');
+          }
+        });
+      }
+
+      function renderStats(stats){
+        const s = stats || {};
+        statTotal.textContent = String(Number(s.total_stores || 0));
+        statPublished.textContent = String(Number(s.published || 0));
+        statDraft.textContent = String(Number(s.draft || 0));
+        statSuspended.textContent = String(Number(s.suspended || 0));
+        statOutstanding.textContent = money(s.outstanding_payouts || 0);
       }
 
       async function copyText(text){
@@ -810,8 +992,46 @@
       }
 
       /* ---------- Load & Render cards ---------- */
+      function renderLoadingCards(){
+        const card = `
+          <div class="store-card skeleton-card">
+            <div class="top">
+              <div class="skeleton-pill" style="width:140px;"></div>
+              <div class="skeleton-line" style="width:70%;"></div>
+              <div class="skeleton-line" style="width:45%;"></div>
+            </div>
+            <div class="meta">
+              <div class="skeleton-line"></div>
+              <div class="skeleton-line"></div>
+              <div class="skeleton-line"></div>
+              <div class="skeleton-line"></div>
+              <div class="skeleton-line" style="width:55%;"></div>
+            </div>
+            <div class="actions">
+              <div class="skeleton-pill" style="width:90px;"></div>
+              <div class="skeleton-pill" style="width:90px;"></div>
+              <div class="skeleton-pill" style="width:90px;"></div>
+            </div>
+          </div>
+        `;
+        grid.innerHTML = Array.from({length:6}).map(()=>card).join('');
+      }
+
+      function applySort(rows){
+        const mode = String(sortEl.value || 'updated');
+        const out = (rows || []).slice();
+        if(mode === 'sales_desc'){
+          out.sort((a,b)=> Number(b.total_sales||0) - Number(a.total_sales||0));
+        }else if(mode === 'profit_balance_desc'){
+          out.sort((a,b)=> Number(b.withdrawable||0) - Number(a.withdrawable||0));
+        }
+        return out;
+      }
+
       async function load(){
-        grid.innerHTML = `
+        setStatsLoading(true);
+        renderLoadingCards();
+        /* grid.innerHTML = `
           <div class="store-card">
             <div class="top">
               <div class="spinner-inline">
@@ -820,7 +1040,7 @@
               </div>
             </div>
           </div>
-        `;
+        `; */
 
         const params = new URLSearchParams();
         const q = (qEl.value || '').trim();
@@ -834,13 +1054,17 @@
           const j = await r.json();
           if(!r.ok || !j.success){
             grid.innerHTML = `<div class="text-danger small">Failed to load.</div>`;
+            setStatsLoading(false);
             return;
           }
           cachedRows = j.rows || [];
-          render(cachedRows);
+          renderStats(j.stats || {});
+          setStatsLoading(false);
+          render(applySort(cachedRows));
           refreshGlobalRequestsBadgeFromRows(cachedRows);
         }catch(e){
           grid.innerHTML = `<div class="text-danger small">Network error.</div>`;
+          setStatsLoading(false);
         }
       }
 
@@ -1747,6 +1971,9 @@
         tmr = setTimeout(load, 220);
       });
       statusEl.addEventListener('change', load);
+      sortEl.addEventListener('change', function(){
+        render(applySort(cachedRows));
+      });
 
       // initial load
       load();
