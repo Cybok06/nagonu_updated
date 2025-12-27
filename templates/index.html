@@ -108,7 +108,13 @@
   </style>
 </head>
 <body>
-
+  {% if store_notice %}
+  <div class="d-flex min-vh-100 align-items-center justify-content-center px-3">
+    <div class="alert alert-warning text-center mb-0" role="alert">
+      {{ store_notice }}
+    </div>
+  </div>
+  {% else %}
   <!-- Navbar -->
   <nav class="navbar navbar-expand-lg navbar-dark px-3">
     <a class="navbar-brand d-flex align-items-center" href="/">
@@ -139,14 +145,6 @@
       </ul>
     </div>
   </nav>
-
-  {% if store_notice %}
-  <div class="container mt-3">
-    <div class="alert alert-warning text-center mb-0" role="alert">
-      {{ store_notice }}
-    </div>
-  </div>
-  {% endif %}
 
   <!-- Hero -->
   <section class="hero-wrap position-relative">
@@ -385,6 +383,7 @@
     // Footer year
     document.getElementById('yearNow').textContent = new Date().getFullYear();
   </script>
+  {% endif %}
 </body>
 </html>
 
