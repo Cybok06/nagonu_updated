@@ -149,6 +149,13 @@ NETWORK_ID_FALLBACK: Dict[str, int] = {
 def _norm(s: str) -> str:
     return (s or "").strip().lower()
 
+def _host_is_store_domain(host: str) -> bool:
+    host_only = (host or "").split(":", 1)[0].strip().lower()
+    base = (TARGET_STORE_HOST or "").strip().lower()
+    if not base:
+        return False
+    return host_only in (base, f"www.{base}")
+
 def _slugify(s: str) -> str:
     s2 = (s or "").lower().strip()
     s2 = re.sub(r"[^a-z0-9]+", "-", s2).strip("-")
@@ -1052,6 +1059,7 @@ def _upsert_store_from_payload(owner_id: ObjectId, data: Dict[str, Any]) -> Tupl
 # PAGES (PUBLIC)
 # =====================================================================
 @stores_bp.route("/s/<slug>", methods=["GET"])
+@stores_bp.route("/store/<slug>", methods=["GET"])
 def store_public_page(slug: str):
     store_doc = stores_col.find_one(
         {"slug": slug, "status": {"$regex": r"^published$", "$options": "i"}}
@@ -1065,6 +1073,8 @@ def store_public_page(slug: str):
             if not store_doc:
                 return "Store not found", 404
         else:
+            if _host_is_store_domain(request.host):
+                return redirect(url_for("index.landing"))
             return "Store not found", 404
 
     scope = store_doc.get("service_scope") or "all"
