@@ -140,6 +140,14 @@
     </div>
   </nav>
 
+  {% if store_notice %}
+  <div class="container mt-3">
+    <div class="alert alert-warning text-center mb-0" role="alert">
+      {{ store_notice }}
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Hero -->
   <section class="hero-wrap position-relative">
     <div id="heroCarousel" class="carousel slide carousel-fade" data-bs-ride="carousel" data-bs-interval="5000" aria-label="Hero carousel">
