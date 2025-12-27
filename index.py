@@ -1,7 +1,7 @@
 # index.py — Public landing page ONLY (no checkout / no orders)
 from __future__ import annotations
 
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, request
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import json, ast, re, os
@@ -15,6 +15,7 @@ services_col = db["services"]
 
 # (Optional) still load Paystack public key if your index.html references it in JS
 PAYSTACK_PUBLIC_KEY = os.getenv("PAYSTACK_PUBLIC_KEY", "")
+STORE_PUBLIC_HOST = os.getenv("STORE_PUBLIC_HOST", "nagmart.store").strip().lower()
 
 # ---------------- small helpers (local, no checkout imports) ----------------
 
@@ -146,6 +147,12 @@ def _value_text_for_display(value: Any, unit: str) -> str:
 
 def _norm(s: str) -> str:
     return (s or "").strip().lower()
+
+def _host_is_store_domain(host: str) -> bool:
+    host_only = (host or "").split(":", 1)[0].strip().lower()
+    if not STORE_PUBLIC_HOST:
+        return False
+    return host_only in (STORE_PUBLIC_HOST, f"www.{STORE_PUBLIC_HOST}")
 
 PREFERRED_ORDER: List[str] = ["MTN", "AT - iShare", "AT - BigTime", "AFA TALKTIME"]
 
@@ -289,9 +296,14 @@ def landing():
         regular, express = load_services_for_landing()
     except Exception:
         regular, express = [], []
+    store_notice = None
+    if _host_is_store_domain(request.host if request else ""):
+        store_notice = "No store was found. Add the store slug to visit."
+
     return render_template(
         "index.html",
         services=regular,
         express_services=express,
         paystack_pk=PAYSTACK_PUBLIC_KEY,  # safe to leave; template can ignore if not used
+        store_notice=store_notice,
     )
