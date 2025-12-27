@@ -23,6 +23,13 @@ orders_col = db["orders"]
 PORTAL02_BASE_URL = "https://www.portal-02.com/api/v1"
 PORTAL02_API_KEY = os.getenv("PORTAL02_API_KEY", "dk_mJmQDFQWmDId4RT_c5HrEghcgwujPAFf")
 
+# ===== DataConnect Provider Config ==========================================
+DATACONNECT_BASE_URL = "https://dataconnectgh.com/api/v1"
+DATACONNECT_API_KEY = os.getenv(
+    "DATACONNECT_API_KEY",
+    "90bcf2f236b8c95547b58b531f5c597df8a061a8",
+)
+
 # ===== Tiny JSON logger (same style as checkout) ============================
 def jlog(event: str, **kv):
     rec = {"evt": event, **kv}
@@ -95,6 +102,74 @@ def _fetch_portal02_order_status(order_key: str, order_id: str | None = None) ->
         return False, {"success": False, "message": str(e), "http_status": 599}
 
 
+# ===== DataConnect order-status caller ======================================
+def _fetch_dataconnect_order_status(
+    transaction_id: str, order_id: str | None = None
+) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Call DataConnect transaction-status endpoint:
+      POST {BASE}/fetch-other-network-transaction
+      body: {"transaction_id": "<provider_reference>"}
+    """
+    if not DATACONNECT_API_KEY:
+        err = {
+            "success": False,
+            "message": "DATACONNECT API key not configured",
+            "http_status": 500,
+        }
+        jlog("dataconnect_status_config_error", order_id=order_id, transaction_id=transaction_id)
+        return False, err
+
+    url = f"{DATACONNECT_BASE_URL.rstrip('/')}/fetch-other-network-transaction"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "x-api-key": DATACONNECT_API_KEY,
+    }
+    payload = {"transaction_id": transaction_id}
+
+    jlog(
+        "dataconnect_status_request",
+        order_id=order_id,
+        transaction_id=transaction_id,
+        url=url,
+    )
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        text = resp.text or ""
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"raw": text} if text else {}
+
+        ok = (
+            resp.status_code == 200
+            and isinstance(data, dict)
+            and bool(data.get("success")) is True
+        )
+        if isinstance(data, dict):
+            data.setdefault("http_status", resp.status_code)
+
+        jlog(
+            "dataconnect_status_response",
+            order_id=order_id,
+            transaction_id=transaction_id,
+            ok=ok,
+            payload=data,
+        )
+
+        return ok, data
+    except requests.RequestException as e:
+        jlog(
+            "dataconnect_status_network_error",
+            order_id=order_id,
+            transaction_id=transaction_id,
+            error=str(e),
+        )
+        return False, {"success": False, "message": str(e), "http_status": 599}
+
+
 # ===== Helper: decide item + order status ===================================
 def _compute_order_status_from_items(items: List[Dict[str, Any]]) -> str:
     statuses = [str(i.get("line_status") or "").lower() for i in items]
@@ -125,6 +200,17 @@ def _map_portal02_status(status_raw: str) -> Tuple[str, str]:
     return "processing", "processing"
 
 
+def _map_dataconnect_status(status_raw: str) -> Tuple[str, str]:
+    s = (status_raw or "").strip().lower()
+    if s in {"success", "successful", "completed", "delivered", "delivered_successfully"}:
+        return "completed", "success"
+    if s in {"failed", "fail", "error", "reversed", "cancelled", "canceled"}:
+        return "failed", "failed"
+    if s in {"pending", "processing", "queued", "initiated", "in_progress"}:
+        return "processing", "processing"
+    return "processing", "processing"
+
+
 def _extract_portal02_status(payload: Dict[str, Any]) -> Optional[str]:
     if not isinstance(payload, dict):
         return None
@@ -136,6 +222,28 @@ def _extract_portal02_status(payload: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _extract_dataconnect_status(payload: Dict[str, Any]) -> Optional[str]:
+    if not isinstance(payload, dict):
+        return None
+    for key in ("status", "transaction_status", "transactionStatus"):
+        v = payload.get(key)
+        if v is not None:
+            return str(v)
+    data = payload.get("data")
+    if isinstance(data, dict):
+        for key in ("status", "transaction_status", "transactionStatus"):
+            v = data.get(key)
+            if v is not None:
+                return str(v)
+    tx = payload.get("transaction")
+    if isinstance(tx, dict):
+        for key in ("status", "transaction_status", "transactionStatus"):
+            v = tx.get(key)
+            if v is not None:
+                return str(v)
+    return None
+
+
 def _apply_status_to_item(
     item: Dict[str, Any],
     status_raw: str,
@@ -143,6 +251,20 @@ def _apply_status_to_item(
     now: datetime,
 ) -> None:
     line_status, api_status = _map_portal02_status(status_raw)
+    item["line_status"] = line_status
+    item["api_status"] = api_status
+    item["provider_status_last"] = status_raw
+    item["provider_status_checked_at"] = now
+    item["provider_status_payload"] = payload
+
+
+def _apply_dataconnect_status_to_item(
+    item: Dict[str, Any],
+    status_raw: str,
+    payload: Dict[str, Any],
+    now: datetime,
+) -> None:
+    line_status, api_status = _map_dataconnect_status(status_raw)
     item["line_status"] = line_status
     item["api_status"] = api_status
     item["provider_status_last"] = status_raw
@@ -161,6 +283,11 @@ def _match_keys_for_item(item: Dict[str, Any], keys: List[str]) -> bool:
         ):
             return True
     return False
+
+
+def _is_mtn_express_item(item: Dict[str, Any]) -> bool:
+    name = (item.get("serviceName") or "").strip().lower()
+    return name == "mtn express"
 
 
 # ===== Core sync logic (used by route + scheduler) ==========================
@@ -186,6 +313,7 @@ def _run_order_status_sync() -> Dict[str, Any]:
     )
 
     checked_orders = 0
+    dataconnect_checked_orders = 0
     updated_orders = 0
     updated_lines = 0
     completed_lines = 0
@@ -256,8 +384,91 @@ def _run_order_status_sync() -> Dict[str, Any]:
             new_status=new_order_status,
         )
 
+    # DataConnect (MTN EXPRESS only): latest 50 orders
+    dataconnect_cursor = (
+        orders_col.find(
+            {
+                "items": {
+                    "$elemMatch": {
+                        "provider": "dataconnect",
+                        "line_status": "processing",
+                        "serviceName": {"$regex": r"^\s*mtn\s+express\s*$", "$options": "i"},
+                    }
+                }
+            }
+        )
+        .sort("created_at", -1)
+        .limit(50)
+    )
+
+    for order in dataconnect_cursor:
+        dataconnect_checked_orders += 1
+        oid = order.get("_id")
+        order_id = order.get("order_id")
+
+        items = order.get("items", []) or []
+        changed = False
+
+        for item in items:
+            if (
+                item.get("provider") != "dataconnect"
+                or str(item.get("line_status", "")).lower() != "processing"
+                or not _is_mtn_express_item(item)
+            ):
+                continue
+
+            transaction_id = (
+                item.get("provider_reference")
+                or item.get("provider_order_id")
+                or item.get("provider_request_order_id")
+            )
+            if not transaction_id:
+                item["provider_status_checked_at"] = now
+                still_processing_lines += 1
+                continue
+
+            ok, payload = _fetch_dataconnect_order_status(transaction_id, order_id)
+            status_raw = _extract_dataconnect_status(payload)
+
+            if status_raw is None:
+                item["provider_status_checked_at"] = now
+                item["provider_status_payload"] = payload
+                still_processing_lines += 1
+                changed = True
+                continue
+
+            _apply_dataconnect_status_to_item(item, status_raw, payload, now)
+            changed = True
+
+            line_status = item.get("line_status")
+            if line_status == "completed":
+                completed_lines += 1
+            elif line_status == "failed":
+                failed_lines += 1
+            else:
+                still_processing_lines += 1
+
+        if not changed:
+            continue
+
+        new_order_status = _compute_order_status_from_items(items)
+        orders_col.update_one(
+            {"_id": oid},
+            {"$set": {"items": items, "status": new_order_status, "updated_at": now}},
+        )
+        updated_orders += 1
+        updated_lines += 1
+
+        jlog(
+            "order_status_sync_updated_order_dataconnect",
+            order_id=order_id,
+            mongo_id=str(oid),
+            new_status=new_order_status,
+        )
+
     summary = {
         "checked_orders": checked_orders,
+        "dataconnect_checked_orders": dataconnect_checked_orders,
         "updated_orders": updated_orders,
         "updated_lines_est": updated_lines,
         "completed_lines": completed_lines,
@@ -417,7 +628,7 @@ def portal02_order_status(order_key: str):
     ), 200
 
 
-# ===== Background scheduler: run every 15 minutes ===========================
+# ===== Background scheduler: run every 1 minute ============================
 def _scheduled_sync_job():
     try:
         jlog("order_status_scheduled_run_start")
@@ -432,7 +643,7 @@ scheduler = BackgroundScheduler(timezone="UTC")
 scheduler.add_job(
     _scheduled_sync_job,
     "interval",
-    minutes=15,
+    minutes=1,
     max_instances=1,
     coalesce=True,
     id="portal02_order_status_sync",
@@ -440,6 +651,6 @@ scheduler.add_job(
 
 try:
     scheduler.start()
-    jlog("order_status_scheduler_started", interval_minutes=15)
+    jlog("order_status_scheduler_started", interval_minutes=1)
 except Exception:
     jlog("order_status_scheduler_start_failed", error=traceback.format_exc())
