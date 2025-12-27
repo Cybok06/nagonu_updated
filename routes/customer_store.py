@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, date, timedelta
 from typing import Any, Dict, List, Tuple, Optional
-import re
+import os, re
 
 from bson import ObjectId
 from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
@@ -23,6 +23,7 @@ store_withdraw_requests  = db["store_withdraw_requests"]
 store_accounts_col       = db["store_accounts"]
 
 MIN_WITHDRAW_AMOUNT = 20.0
+STORE_PUBLIC_HOST = os.getenv("STORE_PUBLIC_HOST", "nagmart.store").strip()
 
 
 # ---------- helpers ----------
@@ -373,10 +374,10 @@ def customer_store_home():
 
     if not store_doc:
         today = datetime.utcnow().date()
-        return render_template(
-            "customer_store.html",
-            store=None,
-            owner_name=_owner_display_name(owner),
+    return render_template(
+        "customer_store.html",
+        store=None,
+        owner_name=_owner_display_name(owner),
             all_time_sales=0.00,
             profit_today=0.00,
             all_time_profit=0.00,
@@ -384,10 +385,11 @@ def customer_store_home():
             top_offers=[],
             recent_orders=[],
             withdrawable=0.00,
-            wallet_balance=_owner_wallet_balance(owner_id),
-            today_str=today.strftime("%b %d, %Y"),
-            slug=None,
-        )
+        wallet_balance=_owner_wallet_balance(owner_id),
+        today_str=today.strftime("%b %d, %Y"),
+        slug=None,
+        store_host=STORE_PUBLIC_HOST,
+    )
 
     slug = store_doc.get("slug")
     _maybe_auto_withdraw(owner_id, slug)
@@ -407,6 +409,7 @@ def customer_store_home():
         wallet_balance=_owner_wallet_balance(owner_id),
         today_str=k["today"].strftime("%b %d, %Y"),
         slug=slug,
+        store_host=STORE_PUBLIC_HOST,
     )
 
 @customer_store_bp.route("/customer/store/<slug>", methods=["GET"])
