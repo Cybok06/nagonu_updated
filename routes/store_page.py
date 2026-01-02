@@ -1896,10 +1896,13 @@ def _store_checkout_handler(slug: str, body: Dict[str, Any]):
             if svc_type_flag == "OFF":
                 api_allowed = False
 
-            use_dataconnect = (resolved_network == "mtn" and is_mtn_express and api_allowed)
+            use_dataconnect = api_allowed and (
+                (resolved_network == "mtn" and is_mtn_express)
+                or (resolved_network == "airteltigo" and is_ishare_bundle)
+            )
 
             portal02_network_slug = None
-            if api_allowed:
+            if api_allowed and not use_dataconnect:
                 if resolved_network == "mtn" and is_mtn_normal:
                     portal02_network_slug = "mtn"
                 elif resolved_network == "telecel" and is_telecel_bundle:
@@ -1920,7 +1923,7 @@ def _store_checkout_handler(slug: str, body: Dict[str, Any]):
                     api_status = "not_applicable_type_off"
                 else:
                     note = (
-                        "API is used for MTN EXPRESS (DataConnect) and MTN NORMAL / TELECEL / AIRTELTIGO iShare "
+                        "API is used for MTN EXPRESS (DataConnect), AT iShare (DataConnect), and MTN NORMAL / TELECEL "
                         "via Portal-02, but this line did not match any mapped combination; queued for manual processing."
                     )
                     api_status = "not_applicable_network"
