@@ -20,7 +20,7 @@ users_col           = db["users"]  # ✅ for invoice view
 DATACONNECT_BASE_URL = "https://dataconnectgh.com/api/v1"
 DATACONNECT_API_KEY = os.getenv(
     "DATACONNECT_API_KEY",
-    "adfc321ee7d202fe418b490d6d6b5c327fcf3ae6",  # fallback; you can remove/harden
+    "90bcf2f236b8c95547b58b531f5c597df8a061a8",  # fallback; you can remove/harden
 )
 
 
@@ -712,20 +712,16 @@ def _background_process_providers(order_id: str, api_jobs: list[dict]):
 
             provider_ref = None
             provider_order_id = None
-            provider_txn_id = None
             if isinstance(payload, dict):
-                provider_txn_id = payload.get("transaction_id") or payload.get("transactionId")
                 provider_ref = (
                     payload.get("transaction_code")
                     or payload.get("reference")
                     or payload.get("order_reference")
-                    or provider_txn_id
                 )
                 provider_order_id = (
                     payload.get("orderId")
                     or payload.get("order_id")
                     or payload.get("transaction_code")
-                    or provider_txn_id
                 )
 
             # Update this specific line inside the order items
@@ -740,7 +736,6 @@ def _background_process_providers(order_id: str, api_jobs: list[dict]):
                         "items.$.api_response": payload,
                         "items.$.provider_reference": provider_ref,
                         "items.$.provider_order_id": provider_order_id,
-                        "items.$.provider_transaction_id": provider_txn_id,
                     }
                 },
             )
@@ -977,14 +972,11 @@ def process_checkout():
             if svc_type_flag == "OFF":
                 api_allowed = False
 
-            # DataConnect: MTN Express and AT iShare go through DataConnect
-            use_dataconnect = api_allowed and (
-                (resolved_network == "mtn" and is_mtn_express)
-                or (resolved_network == "airteltigo" and is_ishare_bundle)
-            )
+            # DataConnect: currently only MTN Express uses DataConnect (like old DataVerse slot)
+            use_dataconnect = (resolved_network == "mtn" and is_mtn_express and api_allowed)
 
             portal02_network_slug = None
-            if api_allowed and not use_dataconnect:
+            if api_allowed:
                 if resolved_network == "mtn" and is_mtn_normal:
                     portal02_network_slug = "mtn"
                 elif resolved_network == "telecel" and is_telecel_bundle:
@@ -1024,7 +1016,7 @@ def process_checkout():
                     api_status = "not_applicable_type_off"
                 else:
                     note = (
-                        "API is used for MTN EXPRESS (DataConnect), AT iShare (DataConnect), and MTN NORMAL / TELECEL "
+                        "API is used for MTN EXPRESS (DataConnect) and MTN NORMAL / TELECEL / AIRTELTIGO iShare "
                         "via Portal-02, but this line did not match any mapped combination; queued for manual processing."
                     )
                     api_status = "not_applicable_network"
@@ -1134,7 +1126,6 @@ def process_checkout():
                 "provider_network": provider_network_slug,
                 "provider_reference": None,
                 "provider_order_id": None,
-                "provider_transaction_id": None,
                 "provider_request_order_id": external_ref,
                 "network_id": network_id,
                 "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
