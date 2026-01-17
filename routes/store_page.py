@@ -1574,6 +1574,22 @@ def _extract_gh_prefix(phone: str) -> Optional[str]:
         return "0" + digits[3:5]
     return None
 
+def _normalize_gh_phone(raw: Any) -> str:
+    digits = re.sub(r"\D+", "", str(raw or ""))
+    if len(digits) == 10 and digits.startswith("0"):
+        return digits
+    if len(digits) == 12 and digits.startswith("233"):
+        return "0" + digits[3:]
+    return digits
+
+def _is_valid_gh_phone(raw: Any) -> bool:
+    norm = _normalize_gh_phone(raw)
+    if len(norm) != 10 or not norm.startswith("0"):
+        return False
+    prefix = norm[:3]
+    allowed = {p for v in PORTED_PREFIXES.values() for p in v}
+    return prefix in allowed
+
 
 # =====================================================================
 # ✅ IMPORTANT FIX: Profit MUST be computed from SYSTEM offers (svc.offers)
@@ -1655,6 +1671,35 @@ def _store_checkout_handler(slug: str, body: Dict[str, Any]):
 
         if not cart or not isinstance(cart, list):
             return jsonify({"success": False, "message": "Cart is empty or invalid"}), 400
+
+        # Normalize and validate phones early (supports legacy field names)
+        phone_fallback_keys = (
+            "phone",
+            "msisdn",
+            "recipient",
+            "number",
+            "recipientPhone",
+            "phone_number",
+        )
+        for idx, item in enumerate(cart):
+            raw_phone = ""
+            if isinstance(item, dict):
+                for k in phone_fallback_keys:
+                    val = item.get(k)
+                    if val not in (None, ""):
+                        raw_phone = val
+                        break
+            norm_phone = _normalize_gh_phone(raw_phone)
+            if isinstance(item, dict):
+                item["phone"] = norm_phone
+            if not _is_valid_gh_phone(norm_phone):
+                return jsonify(
+                    {
+                        "success": False,
+                        "message": f"Invalid phone number on line {idx + 1} (e.g. 0530393625).",
+                        "line_index": idx,
+                    }
+                ), 400
 
         # idempotency: same reference should not create multiple orders
         if ps_ref:

@@ -10,7 +10,7 @@
   <meta name="theme-color" content="{{ t.primary or '#0ea5e9' }}"/>
 
   {% if canonical_url %}
-    <link rel="canonical" href="{{ canonical_ url }}">
+    <link rel="canonical" href="{{ canonical_url }}">
   {% endif %}
 
   <meta name="description" content="{{ (store.hero.subtitle if store.hero else '') or ('Shop bundles & services from ' ~ store.name ~ ' with instant checkout.') }}"/>
@@ -765,7 +765,7 @@
 
                 <div class="mt-auto">
                   <button class="btn btn-primary w-100 select-btn mt-1"
-                    data-service='{{ {"_id_str":svc._id_str,"name":svc.name,"offers":svc.offers or [],"service_network":svc.service_network,"network":svc.network} | tojson }}'
+                    data-service='{{ {"_id_str":svc._id_str,"name":svc.name,"offers":svc.offers or [],"service_network":(svc.service_network|default("")),"network":(svc.network|default(""))} | tojson }}'
                     data-can="{{ 1 if can_order else 0 }}"
                     data-reason="{{ reason or '' }}">
                     <i class="bi bi-lightning-charge me-1"></i> Buy
@@ -1273,8 +1273,12 @@
 
     function normalizePhone(s) {
       let d = String(s || "").replace(/\D+/g, "");
-      if (d.startsWith("233")) d = "0" + d.slice(3);
-      if (d.length > 10) d = d.slice(-10);
+      if (d.startsWith("2330") && d.length >= 13) {
+        d = "0" + d.slice(4, 13);
+      } else if (d.startsWith("233") && d.length >= 12) {
+        d = "0" + d.slice(3, 12);
+      }
+      if (d.length === 10 && d.startsWith("0")) return d;
       return d;
     }
 
@@ -1509,24 +1513,39 @@
     const PS_FIRST = String(readJsonScript("psFirstJson", "") || "").trim();
     const PS_LAST  = String(readJsonScript("psLastJson", "") || "").trim();
 
-    function cartPrimaryPhone() {
-      const raw = (cart && cart._data && cart._data[0] && cart._data[0].phone) ? cart._data[0].phone : "";
-      return normalizePhone(raw);
+    function firstCartPhoneRaw() {
+      const data = (cart && Array.isArray(cart._data)) ? cart._data : [];
+      if (!data.length) return "";
+      const line = data[0] || {};
+      const keys = ["phone", "msisdn", "recipient", "number", "recipientPhone", "phone_number"];
+      for (let k = 0; k < keys.length; k++) {
+        const v = line[keys[k]];
+        if (v != null && String(v).trim() !== "") {
+          return String(v).trim();
+        }
+      }
+      return "";
     }
 
-    function buildDummyPaystackEmail(phone) {
-      const p = normalizePhone(phone);
-      if (!/^0\\d{9}$/.test(p)) return "";
-      return p + "nagonu@gmail.com";
+    function _digitsOnlyPhone(raw) {
+      return String(raw || "").replace(/\D+/g, "");
+    }
+
+    function getPaystackIdentity() {
+      const rawPhone = firstCartPhoneRaw();
+      const digits = _digitsOnlyPhone(rawPhone);
+      if (digits) {
+        return { email: digits + "nagonu@gmail.com", phone: rawPhone || digits };
+      }
+      return { email: "", phone: "" };
     }
 
     function ensurePaystackIdentityOrExplain() {
-      const email = buildDummyPaystackEmail(cartPrimaryPhone());
-      if (!email) {
-        tell("Enter a valid phone number before paying (e.g. 0530393625).");
+      const ident = getPaystackIdentity();
+      if (!ident.email) {
+        tell("Enter the phone number for the first cart item before paying.");
         return false;
       }
-      // first/last can be empty; Paystack accepts email only, but we pass what we have.
       return true;
     }
 
@@ -1997,7 +2016,8 @@
         const payTotalGhs = cart.total();
         const amountPesewas = pesewas(payTotalGhs);
         const ref = "PS-" + Date.now() + "-" + Math.floor(Math.random() * 1e6);
-        const payEmail = buildDummyPaystackEmail(cartPrimaryPhone());
+        const ident = getPaystackIdentity();
+        const payEmail = ident.email;
 
         const items = cart._data.map(c => ({
           s: c.serviceName, p: c.phone, v: c.value,
@@ -2015,7 +2035,7 @@
           lastname: PS_LAST,
           reference: ref,
           metadata: {
-            payer: { email: payEmail, first_name: PS_FIRST, last_name: PS_LAST },
+            payer: { email: payEmail, first_name: PS_FIRST, last_name: PS_LAST, phone: ident.phone || "" },
             cart_snapshot: items,
             pay_total_ghs: Number(payTotalGhs.toFixed(2)),
             fee_note: "Paystack may add ~2% processing fee; backend accepts any paid >= cart total.",
@@ -2126,7 +2146,7 @@
               amount_pesewas: Math.round(payNow * 100),
               amount_ghs: payNow,
               via_inline: true,
-              payer: { email: buildDummyPaystackEmail(cartPrimaryPhone()), first_name: PS_FIRST, last_name: PS_LAST }
+              payer: { email: getPaystackIdentity().email, first_name: PS_FIRST, last_name: PS_LAST, phone: getPaystackIdentity().phone || "" }
             }
           })
         });
