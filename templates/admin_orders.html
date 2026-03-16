@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin — Orders</title>
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+
+  <style>
+    :root{
+      --primary:#2563eb;--primary-2:#1d4ed8;--primary-3:#3b82f6;
+      --bg:#f8fafc;--bg-2:#f1f5f9;--card:#ffffff;--border:#e2e8f0;
+      --text:#0b1b2b;--muted:#64748b;
+      --ok:#16a34a;--ok-soft:#ecfdf5;          /* delivered */
+      --warn:#f59e0b;--warn-soft:#fffbeb;      /* pending  */
+      --info:#0ea5e9;--info-soft:#e6f6fe;      /* processing */
+      --bad:#ef4444;--bad-soft:#fef2f2;        /* failed */
+      --violet:#6366f1;--violet-soft:#eef2ff;  /* refunded */
+      --teal:#14b8a6;--teal-soft:#e6fffb;      /* completed */
+      --shadow-md:0 4px 12px rgba(2,10,28,.08);
+      --shadow-lg:0 12px 28px rgba(2,10,28,.12);
+      --radius:16px;
+    }
+
+    body{background:linear-gradient(135deg,var(--bg) 0%,var(--bg-2) 100%);color:var(--text);font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+    .container{max-width:1400px}
+    h2{color:var(--primary);font-weight:800;letter-spacing:.2px}
+    .subhead{color:var(--muted)}
+    .chip{display:inline-flex;align-items:center;gap:.5rem;background:#eef2ff;color:#3730a3;padding:.4rem .7rem;border-radius:999px;border:1px solid #c7d2fe;font-size:.82rem}
+
+    /* Sticky header (title + actions) */
+    .sticky-header{position:sticky;top:0;background:linear-gradient(135deg,var(--bg) 0%,var(--bg-2) 100%);
+      z-index:20;padding:.5rem 0 .75rem;margin-bottom:.25rem}
+
+    /* Filters */
+    .filter-bar{display:none;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:1rem 1.25rem;position:sticky;top:4.25rem;z-index:10}
+    .filter-bar.show{display:block}
+    .filter-row{row-gap:.75rem}
+    .form-select,.form-control{border:2px solid var(--border);border-radius:10px;padding:.55rem .8rem}
+    .form-select:focus,.form-control:focus{border-color:var(--primary);box-shadow:0 0 0 .2rem rgba(37,99,235,.25)}
+
+    /* Filter toggle hint */
+    .filter-toggle{display:flex;gap:.5rem}
+
+    .actions-bar{display:flex;flex-wrap:wrap;gap:.5rem}
+    .btn-icon{display:inline-flex;align-items:center;gap:.5rem}
+
+    .table-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);overflow:hidden}
+    table.table{margin:0}
+    thead th{background:linear-gradient(135deg,var(--primary) 0%,var(--primary-2) 100%);color:#fff;border:none;text-transform:uppercase;font-size:.8rem;letter-spacing:.6px}
+    tbody tr:hover{background:#f0f7ff}
+    td,th{vertical-align:middle}
+    .table-responsive{scrollbar-width:thin}
+
+    /* Status chips */
+    .status-chip{display:inline-flex;align-items:center;gap:.45rem;padding:.35rem .65rem;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid transparent}
+    .st-delivered{color:var(--ok);background:var(--ok-soft);border-color:#a7f3d0}
+    .st-failed{color:var(--bad);background:var(--bad-soft);border-color:#fecaca}
+    .st-processing{color:var(--info);background:var(--info-soft);border-color:#bae6fd}
+    .st-refunded{color:var(--violet);background:var(--violet-soft);border-color:#c7d2fe}
+    .st-pending{color:var(--warn);background:var(--warn-soft);border-color:#fde68a}
+    .st-completed{color:var(--teal);background:var(--teal-soft);border-color:#99f6e4}
+
+    /* Paid-from badge */
+    .pf-badge{border-radius:999px;padding:.45rem .65rem;font-weight:700}
+    .pf-wallet{background:#ecfeff;color:#155e75;border:1px solid #a5f3fc}
+    .pf-card{background:#f0f9ff;color:#1e3a8a;border:1px solid #bfdbfe}
+    .pf-momo{background:#fefce8;color:#713f12;border:1px solid #fde68a}
+    .pf-paystack{background:#eef2ff;color:#1e1b4b;border:1px solid #c7d2fe}
+    .pf-flutterwave{background:#fff7ed;color:#7c2d12;border:1px solid #fed7aa}
+    .pf-bank{background:#f5f3ff;color:#4c1d95;border:1px solid #ddd6fe}
+
+    .api-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .65rem;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid transparent}
+    .api-chip-passed{color:#166534;background:rgba(34,197,94,.12);border-color:#bbf7d0}
+    .api-chip-not{color:#475569;background:rgba(148,163,184,.15);border-color:#e2e8f0}
+
+    .prov-badge{display:inline-flex;align-items:center;gap:.35rem;padding:.25rem .55rem;border-radius:999px;font-size:.72rem;font-weight:700;border:1px solid transparent}
+    .prov-codecraft{color:#1d4ed8;background:#e0e7ff;border-color:#c7d2fe}
+    .prov-dataconnect{color:#0f766e;background:#ccfbf1;border-color:#99f6e4}
+    .prov-portal02{color:#9333ea;background:#f3e8ff;border-color:#e9d5ff}
+
+    /* Inline actions tray (desktop) */
+    .status-actions{display:none;gap:.35rem;flex-wrap:wrap;align-items:center;margin-left:.25rem}
+    .status-actions.show{display:inline-flex}
+    .status-actions.hidden{display:none}
+    .status-actions .btn{padding:.2rem .5rem;font-size:.75rem;border-radius:999px}
+
+    /* Card view (mobile) */
+    @media (max-width: 767.98px){
+      .table-wrap{display:none}
+      .cards{display:grid;gap:1rem}
+      .order-card{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-md);padding:1rem}
+      .order-card .header{display:flex;justify-content:space-between;gap:.5rem;align-items:center}
+      .order-card .meta{color:var(--muted);font-size:.85rem}
+      .order-card .items{margin:.5rem 0 0}
+      .order-card .it{display:flex;justify-content:space-between;border-top:1px dashed var(--border);padding-top:.5rem;margin-top:.5rem}
+      .order-card .tot{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}
+      .order-card .footer{display:flex;gap:.5rem;align-items:center;margin-top:.75rem;flex-wrap:wrap}
+      .order-card .footer .form-check-input{width:22px;height:22px}
+      .order-card .btn-sm{padding:.45rem .6rem}
+      .card-actions{display:flex;gap:.35rem;flex-wrap:wrap; width:100%}
+      .card-actions.hidden{display:none}
+      .card-actions form {display:inline}
+      .card-actions .btn {font-size:.75rem; padding:.35rem .55rem; border-radius:999px}
+    }
+    @media (min-width: 768px){
+      .cards{display:none}
+    }
+
+    /* Bigger touch targets for checkboxes */
+    .form-check-input{width:18px;height:18px}
+    .table .form-check-input{transform:translateY(2px)}
+
+    /* Offcanvas & jobs list */
+    .offcanvas{border-left:1px solid var(--border)}
+    .schedule-row{display:flex;align-items:center;justify-content:space-between;border-bottom:1px dashed var(--border);padding:.6rem 0}
+    .muted{color:var(--muted)}
+
+    /* Floating bar for selected (mobile) */
+    .floating-bar{
+      position:fixed;left:0;right:0;bottom:0;background:#0b1220cc;color:#fff;backdrop-filter:blur(8px);
+      display:none;z-index:1050;padding:.6rem .9rem;box-shadow:0 -8px 24px rgba(2,10,28,.22)
+    }
+    .floating-bar.show{display:flex;align-items:center;gap:.75rem;justify-content:space-between}
+    .floating-bar .btn{box-shadow:var(--shadow-md)}
+
+    /* Skeleton swipe cards */
+    .skeleton-swipe{
+      display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+      padding:.5rem .25rem;margin:0 0 1rem 0
+    }
+    .skeleton-swipe::-webkit-scrollbar{height:8px}
+    .skeleton-swipe::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}
+    .skeleton-card{
+      min-width:220px;max-width:240px;flex:0 0 auto;
+      background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-md);
+      padding:1rem;scroll-snap-align:start;position:relative;overflow:hidden
+    }
+    .skeleton-line{height:12px;border-radius:8px;background:#e5e7eb;margin:.4rem 0;position:relative;overflow:hidden}
+    .skeleton-line.lg{height:16px}
+    .skeleton-line.sm{height:10px;width:70%}
+    .skeleton-pill{height:22px;width:90px;border-radius:999px;background:#e5e7eb;margin-top:.5rem;position:relative;overflow:hidden}
+    .skeleton-shimmer::after{
+      content:"";position:absolute;top:-50%;left:-50%;width:200%;height:200%;
+      background:linear-gradient(120deg, transparent 0%, rgba(255,255,255,.6) 50%, transparent 100%);
+      animation:shimmer 1.2s infinite;
+    }
+    @keyframes shimmer{
+      0%{transform:translateX(-50%)}
+      100%{transform:translateX(50%)}
+    }
+  </style>
+</head>
+<body>
+  {% include 'admin_sidebar.html' %}
+
+  <div class="container py-3 py-md-4">
+    <!-- Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-start sticky-header">
+      <div class="mb-2">
+        <h2 class="mb-1"><i class="fas fa-box me-2"></i>Customer Orders</h2>
+        <div class="subhead d-flex flex-wrap gap-2">
+          <span class="chip"><i class="fa-solid fa-database"></i> Total: <span id="totalOrders">0</span></span>
+          {% if (view_mode or '') != 'orders' %}<span class="chip"><i class="fa-solid fa-layer-group"></i> Lines: <span id="totalLines">0</span></span>{% endif %}
+          {% if status_filter %}<span class="chip"><i class="fa-solid fa-filter"></i> Status: {{ status_filter|capitalize }}</span>{% endif %}
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <div class="btn-group" role="group" aria-label="View mode">
+          <a href="{{ view_line_url }}" class="btn btn-outline-primary btn-icon {% if (view_mode or '') != 'orders' %}active{% endif %}">
+            <i class="fa-solid fa-list"></i> Line View
+          </a>
+          <a href="{{ view_order_url }}" class="btn btn-outline-primary btn-icon {% if (view_mode or '') == 'orders' %}active{% endif %}">
+            <i class="fa-solid fa-layer-group"></i> Order View
+          </a>
+        </div>
+
+        <!-- Filters toggle (all sizes) -->
+        <button class="btn btn-outline-secondary btn-icon" id="toggleFilters" aria-expanded="false" aria-controls="filtersCard">
+          <i class="fa-solid fa-sliders"></i> Filters
+        </button>
+
+        <!-- View Schedules -->
+        <button class="btn btn-outline-primary btn-icon" data-bs-toggle="offcanvas" data-bs-target="#jobsOffcanvas">
+          <i class="fa-solid fa-clock-rotate-left"></i> Scheduled Orders
+        </button>
+
+        <!-- Bulk Deliver within current filters -->
+        <form method="POST" action="{{ url_for('admin_orders.bulk_deliver_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+          <button class="btn btn-success btn-icon" data-confirm="Mark ALL processing orders in the current filters as DELIVERED?">
+            <i class="fa-solid fa-truck-fast"></i> Mark Processing → Delivered
+          </button>
+        </form>
+
+        <!-- NEW: Mark Selected → Delivered (desktop header) -->
+        <button class="btn btn-dark btn-icon" id="markSelectedDelivered">
+          <i class="fa-solid fa-check-double"></i> Mark Selected → Delivered
+        </button>
+
+        <!-- Schedule for selected -->
+        <button class="btn btn-outline-dark btn-icon" id="openScheduleSelected" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+          <i class="fa-solid fa-calendar-plus"></i> Schedule Status (Selected)
+        </button>
+      </div>
+    </div>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+            <i class="fas fa-info-circle me-2"></i>{{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Filters -->
+    <div class="filter-toggle mb-2">
+      <span class="text-muted small"><i class="fa-regular fa-circle-question me-1"></i>Tap “Filters” to refine</span>
+    </div>
+
+    <form method="get" class="filter-bar mb-3" id="filtersCard">
+      <input type="hidden" name="view" value="{{ view_mode or 'lines' }}">
+      <div class="row filter-row">
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-hashtag me-1"></i>Order ID</label>
+          <input type="text" name="order_id" value="{{ order_id_q or '' }}" class="form-control" placeholder="Paste or type order id">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-user me-1"></i>Customer</label>
+          <input type="text" name="customer" value="{{ customer_q or '' }}" class="form-control" placeholder="Name / email / phone / username">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-clipboard-check me-1"></i>Status</label>
+          <select name="status" class="form-select">
+            <option value="">All</option>
+            {% for s in ['processing','delivered','failed','refunded','pending','completed'] %}
+              <option value="{{ s }}" {% if s == status_filter %}selected{% endif %}>{{ s|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-database me-1"></i>Source</label>
+          <select name="source" class="form-select">
+            <option value="all" {% if (source or '')=='all' %}selected{% endif %}>All Orders</option>
+            <option value="main" {% if (source or '')=='main' %}selected{% endif %}>Main Orders</option>
+            <option value="campus" {% if (source or '')=='campus' %}selected{% endif %}>Campus Data</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-wallet me-1"></i>Paid From</label>
+          <select name="paid_from" class="form-select">
+            <option value="">Any</option>
+            {% for src in ['wallet','card','momo','paystack','flutterwave','bank'] %}
+              <option value="{{ src }}" {% if (paid_from or '')==src %}selected{% endif %}>{{ src|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-plug-circle-check me-1"></i>API</label>
+          <select name="api_filter" class="form-select">
+            <option value="">All</option>
+            <option value="passed" {% if api_filter == 'passed' %}selected{% endif %}>Passed through API</option>
+            <option value="not_passed" {% if api_filter == 'not_passed' %}selected{% endif %}>Did not pass through API</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-arrow-down-1-9 me-1"></i>Min Total (₵)</label>
+          <input type="number" step="0.01" name="min_total" value="{{ min_total or '' }}" class="form-control" placeholder="0.00">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-arrow-up-9-1 me-1"></i>Max Total (₵)</label>
+          <input type="number" step="0.01" name="max_total" value="{{ max_total or '' }}" class="form-control" placeholder="1000.00">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-calendar-day me-1"></i>From</label>
+          <input type="date" name="date_from" value="{{ date_from or '' }}" class="form-control">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-calendar-check me-1"></i>To</label>
+          <input type="date" name="date_to" value="{{ date_to or '' }}" class="form-control">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-boxes-stacked me-1"></i>Item Service</label>
+          <input type="text" name="item_service" value="{{ item_service or '' }}" class="form-control" placeholder="e.g., Bigtime Data">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-tags me-1"></i>Item Offer</label>
+          <input type="text" name="item_offer" value="{{ item_offer or '' }}" class="form-control" placeholder="e.g., 1GB">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-mobile-screen-button me-1"></i>Item Phone</label>
+          <input type="text" name="item_phone" value="{{ item_phone or '' }}" class="form-control" placeholder="e.g., 055xxxxxxx">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-sort me-1"></i>Sort</label>
+          <select name="sort" class="form-select">
+            <option value="newest" {% if (sort or '')=='newest' %}selected{% endif %}>Newest first</option>
+            <option value="oldest" {% if (sort or '')=='oldest' %}selected{% endif %}>Oldest first</option>
+            <option value="amount_desc" {% if (sort or '')=='amount_desc' %}selected{% endif %}>Amount: High → Low</option>
+            <option value="amount_asc" {% if (sort or '')=='amount_asc' %}selected{% endif %}>Amount: Low → High</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-list-ol me-1"></i>Per Page</label>
+          <select name="per_page" class="form-select">
+            {% for n in [10,20,30,50,100] %}
+              <option value="{{ n }}" {% if (per_page or 10)|int == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-3 d-flex align-items-end gap-2">
+          <button type="submit" class="btn btn-primary btn-icon w-100 w-md-auto">
+            <i class="fa-solid fa-magnifying-glass"></i> Apply Filters
+          </button>
+          <a href="{{ url_for('admin_orders.admin_view_orders', view=view_mode) }}" class="btn btn-outline-secondary btn-icon w-100 w-md-auto">
+            <i class="fa-solid fa-rotate-left"></i> Reset
+          </a>
+        </div>
+      </div>
+    </form>
+
+    <!-- TABLE (md+) -->
+    {% if (view_mode or '') != 'orders' %}
+    <div class="table-wrap mb-3">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead class="text-center">
+            <tr>
+              <th style="width:42px">
+                <input class="form-check-input" type="checkbox" id="checkAll">
+              </th>
+              <th><i class="fas fa-receipt me-1"></i>Order ID</th>
+              <th><i class="fas fa-user me-1"></i>Customer</th>
+              <th><i class="fas fa-shopping-cart me-1"></i>Item</th>
+              <th><i class="fas fa-money-bill-wave me-1"></i>Amount (&#8373;)</th>
+              <th><i class="fas fa-tasks me-1"></i>Line Status</th>
+              <th><i class="fas fa-server me-1"></i>Provider</th>
+              <th><i class="fas fa-plug me-1"></i>API Status</th>
+              <th><i class="fas fa-calendar me-1"></i>Date</th>
+              <th style="width:140px">Quick</th>
+            </tr>
+          </thead>
+          <tbody id="linesTbody">
+            {% for _ in range(10) %}
+            <tr class="skeleton-row">
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line lg skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line skeleton-shimmer"></div><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-pill skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="table-wrap mb-3">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead class="text-center">
+            <tr>
+              <th style="width:42px">
+                <input class="form-check-input" type="checkbox" id="checkAll">
+              </th>
+              <th><i class="fas fa-receipt me-1"></i>Order ID</th>
+              <th><i class="fas fa-user me-1"></i>Customer</th>
+              <th><i class="fas fa-shopping-cart me-1"></i>Items</th>
+              <th><i class="fas fa-money-bill-wave me-1"></i>Total (&#8373;)</th>
+              <th><i class="fas fa-tasks me-1"></i>Status</th>
+              <th><i class="fas fa-credit-card me-1"></i>Paid From</th>
+              <th><i class="fas fa-plug me-1"></i>API</th>
+              <th><i class="fas fa-server me-1"></i>API Provider</th>
+              <th><i class="fas fa-calendar me-1"></i>Date</th>
+              <th style="width:110px">Quick</th>
+            </tr>
+          </thead>
+          <tbody id="ordersTbody">
+            {% for _ in range(10) %}
+            <tr class="skeleton-row">
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line lg skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line skeleton-shimmer"></div><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-pill skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <div id="ordersError" class="alert alert-danger d-none shadow-sm" role="alert">
+      <div class="d-flex justify-content-between align-items-center">
+        <div><i class="fas fa-triangle-exclamation me-2"></i>Failed to load orders.</div>
+        <button class="btn btn-sm btn-light" id="retryLoad">Retry</button>
+      </div>
+    </div>
+
+    <!-- Skeleton swipe (visible by default while loading) -->
+    <div id="skeletonSwipe" class="skeleton-swipe">
+      {% for _ in range(8) %}
+      <div class="skeleton-card">
+        <div class="skeleton-line lg skeleton-shimmer"></div>
+        <div class="skeleton-line sm skeleton-shimmer"></div>
+        <div class="skeleton-line skeleton-shimmer"></div>
+        <div class="skeleton-line skeleton-shimmer"></div>
+        <div class="skeleton-pill skeleton-shimmer"></div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- CARD LIST (xs-sm) -->
+    <div class="cards mb-5" id="cardsContainer"></div>
+<!-- Pagination -->
+    <div id="paginationWrap" class="d-flex justify-content-between align-items-center mt-3"></div>
+  </div>
+
+  <!-- Hidden form for "Mark Selected → Delivered" -->
+  <form method="POST" id="bulkSelectedDeliverForm" action="{{ url_for('admin_orders.bulk_deliver_selected') }}" class="d-none">
+    <input type="hidden" name="order_ids" id="bulkSelectedIds">
+      <input type="hidden" name="line_ids" id="bulkSelectedLineIds">
+  </form>
+
+  <!-- Floating bulk bar (mobile) -->
+  <div class="floating-bar" id="floatingBar">
+    <div><span id="selCount" class="badge bg-light text-dark">0</span> selected</div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-light btn-sm" id="fbSchedule" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+        <i class="fa-solid fa-calendar-plus me-1"></i>Schedule
+      </button>
+      <button class="btn btn-success btn-sm" id="fbDeliver">
+        <i class="fa-solid fa-check-double me-1"></i>Deliver
+      </button>
+      <a href="{{ url_for('admin_orders.admin_view_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}" class="btn btn-light btn-sm">
+        Reset
+      </a>
+    </div>
+  </div>
+
+  <!-- Schedule Modal -->
+  <div class="modal fade" id="scheduleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="POST" action="{{ url_for('admin_orders.schedule_status') }}">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-calendar-plus me-2"></i>Schedule Status Change</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Selection</label>
+            <div class="small text-muted">You can select multiple orders or lines from the list. This will populate automatically.</div>
+            <div id="selectedOrdersPreview" class="mt-2"></div>
+          </div>
+
+          <input type="hidden" name="order_ids" id="scheduleOrderIds">
+          <input type="hidden" name="line_ids" id="scheduleLineIds">
+
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">New Status</label>
+              <select name="status" class="form-select" required>
+                {% for s in ['processing','delivered','failed','refunded','pending','completed'] %}
+                  <option value="{{ s }}">{{ s|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Delay (minutes)</label>
+              <input type="number" min="0" step="1" class="form-control" name="delay_minutes" id="delayMinutes" placeholder="e.g., 10">
+              <div class="form-text">Set a delay OR specify an exact time below.</div>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Run At (UTC)</label>
+              <input type="datetime-local" class="form-control" id="runAtLocal" placeholder="YYYY-MM-DD HH:MM">
+              <input type="hidden" name="run_at" id="runAtUtc">
+            </div>
+
+            <div class="col-12">
+              <label class="form-label">Note (optional)</label>
+              <input type="text" class="form-control" name="note" placeholder="Reason or extra info for audit">
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" type="submit">
+            <i class="fa-solid fa-calendar-check me-1"></i> Schedule
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Offcanvas: Scheduled Jobs -->
+  <div class="offcanvas offcanvas-end" tabindex="-1" id="jobsOffcanvas" aria-labelledby="jobsLabel">
+    <div class="offcanvas-header">
+      <h5 id="jobsLabel" class="mb-0"><i class="fa-solid fa-clock-rotate-left me-2"></i>Scheduled Jobs</h5>
+      <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+      <div id="jobsList" class="small"></div>
+      <div class="text-center mt-3">
+        <button class="btn btn-outline-primary btn-sm" id="refreshJobs"><i class="fa-solid fa-rotate"></i> Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // ---------- helpers ----------
+    const $$ = (sel, root=document)=>Array.from(root.querySelectorAll(sel));
+    const $  = (sel, root=document)=>root.querySelector(sel);
+    const pad2 = n => String(n).padStart(2,'0');
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const fmtMoney = (n) => Number(n || 0).toFixed(2);
+
+    const dataEndpoint = "{{ url_for('admin_orders.admin_orders_data') }}";
+    const adminOrdersUrl = "{{ url_for('admin_orders.admin_view_orders') }}";
+    const linesTbody = document.getElementById('linesTbody');
+    const ordersTbody = document.getElementById('ordersTbody');
+    const cardsContainer = document.getElementById('cardsContainer');
+    const paginationWrap = document.getElementById('paginationWrap');
+    const totalOrdersEl = document.getElementById('totalOrders');
+    const totalLinesEl = document.getElementById('totalLines');
+    const skeletonSwipe = document.getElementById('skeletonSwipe');
+    const ordersError = document.getElementById('ordersError');
+    const retryLoadBtn = document.getElementById('retryLoad');
+
+    function preservedQuery(){
+      const params = new URLSearchParams(window.location.search);
+      params.delete('page');
+      params.delete('prefetch');
+      return params.toString();
+    }
+
+    function dataQuery(){
+      const params = new URLSearchParams(window.location.search);
+      params.delete('prefetch');
+      const qs = params.toString();
+      return qs ? `?${qs}` : '';
+    }
+
+    function buildPageLink(p){
+      const params = new URLSearchParams(window.location.search);
+      params.set('page', String(p));
+      params.delete('prefetch');
+      const qs = params.toString();
+      return qs ? `${adminOrdersUrl}?${qs}` : adminOrdersUrl;
+    }
+
+    function statusChipClass(st){
+      if (st === 'delivered') return 'st-delivered';
+      if (st === 'failed') return 'st-failed';
+      if (st === 'processing') return 'st-processing';
+      if (st === 'refunded') return 'st-refunded';
+      if (st === 'pending') return 'st-pending';
+      if (st === 'completed') return 'st-completed';
+      return 'st-processing';
+    }
+
+    function providerBadge(prov){
+      const p = (prov || '').toLowerCase();
+      if (!p) return '<span class="text-muted small">&mdash;</span>';
+      if (p === 'codecraft') return '<span class="prov-badge prov-codecraft">CodeCraft</span>';
+      if (p === 'dataconnect') return '<span class="prov-badge prov-dataconnect">DataConnect</span>';
+      if (p === 'portal02') return '<span class="prov-badge prov-portal02">Portal-02</span>';
+      return `<span class="prov-badge">${esc(p)}</span>`;
+    }
+
+    function showLoading(on){
+      if (skeletonSwipe) skeletonSwipe.style.display = on ? 'flex' : 'none';
+    }
+
+    function showError(on){
+      if (ordersError) ordersError.classList.toggle('d-none', !on);
+    }
+
+    function renderEmptyTable(colCount, label){
+      return `
+        <tr>
+          <td colspan="${colCount}" class="text-center text-muted py-5">
+            <i class="fas fa-inbox fa-3x mb-3 d-block"></i>
+            <h5>No ${label} found</h5>
+            <p class="mb-0">Try adjusting your filter criteria</p>
+          </td>
+        </tr>
+      `;
+    }
+
+    function renderLinesTable(lines){
+      if (!linesTbody) return;
+      if (!lines.length){
+        linesTbody.innerHTML = renderEmptyTable(10, 'order lines');
+        return;
+      }
+      const qs = preservedQuery();
+      const suffix = qs ? `?${qs}` : '';
+      linesTbody.innerHTML = lines.map(line => {
+        const item = line.item || {};
+        const lineRaw = (item.line_status || '').toLowerCase();
+        const lineSt = lineRaw === 'completed' ? 'delivered' : (lineRaw || 'processing');
+        const lineIsFinal = lineSt === 'delivered';
+        const prov = providerBadge(item.provider);
+        const apiStatus = item.api_status ? esc(item.api_status) : '&mdash;';
+        const createdAt = line.created_at_display || 'N/A';
+        return `
+          <tr>
+            <td class="text-center">
+              <input class="form-check-input row-check" data-kind="line" type="checkbox" value="${esc(line.line_id)}" ${lineIsFinal ? 'disabled title="Delivered lines are final."' : ''}>
+            </td>
+            <td class="fw-semibold">
+              ${esc(line.order_id || '')}
+              ${line.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
+            </td>
+            <td>
+              <div class="fw-semibold">${esc(line.user?.first_name || '')} ${esc(line.user?.last_name || '')}</div>
+              <div class="small text-muted">
+                <i class="fas fa-envelope me-1"></i>${esc(line.user?.email || '')}<br>
+                <i class="fas fa-phone-alt me-1"></i><strong>${esc(line.user?.phone || '')}</strong>
+              </div>
+            </td>
+            <td>
+              <div class="fw-semibold">${esc(item.serviceName || '')} &ndash; ${esc(item.value || '')}</div>
+              <div class="small text-muted"><i class="fas fa-mobile-alt me-1"></i>${esc(item.phone || '')}</div>
+            </td>
+            <td class="text-center fw-semibold text-success">
+              <i class="fas fa-coins me-1"></i>&#8373;${fmtMoney(item.amount)}
+            </td>
+            <td class="text-center">
+              <span class="status-chip ${statusChipClass(lineSt)}">
+                <i class="fa-solid fa-circle"></i> ${esc(lineSt.charAt(0).toUpperCase() + lineSt.slice(1))}
+              </span>
+            </td>
+            <td class="text-center">${prov}</td>
+            <td class="text-center"><span class="small text-muted">${apiStatus}</span></td>
+            <td class="text-center">
+              <small class="muted"><i class="fas fa-clock me-1"></i>${esc(createdAt)}</small>
+            </td>
+            <td class="text-center">
+              <div class="d-flex flex-wrap gap-2 justify-content-center">
+                ${lineIsFinal ? '<span class="text-muted small">Final</span>' : ['delivered','processing','failed','refunded'].map(newst => {
+                  const btnClass = newst === 'delivered' ? 'success' : (newst === 'processing' ? 'info' : (newst === 'failed' ? 'danger' : 'primary'));
+                  const confirm = newst === 'refunded' ? 'data-confirm="Mark this line as Refunded?"' : '';
+                  return `
+                    <form method="POST" class="m-0 d-inline" action="${adminOrdersUrl}/${encodeURIComponent(line.order_mongo_id_param)}/items/${line.item_index}/status${suffix}">
+                      <input type="hidden" name="line_status" value="${newst}">
+                      <button type="submit" class="btn btn-outline-${btnClass} btn-sm" ${confirm}>
+                        ${newst.charAt(0).toUpperCase() + newst.slice(1)}
+                      </button>
+                    </form>
+                  `;
+                }).join('')}
+                <button class="btn btn-sm btn-dark" data-quick-schedule="${esc(line.line_id)}" data-kind="line" data-bs-toggle="modal" data-bs-target="#scheduleModal" ${lineIsFinal ? 'disabled title="Delivered lines are final."' : ''}>
+                  <i class="fa-solid fa-calendar-plus"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderOrdersTable(orders){
+      if (!ordersTbody) return;
+      if (!orders.length){
+        ordersTbody.innerHTML = renderEmptyTable(11, 'orders');
+        return;
+      }
+      const qs = preservedQuery();
+      const suffix = qs ? `?${qs}` : '';
+      ordersTbody.innerHTML = orders.map(order => {
+        const stRaw = (order.status || '').toLowerCase();
+        const st = stRaw === 'completed' ? 'delivered' : (stRaw || 'processing');
+        const isCompleted = st === 'delivered';
+        const itemsHtml = (order.items || []).map(item => `
+          <li class="mb-1 border-bottom pb-1">
+            <strong>${esc(item.serviceName || '')}</strong> &ndash; ${esc(item.value || '')}<br>
+            <span class="d-block"><i class="fas fa-mobile-alt me-1 text-muted"></i><strong>${esc(item.phone || '')}</strong></span>
+            <span class="d-block mt-1"><i class="fas fa-tag me-1 text-muted"></i>&#8373;${fmtMoney(item.amount)}</span>
+          </li>
+        `).join('');
+        const paidFrom = (order.paid_from || 'N/A').toLowerCase();
+        const pfClass = paidFrom === 'wallet' ? 'pf-wallet' : (paidFrom === 'card' ? 'pf-card' : (paidFrom === 'momo' ? 'pf-momo' : (paidFrom === 'paystack' ? 'pf-paystack' : (paidFrom === 'flutterwave' ? 'pf-flutterwave' : (paidFrom === 'bank' ? 'pf-bank' : 'pf-card')))));
+        const apiChip = order.api_passed
+          ? '<span class="api-chip api-chip-passed"><i class="fas fa-check-circle"></i> Passed through API</span>'
+          : '<span class="api-chip api-chip-not"><i class="fas fa-minus-circle"></i> Did not pass through API</span>';
+        const providers = (order.api_providers || []).map(p => providerBadge(p)).join('');
+        return `
+          <tr>
+            <td class="text-center">
+              <input class="form-check-input row-check" data-kind="order" type="checkbox" value="${esc(order.order_id_param)}" ${isCompleted ? 'disabled title="Delivered orders are final."' : ''}>
+            </td>
+            <td class="fw-semibold">
+              ${esc(order.order_id || '')}
+              ${order.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
+            </td>
+            <td>
+              <div class="fw-semibold">${esc(order.user?.first_name || '')} ${esc(order.user?.last_name || '')}</div>
+              <div class="small text-muted">
+                <i class="fas fa-envelope me-1"></i>${esc(order.user?.email || '')}<br>
+                <i class="fas fa-phone-alt me-1"></i><strong>${esc(order.user?.phone || '')}</strong>
+              </div>
+            </td>
+            <td>
+              <ul class="list-unstyled small mb-0">${itemsHtml}</ul>
+            </td>
+            <td class="text-center fw-semibold text-success">
+              <i class="fas fa-coins me-1"></i>&#8373;${fmtMoney(order.total_amount)}
+            </td>
+            <td class="text-center">
+              <div class="d-flex flex-wrap gap-2 align-items-center justify-content-center">
+                <span class="status-chip ${statusChipClass(st)}">
+                  <i class="fa-solid fa-circle"></i> ${esc(st.charAt(0).toUpperCase() + st.slice(1))}
+                </span>
+                <button type="button" class="btn btn-sm btn-outline-secondary btn-icon toggle-actions" data-actions="actions-${esc(order.order_id_key)}" ${isCompleted ? 'disabled title="Delivered orders are final."' : ''}>
+                  <i class="fa-solid fa-ellipsis"></i> Actions
+                </button>
+              </div>
+              <div class="status-actions mt-2" id="actions-${esc(order.order_id_key)}">
+                ${isCompleted ? '<span class="text-muted small">Delivered orders are final.</span>' : ['failed','refunded','processing','delivered'].map(newst => {
+                  const btnClass = newst === 'failed' ? 'danger' : (newst === 'delivered' ? 'success' : (newst === 'processing' ? 'info' : 'primary'));
+                  const confirm = newst === 'refunded' ? 'data-confirm="Mark this order as Refunded? This credits the customer&apos;s wallet if not already."' : '';
+                  return `
+                    <form method="POST" class="m-0 d-inline" action="${adminOrdersUrl}/${encodeURIComponent(order.order_id_param)}/update${suffix}">
+                      <input type="hidden" name="status" value="${newst}">
+                      <button type="submit" class="btn btn-outline-${btnClass} btn-sm" ${confirm}>
+                        ${newst.charAt(0).toUpperCase() + newst.slice(1)}
+                      </button>
+                    </form>
+                  `;
+                }).join('')}
+              </div>
+            </td>
+            <td class="text-center">
+              <span class="pf-badge ${pfClass}">
+                <i class="fas fa-wallet me-1"></i>${esc(paidFrom.charAt(0).toUpperCase() + paidFrom.slice(1))}
+              </span>
+            </td>
+            <td class="text-center">${apiChip}</td>
+            <td class="text-center">
+              ${providers ? '<div class="d-flex flex-wrap gap-2 justify-content-center">' + providers + '</div>' : '&mdash;'}
+            </td>
+            <td class="text-center">
+              <small class="muted"><i class="fas fa-clock me-1"></i>${esc(order.created_at_display || 'N/A')}</small>
+            </td>
+            <td class="text-center">
+              <button class="btn btn-sm btn-dark" data-quick-schedule="${esc(order.order_id_param)}" data-kind="order" data-bs-toggle="modal" data-bs-target="#scheduleModal" ${isCompleted ? 'disabled title="Delivered orders are final."' : ''}>
+                <i class="fa-solid fa-calendar-plus"></i>
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderCards(data){
+      if (!cardsContainer) return;
+      const viewMode = data.view_mode || 'lines';
+      if (viewMode === 'orders'){
+        if (!data.orders || !data.orders.length){
+          cardsContainer.innerHTML = `
+            <div class="order-card text-center text-muted py-4">
+              <i class="fas fa-inbox fa-2x mb-2 d-block"></i>
+              <h6>No orders found</h6>
+              <div>Try adjusting your filter criteria</div>
+            </div>`;
+          return;
+        }
+        const qs = preservedQuery();
+        const suffix = qs ? `?${qs}` : '';
+        cardsContainer.innerHTML = data.orders.map(order => {
+          const stRaw = (order.status || '').toLowerCase();
+          const st = stRaw === 'completed' ? 'delivered' : (stRaw || 'processing');
+          const isCompleted = st === 'delivered';
+          const paidFrom = (order.paid_from || 'N/A').toLowerCase();
+          const pfClass = paidFrom === 'wallet' ? 'pf-wallet' : (paidFrom === 'card' ? 'pf-card' : (paidFrom === 'momo' ? 'pf-momo' : (paidFrom === 'paystack' ? 'pf-paystack' : (paidFrom === 'flutterwave' ? 'pf-flutterwave' : (paidFrom === 'bank' ? 'pf-bank' : 'pf-card')))));
+          const itemsHtml = (order.items || []).map(item => `
+            <div class="it">
+              <div>
+                <strong>${esc(item.serviceName || '')}</strong> &ndash; ${esc(item.value || '')}<br>
+                <small class="text-muted"><i class="fas fa-mobile-alt me-1"></i>${esc(item.phone || '')}</small>
+              </div>
+              <div class="fw-semibold">&#8373;${fmtMoney(item.amount)}</div>
+            </div>
+          `).join('');
+          const providers = (order.api_providers || []).map(p => providerBadge(p)).join('');
+          return `
+            <div class="order-card">
+              <div class="header">
+                <div>
+                  <div class="fw-bold">
+                    #${esc(order.order_id || '')}
+                    ${order.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
+                  </div>
+                  <div class="meta">
+                    ${esc(order.user?.first_name || '')} ${esc(order.user?.last_name || '')} &bull;
+                    <i class="fa-regular fa-clock"></i> ${esc(order.created_at_display || 'N/A')}
+                  </div>
+                </div>
+                <div>
+                  <span class="status-chip ${statusChipClass(st)}">
+                    <i class="fa-solid fa-circle"></i> ${esc(st.charAt(0).toUpperCase() + st.slice(1))}
+                  </span>
+                </div>
+              </div>
+              <div class="items">${itemsHtml}</div>
+              <div class="tot">
+                <span class="fw-semibold text-success"><i class="fas fa-coins me-1"></i>&#8373;${fmtMoney(order.total_amount)}</span>
+                <span class="pf-badge ms-auto ${pfClass}">
+                  <i class="fas fa-wallet me-1"></i>${esc(paidFrom.charAt(0).toUpperCase() + paidFrom.slice(1))}
+                </span>
+              </div>
+              <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
+                ${order.api_passed
+                  ? '<span class="api-chip api-chip-passed"><i class="fas fa-check-circle"></i> Passed through API</span>'
+                  : '<span class="api-chip api-chip-not"><i class="fas fa-minus-circle"></i> Did not pass through API</span>'}
+                ${providers ? providers : '<span class="text-muted small">&mdash;</span>'}
+              </div>
+              <div class="footer">
+                <input class="form-check-input row-check" data-kind="order" type="checkbox" value="${esc(order.order_id_param)}" ${isCompleted ? 'disabled title="Delivered orders are final."' : ''}>
+                <button class="btn btn-outline-secondary btn-sm w-100 toggle-actions" type="button" data-actions="card-actions-${esc(order.order_id_key)}" ${isCompleted ? 'disabled title="Delivered orders are final."' : ''}>
+                  <i class="fa-solid fa-ellipsis"></i> Actions
+                </button>
+                <div class="card-actions hidden" id="card-actions-${esc(order.order_id_key)}">
+                  ${isCompleted ? '<span class="text-muted small">Delivered orders are final.</span>' : ['delivered','processing','failed','refunded'].map(newst => {
+                    const btnClass = newst === 'delivered' ? 'success' : (newst === 'processing' ? 'info' : (newst === 'failed' ? 'danger' : 'primary'));
+                    const confirm = newst === 'refunded' ? 'data-confirm="Mark this order as Refunded? This credits the customer&apos;s wallet if not already."' : '';
+                    return `
+                      <form method="POST" action="${adminOrdersUrl}/${encodeURIComponent(order.order_id_param)}/update${suffix}">
+                        <input type="hidden" name="status" value="${newst}">
+                        <button type="submit" class="btn btn-outline-${btnClass} btn-sm" ${confirm}>
+                          ${newst.charAt(0).toUpperCase() + newst.slice(1)}
+                        </button>
+                      </form>
+                    `;
+                  }).join('')}
+                  <button class="btn btn-dark btn-sm" data-quick-schedule="${esc(order.order_id_param)}" data-kind="order" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+                    <i class="fa-solid fa-calendar-plus"></i> Schedule
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        if (!data.order_lines || !data.order_lines.length){
+          cardsContainer.innerHTML = `
+            <div class="order-card text-center text-muted py-4">
+              <i class="fas fa-inbox fa-2x mb-2 d-block"></i>
+              <h6>No order lines found</h6>
+              <div>Try adjusting your filter criteria</div>
+            </div>`;
+          return;
+        }
+        const qs = preservedQuery();
+        const suffix = qs ? `?${qs}` : '';
+        cardsContainer.innerHTML = data.order_lines.map(line => {
+          const item = line.item || {};
+          const lineRaw = (item.line_status || '').toLowerCase();
+          const lineSt = lineRaw === 'completed' ? 'delivered' : (lineRaw || 'processing');
+          const lineIsFinal = lineSt === 'delivered';
+          return `
+            <div class="order-card">
+              <div class="header">
+                <div>
+                  <div class="fw-bold">
+                    #${esc(line.order_id || '')}
+                    ${line.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
+                  </div>
+                  <div class="meta">
+                    ${esc(line.user?.first_name || '')} ${esc(line.user?.last_name || '')} &bull;
+                    <i class="fa-regular fa-clock"></i> ${esc(line.created_at_display || 'N/A')}
+                  </div>
+                </div>
+                <div>
+                  <span class="status-chip ${statusChipClass(lineSt)}">
+                    <i class="fa-solid fa-circle"></i> ${esc(lineSt.charAt(0).toUpperCase() + lineSt.slice(1))}
+                  </span>
+                </div>
+              </div>
+              <div class="items">
+                <div class="it">
+                  <div>
+                    <strong>${esc(item.serviceName || '')}</strong> &ndash; ${esc(item.value || '')}<br>
+                    <small class="text-muted"><i class="fas fa-mobile-alt me-1"></i>${esc(item.phone || '')}</small>
+                  </div>
+                  <div class="fw-semibold">&#8373;${fmtMoney(item.amount)}</div>
+                </div>
+              </div>
+              <div class="tot">
+                ${providerBadge(item.provider)}
+                <span class="ms-auto small text-muted">API: ${item.api_status ? esc(item.api_status) : '&mdash;'}</span>
+              </div>
+              <div class="footer">
+                <input class="form-check-input row-check" data-kind="line" type="checkbox" value="${esc(line.line_id)}" ${lineIsFinal ? 'disabled title="Delivered lines are final."' : ''}>
+                <button class="btn btn-outline-secondary btn-sm w-100 toggle-actions" type="button" data-actions="card-actions-${esc(line.line_id).replace(/:/g,'_')}" ${lineIsFinal ? 'disabled title="Delivered lines are final."' : ''}>
+                  <i class="fa-solid fa-ellipsis"></i> Actions
+                </button>
+                <div class="card-actions hidden" id="card-actions-${esc(line.line_id).replace(/:/g,'_')}">
+                  ${lineIsFinal ? '<span class="text-muted small">Delivered lines are final.</span>' : ['delivered','processing','failed','refunded'].map(newst => {
+                    const btnClass = newst === 'delivered' ? 'success' : (newst === 'processing' ? 'info' : (newst === 'failed' ? 'danger' : 'primary'));
+                    const confirm = newst === 'refunded' ? 'data-confirm="Mark this line as Refunded?"' : '';
+                    return `
+                      <form method="POST" action="${adminOrdersUrl}/${encodeURIComponent(line.order_mongo_id_param)}/items/${line.item_index}/status${suffix}">
+                        <input type="hidden" name="line_status" value="${newst}">
+                        <button type="submit" class="btn btn-outline-${btnClass} btn-sm" ${confirm}>
+                          ${newst.charAt(0).toUpperCase() + newst.slice(1)}
+                        </button>
+                      </form>
+                    `;
+                  }).join('')}
+                  <button class="btn btn-dark btn-sm" data-quick-schedule="${esc(line.line_id)}" data-kind="line" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+                    <i class="fa-solid fa-calendar-plus"></i> Schedule
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    function renderPagination(data){
+      if (!paginationWrap) return;
+      const totalPages = data.total_pages || 1;
+      const page = data.page || 1;
+      if (totalPages <= 1){
+        paginationWrap.innerHTML = '';
+        return;
+      }
+      const pages = Array.from({length: totalPages}, (_, i) => i + 1).map(p => `
+        <li class="page-item ${p === page ? 'active' : ''}">
+          <a class="page-link" href="${buildPageLink(p)}">${p}</a>
+        </li>
+      `).join('');
+      const prev = page > 1 ? `
+        <li class="page-item">
+          <a class="page-link" href="${buildPageLink(page - 1)}"><i class="fas fa-chevron-left"></i> Prev</a>
+        </li>` : '';
+      const next = page < totalPages ? `
+        <li class="page-item">
+          <a class="page-link" href="${buildPageLink(page + 1)}">Next <i class="fas fa-chevron-right"></i></a>
+        </li>` : '';
+      paginationWrap.innerHTML = `
+        <div class="text-muted small">Page ${page} of ${totalPages}</div>
+        <nav>
+          <ul class="pagination pagination-sm mb-0">
+            ${prev}${pages}${next}
+          </ul>
+        </nav>`;
+    }
+
+    function renderData(data){
+      showError(false);
+      if (totalOrdersEl) totalOrdersEl.textContent = data.total_orders ?? 0;
+      if (totalLinesEl) totalLinesEl.textContent = data.order_lines_count ?? 0;
+      if (data.view_mode === 'orders') renderOrdersTable(data.orders || []);
+      else renderLinesTable(data.order_lines || []);
+      renderCards(data);
+      renderPagination(data);
+      showLoading(false);
+      if (checkAll) checkAll.checked = false;
+      updateFloatingBar();
+    }
+
+    async function loadOrders(){
+      showError(false);
+      try{
+        const res = await fetch(`${dataEndpoint}${dataQuery()}`, {credentials:'same-origin'});
+        if (!res.ok) throw new Error('Network');
+        const data = await res.json();
+        renderData(data);
+      }catch(e){
+        showError(true);
+      }
+    }
+
+    retryLoadBtn?.addEventListener('click', loadOrders);
+
+    // Mobile: toggle filter card
+    const toggleFiltersBtn = document.getElementById('toggleFilters');
+    const filtersCard = document.getElementById('filtersCard');
+    toggleFiltersBtn?.addEventListener('click', ()=>{
+      const willShow = !filtersCard.classList.contains('show');
+      filtersCard.classList.toggle('show', willShow);
+      toggleFiltersBtn.setAttribute('aria-expanded', willShow ? 'true' : 'false');
+    });
+
+    // Status actions toggle
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('.toggle-actions');
+      if (!btn) return;
+      const targetId = btn.getAttribute('data-actions');
+      const el = targetId ? document.getElementById(targetId) : null;
+      if (!el) return;
+      if (el.classList.contains('status-actions')) {
+        el.classList.toggle('show');
+      } else {
+        el.classList.toggle('hidden');
+      }
+    });
+
+    // Select all / per-row selection (desktop)
+    const checkAll = document.getElementById('checkAll');
+    function getSelection(){
+      const checks = $$('.row-check').filter(c => c.checked);
+      if (!checks.length) return { kind: 'order', ids: [] };
+      const kind = checks[0].dataset.kind || (checks[0].value.includes(':') ? 'line' : 'order');
+      return { kind, ids: checks.map(c => c.value) };
+    }
+    checkAll?.addEventListener('change', () => {
+      $$('.row-check').forEach(c => c.checked = checkAll.checked);
+      updateFloatingBar();
+    });
+
+    // sync floating bar on any checkbox change
+    document.addEventListener('change', (e)=>{
+      if (e.target.classList.contains('row-check')) updateFloatingBar();
+    });
+
+    // Schedule modal wiring
+    const openSelBtn = document.getElementById('openScheduleSelected');
+    const scheduleOrderIds = document.getElementById('scheduleOrderIds');
+    const scheduleLineIds = document.getElementById('scheduleLineIds');
+    const selectedOrdersPreview = document.getElementById('selectedOrdersPreview');
+    const runAtLocal = document.getElementById('runAtLocal');
+    const runAtUtc = document.getElementById('runAtUtc');
+
+    openSelBtn?.addEventListener('click', () => {
+      const sel = getSelection();
+      if (sel.kind === 'line') {
+        scheduleLineIds.value = sel.ids.join(',');
+        scheduleOrderIds.value = '';
+      } else {
+        scheduleOrderIds.value = sel.ids.join(',');
+        scheduleLineIds.value = '';
+      }
+      selectedOrdersPreview.innerHTML = sel.ids.length
+        ? `<span class="badge text-bg-dark">${sel.ids.length}</span> ${sel.kind === 'line' ? 'lines' : 'orders'} selected`
+        : `<span class="text-danger">No selection yet ? you can still add one from the list.</span>`;
+    });
+
+    // Per-row quick schedule adds that row to modal
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-quick-schedule]');
+      if (!b) return;
+      const id = b.getAttribute('data-quick-schedule');
+      const kind = b.getAttribute('data-kind') || (id.includes(':') ? 'line' : 'order');
+      const target = (kind === 'line') ? scheduleLineIds : scheduleOrderIds;
+      const other = (kind === 'line') ? scheduleOrderIds : scheduleLineIds;
+      const current = target.value ? target.value.split(',').filter(Boolean) : [];
+      if (!current.includes(id)) current.push(id);
+      target.value = current.join(',');
+      other.value = '';
+      selectedOrdersPreview.innerHTML = `<span class="badge text-bg-dark">${current.length}</span> ${kind === 'line' ? 'lines' : 'orders'} selected`;
+    });
+
+    // Convert datetime-local (local) -> UTC "YYYY-MM-DD HH:MM"
+    runAtLocal?.addEventListener('change', () => {
+      if (!runAtLocal.value){ runAtUtc.value = ''; return; }
+      const dt = new Date(runAtLocal.value);
+      const y = dt.getUTCFullYear(), m = pad2(dt.getUTCMonth()+1), d = pad2(dt.getUTCDate());
+      const hh = pad2(dt.getUTCHours()), mm = pad2(dt.getUTCMinutes());
+      runAtUtc.value = `${y}-${m}-${d} ${hh}:${mm}`;
+    });
+
+    // Jobs offcanvas loader
+    async function loadJobs(){
+      const list = document.getElementById('jobsList');
+      list.innerHTML = '<div class="text-center text-muted py-2"><i class="fa-solid fa-spinner fa-spin me-2"></i>Loading…</div>';
+      try{
+        const res = await fetch('{{ url_for("admin_orders.list_schedules") }}', {credentials:'same-origin'});
+        if (!res.ok) throw new Error('Network');
+        const data = await res.json();
+        if (!data.jobs || !data.jobs.length){
+          list.innerHTML = '<div class="text-center text-muted">No scheduled jobs.</div>';
+          return;
+        }
+        const baseCancel = '{{ url_for("admin_orders.cancel_schedule", job_id="__JOB__") }}';
+        list.innerHTML = data.jobs.map(j => {
+          const cancelUrl = baseCancel.replace('__JOB__', encodeURIComponent(j.id));
+          const statusTxt = (Array.isArray(j.args) && j.args[1]) ? `Status → <b>${j.args[1]}</b>` : '';
+          return `
+          <div class="schedule-row">
+            <div>
+              <div><strong>ID:</strong> <code>${j.id}</code></div>
+              <div class="muted"><i class="fa-regular fa-clock me-1"></i>${j.next_run_time ?? '—'}</div>
+              <div class="muted"><small>${statusTxt}</small></div>
+            </div>
+            <form method="POST" action="${cancelUrl}">
+              <button class="btn btn-sm btn-outline-danger" data-confirm="Cancel this schedule?">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </form>
+          </div>`;
+        }).join('');
+      }catch(e){
+        list.innerHTML = '<div class="text-danger">Failed to load schedules.</div>';
+      }
+    }
+    const jobsOffcanvas = document.getElementById('jobsOffcanvas');
+    jobsOffcanvas?.addEventListener('shown.bs.offcanvas', loadJobs);
+    document.getElementById('refreshJobs')?.addEventListener('click', loadJobs);
+
+    // Floating bulk bar (mobile)
+    const floatingBar = document.getElementById('floatingBar');
+    const selCount = document.getElementById('selCount');
+    const fbSchedule = document.getElementById('fbSchedule');
+    const fbDeliver = document.getElementById('fbDeliver');
+
+    function updateFloatingBar(){
+      const count = getSelection().ids.length;
+      selCount.textContent = count;
+      if (count > 0) floatingBar.classList.add('show');
+      else floatingBar.classList.remove('show');
+    }
+
+    fbSchedule?.addEventListener('click', ()=>{
+      const sel = getSelection();
+      if (sel.kind === 'line') {
+        scheduleLineIds.value = sel.ids.join(',');
+        scheduleOrderIds.value = '';
+      } else {
+        scheduleOrderIds.value = sel.ids.join(',');
+        scheduleLineIds.value = '';
+      }
+      selectedOrdersPreview.innerHTML = sel.ids.length
+        ? `<span class="badge text-bg-dark">${sel.ids.length}</span> ${sel.kind === 'line' ? 'lines' : 'orders'} selected`
+        : `<span class="text-danger">No selection yet.</span>`;
+    });
+
+    // Bulk Selected → Delivered (desktop button)
+    const markSelectedDeliveredBtn = document.getElementById('markSelectedDelivered');
+    const bulkSelectedDeliverForm = document.getElementById('bulkSelectedDeliverForm');
+    const bulkSelectedIds = document.getElementById('bulkSelectedIds');
+    const bulkSelectedLineIds = document.getElementById('bulkSelectedLineIds');
+
+    function submitBulkDeliverSelected(){
+      const sel = getSelection();
+      if (!sel.ids.length){
+        alert('Select at least one order or line.');
+        return;
+      }
+      if (sel.kind === 'line') {
+        bulkSelectedLineIds.value = sel.ids.join(',');
+        bulkSelectedIds.value = '';
+      } else {
+        bulkSelectedIds.value = sel.ids.join(',');
+        bulkSelectedLineIds.value = '';
+      }
+      bulkSelectedDeliverForm.submit();
+    }
+
+    markSelectedDeliveredBtn?.addEventListener('click', submitBulkDeliverSelected);
+    fbDeliver?.addEventListener('click', submitBulkDeliverSelected);
+
+    // Centralized confirm (for any data-confirm buttons)
+    document.addEventListener('click', (e) => {
+      const submitBtn = e.target.closest('button[type="submit"][data-confirm], .btn[data-confirm]');
+      if (!submitBtn) return;
+      const msg = submitBtn.getAttribute('data-confirm') || 'Are you sure?';
+      if (!window.confirm(msg)) { e.preventDefault(); e.stopPropagation(); }
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      showLoading(true);
+      loadOrders();
+    });
+  </script>
+</body>
+</html>

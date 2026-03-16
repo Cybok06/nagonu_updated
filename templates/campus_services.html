@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Campus Price & Provider - Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+
+  <style>
+    :root { --sea-blue:#0ea5e9; }
+    @media (min-width: 992px) { .admin-content { margin-left: 260px; padding: 2rem; } }
+    @media (max-width: 991px) { .admin-content { margin-top: 1rem; padding: 1rem; } }
+
+    .btn-seablue { background-color: var(--sea-blue); border-color: var(--sea-blue); color:#fff; }
+    .btn-seablue:hover { filter:brightness(0.95); color:#fff; }
+    .small-muted { font-size:.9rem; color:#6c757d; }
+
+    .svc-card-img { width:100%; height:140px; object-fit:cover; border-radius:12px; background:#f3f6f9; }
+    .svc-chip { background:#f8fafc; border:1px solid #e9ecef; border-radius:999px; padding:.2rem .55rem; font-size:.8rem; }
+    .img-preview-lg { width:100%; height:220px; object-fit:cover; border-radius:10px; background:#f3f6f9; }
+    .offers-grid thead th { position: sticky; top: 0; background: #fff; z-index: 2; }
+    .offers-grid input { min-width: 110px; }
+    .offers-grid .row-actions { width: 48px; }
+    .paste-hint { font-size: .85rem; color:#6c757d; }
+    .tab-pane .table-responsive{ max-height: calc(100vh - 320px); }
+  </style>
+</head>
+
+<body>
+  {% include 'admin_sidebar.html' %}
+
+  <div class="admin-content">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+      <h2 class="mb-0">Campus Price & Provider</h2>
+      <div class="d-flex gap-2">
+        <input id="svcSearch" type="text" class="form-control" placeholder="Search services...">
+        <select id="providerFilter" class="form-select" style="max-width:220px">
+          <option value="">All Providers</option>
+          <option value="portal02">Portal-02</option>
+          <option value="dataconnect">DataConnect</option>
+          <option value="codecraft">CodeCraft</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="servicesGrid" class="row g-3">
+      {% for svc in services %}
+        {% set sid = svc._id_str %}
+        {% set count_default = svc.offers|length if svc.offers else 0 %}
+        {% set count_store = svc.store_offers|length if svc.store_offers else 0 %}
+        {% set provider_val = (svc.provider or 'portal02') %}
+
+        <div class="col-12 col-sm-6 col-lg-4 col-xxl-3 svc-card"
+             data-sid="{{ sid }}"
+             data-name="{{ (svc.name or '')|lower }}"
+             data-provider="{{ provider_val }}">
+          <div class="card shadow-sm h-100">
+            <div class="card-body d-flex flex-column">
+              <img src="{{ svc.image_url or '' }}" alt="" class="svc-card-img mb-3">
+
+              <div class="d-flex align-items-start justify-content-between">
+                <div class="me-2">
+                  <div class="h6 mb-1 text-break">{{ svc.name }}</div>
+                  <div class="d-flex flex-wrap gap-2">
+                    <span class="svc-chip">Default Offers: {{ count_default }}</span>
+                    <span class="svc-chip">Store Offers: {{ count_store }}</span>
+                    <span class="svc-chip" data-role="provider-chip">Provider: {{ provider_val }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="small text-muted mt-2">
+                Created: {{ svc.created_at.strftime('%Y-%m-%d %H:%M') if svc.created_at else '-' }}
+              </div>
+
+              <div class="mt-3 d-grid gap-2">
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editServiceModal-{{ sid }}">
+                  Edit Pricing
+                </button>
+
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                  <select class="form-select form-select-sm campus-provider-select"
+                          data-sid="{{ sid }}"
+                          style="min-width:180px">
+                    <option value="portal02" {{ 'selected' if provider_val == 'portal02' else '' }}>Portal-02</option>
+                    <option value="dataconnect" {{ 'selected' if provider_val == 'dataconnect' else '' }}>DataConnect</option>
+                    <option value="codecraft" {{ 'selected' if provider_val == 'codecraft' else '' }}>CodeCraft</option>
+                  </select>
+                  <div id="providerSave-{{ sid }}" class="small text-muted"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+
+      {% if services|length == 0 %}
+        <div class="col-12 text-center text-muted">No services found.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% for svc in services %}
+    {% set sid = svc._id_str %}
+    {% set count_default = svc.offers|length if svc.offers else 0 %}
+    {% set count_store = svc.store_offers|length if svc.store_offers else 0 %}
+
+    <div class="modal fade" id="editServiceModal-{{ sid }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
+        <div class="modal-content">
+          <form method="post" action="{{ url_for('admin_campus_services.update_campus_service', service_id=sid) }}">
+            <div class="modal-header">
+              <div class="w-100 d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                <div>
+                  <h5 class="modal-title mb-0">Edit Pricing — {{ svc.name }}</h5>
+                  <div class="small text-muted">Default vs Store Pricing for campus services.</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+            </div>
+
+            <div class="modal-body">
+              <div class="container-fluid">
+                <div class="row g-3 mb-3">
+                  <div class="col-12 col-lg-4">
+                    <img class="img-preview-lg mb-2" src="{{ svc.image_url or '' }}" alt="">
+                    <input type="hidden" name="image_url" value="{{ svc.image_url or '' }}">
+                  </div>
+
+                  <div class="col-12 col-lg-8">
+                    <label class="form-label">Service Name</label>
+                    <input type="text" name="service_name" value="{{ svc.name }}" class="form-control" required>
+
+                    <div class="row g-3 mt-1">
+                      <div class="col-sm-6">
+                        <label class="form-label">Default Profit (%)</label>
+                        <input type="number" step="0.01" min="0" name="default_profit_percent" class="form-control"
+                               value="{{ (svc.default_profit_percent if svc.default_profit_percent is not none else 0) | round(2) }}">
+                      </div>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <ul class="nav nav-tabs" id="priceTabs-{{ sid }}" role="tablist">
+                      <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="tab-default-{{ sid }}" data-bs-toggle="tab"
+                                data-bs-target="#pane-default-{{ sid }}" type="button" role="tab">
+                          Default Pricing
+                        </button>
+                      </li>
+                      <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="tab-store-{{ sid }}" data-bs-toggle="tab"
+                                data-bs-target="#pane-store-{{ sid }}" type="button" role="tab">
+                          Store Pricing
+                        </button>
+                      </li>
+                    </ul>
+
+                    <div class="tab-content border border-top-0 rounded-bottom p-3" id="priceTabsContent-{{ sid }}">
+                      <div class="tab-pane fade show active" id="pane-default-{{ sid }}" role="tabpanel">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                          <h6 class="mb-0">Default Offers ({{ count_default }})</h6>
+                          <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-secondary add-offer-btn"
+                                    data-target-container="#offers_default_{{ sid }}"
+                                    data-name-prefix="offers">+ Add</button>
+                            <button type="button" class="btn btn-sm btn-outline-dark"
+                                    data-paste-target="#offers_default_{{ sid }}"
+                                    data-name-prefix="offers">Paste CSV</button>
+                          </div>
+                        </div>
+
+                        <div class="table-responsive">
+                          <table class="table table-sm offers-grid align-middle mb-0">
+                            <thead>
+                              <tr>
+                                <th style="width: 220px;">Amount</th>
+                                <th>Value</th>
+                                <th class="row-actions"></th>
+                              </tr>
+                            </thead>
+                            <tbody id="offers_default_{{ sid }}">
+                              {% if svc.offers and svc.offers|length > 0 %}
+                                {% for of in svc.offers %}
+                                  <tr class="offer-row" data-offer-kind="default">
+                                    <td>
+                                      <input type="number" step="0.01" min="0"
+                                             class="form-control"
+                                             name="offers_amount[]"
+                                             value="{{ of.amount if of.amount is not none else '' }}"
+                                             placeholder="Amount">
+                                    </td>
+                                    <td>
+                                      <input type="text" class="form-control"
+                                             name="offers_value[]"
+                                             value="{{ of.value or of.value_text or '' }}"
+                                             placeholder="Value">
+                                    </td>
+                                    <td class="text-end">
+                                      <button type="button" class="btn btn-outline-danger btn-sm remove-offer-btn">&times;</button>
+                                    </td>
+                                  </tr>
+                                {% endfor %}
+                              {% else %}
+                                <tr class="offer-row" data-offer-kind="default">
+                                  <td><input type="number" step="0.01" min="0" class="form-control" name="offers_amount[]" placeholder="Amount"></td>
+                                  <td><input type="text" class="form-control" name="offers_value[]" placeholder="Value"></td>
+                                  <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm remove-offer-btn">&times;</button></td>
+                                </tr>
+                              {% endif %}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div class="paste-hint mt-2">Paste rows like <code>20,1GB</code> (Amount,Value).</div>
+                      </div>
+
+                      <div class="tab-pane fade" id="pane-store-{{ sid }}" role="tabpanel">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                          <h6 class="mb-0">Store Offers ({{ count_store }})</h6>
+                          <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-secondary add-offer-btn"
+                                    data-target-container="#offers_store_{{ sid }}"
+                                    data-name-prefix="store_offers">+ Add</button>
+                            <button type="button" class="btn btn-sm btn-outline-dark"
+                                    data-paste-target="#offers_store_{{ sid }}"
+                                    data-name-prefix="store_offers">Paste CSV</button>
+                          </div>
+                        </div>
+
+                        <div class="table-responsive">
+                          <table class="table table-sm offers-grid align-middle mb-0">
+                            <thead>
+                              <tr>
+                                <th style="width: 220px;">Amount</th>
+                                <th>Value</th>
+                                <th class="row-actions"></th>
+                              </tr>
+                            </thead>
+                            <tbody id="offers_store_{{ sid }}">
+                              {% if svc.store_offers and svc.store_offers|length > 0 %}
+                                {% for of in svc.store_offers %}
+                                  <tr class="offer-row" data-offer-kind="store">
+                                    <td>
+                                      <input type="number" step="0.01" min="0"
+                                             class="form-control"
+                                             name="store_offers_amount[]"
+                                             value="{{ of.amount if of.amount is not none else '' }}"
+                                             placeholder="Amount">
+                                    </td>
+                                    <td>
+                                      <input type="text" class="form-control"
+                                             name="store_offers_value[]"
+                                             value="{{ of.value or of.value_text or '' }}"
+                                             placeholder="Value">
+                                    </td>
+                                    <td class="text-end">
+                                      <button type="button" class="btn btn-outline-danger btn-sm remove-offer-btn">&times;</button>
+                                    </td>
+                                  </tr>
+                                {% endfor %}
+                              {% else %}
+                                <tr class="offer-row" data-offer-kind="store">
+                                  <td><input type="number" step="0.01" min="0" class="form-control" name="store_offers_amount[]" placeholder="Amount"></td>
+                                  <td><input type="text" class="form-control" name="store_offers_value[]" placeholder="Value"></td>
+                                  <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm remove-offer-btn">&times;</button></td>
+                                </tr>
+                              {% endif %}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div class="paste-hint mt-2">Paste rows like <code>20,1GB</code> (Amount,Value).</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button type="submit" class="btn btn-seablue">Update Service</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 9999;">
+    <div id="actionToast" class="toast align-items-center" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="d-flex">
+        <div id="actionToastBody" class="toast-body">Saved</div>
+        <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const svcSearch = document.getElementById('svcSearch');
+    const providerFilter = document.getElementById('providerFilter');
+
+    function applyFilter() {
+      const q = (svcSearch?.value || '').toLowerCase();
+      const p = (providerFilter?.value || '');
+      document.querySelectorAll('.svc-card').forEach(card => {
+        const name = card.getAttribute('data-name') || '';
+        const prov = card.getAttribute('data-provider') || '';
+        const okName = !q || name.includes(q);
+        const okProv = !p || p === prov;
+        card.style.display = (okName && okProv) ? '' : 'none';
+      });
+    }
+    svcSearch?.addEventListener('input', applyFilter);
+    providerFilter?.addEventListener('change', applyFilter);
+
+    function addOfferRow(container, namePrefix) {
+      const amountName = (namePrefix === 'store_offers') ? 'store_offers_amount[]' : 'offers_amount[]';
+      const valueName  = (namePrefix === 'store_offers') ? 'store_offers_value[]'  : 'offers_value[]';
+
+      const tr = document.createElement("tr");
+      tr.className = "offer-row";
+      tr.innerHTML = `
+        <td><input type="number" step="0.01" min="0" class="form-control" name="${amountName}" placeholder="Amount"></td>
+        <td><input type="text" class="form-control" name="${valueName}" placeholder="Value"></td>
+        <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm remove-offer-btn">&times;</button></td>
+      `;
+      container.appendChild(tr);
+    }
+
+    function wireCsvPasteButtons() {
+      document.querySelectorAll('[data-paste-target]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const targetSel = btn.getAttribute('data-paste-target');
+          const prefix = btn.getAttribute('data-name-prefix') || 'offers';
+          const tbody = document.querySelector(targetSel);
+          if (!tbody) return;
+
+          const text = await navigator.clipboard.readText().catch(() => "");
+          const pasted = text || prompt("Paste CSV rows here (Amount,Value) and click OK:", "");
+          if (!pasted) return;
+
+          const lines = pasted.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+          lines.forEach(line => {
+            const [amt, val] = line.split(",").map(s => (s ?? "").trim());
+            const amountName = (prefix === 'store_offers') ? 'store_offers_amount[]' : 'offers_amount[]';
+            const valueName  = (prefix === 'store_offers') ? 'store_offers_value[]'  : 'offers_value[]';
+
+            const tr = document.createElement("tr");
+            tr.className = "offer-row";
+            tr.innerHTML = `
+              <td><input type="number" step="0.01" min="0" class="form-control" name="${amountName}" value="${amt || ""}" placeholder="Amount"></td>
+              <td><input type="text" class="form-control" name="${valueName}" value="${(val || "").replace(/"/g,'&quot;')}" placeholder="Value"></td>
+              <td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm remove-offer-btn">&times;</button></td>
+            `;
+            tbody.appendChild(tr);
+          });
+        });
+      });
+    }
+
+    document.body.addEventListener("click", function (e) {
+      if (e.target.classList.contains("remove-offer-btn")) {
+        const row = e.target.closest(".offer-row");
+        const container = row?.parentElement;
+        if (!row || !container) return;
+        const rows = container.querySelectorAll(".offer-row");
+        if (rows.length > 1) row.remove();
+        else row.querySelectorAll("input").forEach(i => i.value = "");
+      }
+    });
+
+    document.addEventListener("DOMContentLoaded", function () {
+      document.querySelectorAll(".add-offer-btn").forEach(addBtn => {
+        const containerSel = addBtn.getAttribute("data-target-container");
+        const prefix = addBtn.getAttribute("data-name-prefix") || 'offers';
+        if (!containerSel) return;
+        addBtn.addEventListener("click", function () {
+          const cont = document.querySelector(containerSel);
+          if (!cont) return;
+          addOfferRow(cont, prefix);
+        });
+      });
+      wireCsvPasteButtons();
+    });
+
+    const actionToastEl = document.getElementById('actionToast');
+    const actionToastBody = document.getElementById('actionToastBody');
+    const actionToast = actionToastEl ? new bootstrap.Toast(actionToastEl, { delay: 2400 }) : null;
+    function showToast(msg, isError){
+      if (actionToastBody) actionToastBody.textContent = msg || '';
+      if (actionToastEl){
+        actionToastEl.classList.toggle('text-bg-danger', !!isError);
+        actionToastEl.classList.toggle('text-bg-success', !isError);
+        actionToast.show();
+      }
+    }
+
+    document.addEventListener('focusin', function(e){
+      const sel = e.target.closest('.campus-provider-select');
+      if (sel) sel.dataset.prev = sel.value;
+    });
+
+    document.addEventListener('change', async function(e) {
+      const sel = e.target.closest('.campus-provider-select');
+      if (!sel) return;
+      const sid = sel.getAttribute('data-sid');
+      const provider = (sel.value || '').trim();
+      const statusEl = document.getElementById(`providerSave-${sid}`);
+      const prev = sel.dataset.prev || sel.value;
+      sel.disabled = true;
+      if (statusEl) statusEl.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+      try {
+        const res = await fetch(`/admin/campus-services/${sid}/provider`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ provider })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (statusEl) statusEl.textContent = "Saved ✅";
+          const card = document.querySelector(`.svc-card[data-sid="${sid}"]`);
+          const chip = card ? card.querySelector('[data-role="provider-chip"]') : null;
+          if (chip) chip.textContent = `Provider: ${data.provider}`;
+          if (card) card.setAttribute('data-provider', data.provider);
+          showToast(`Provider updated to ${data.provider}`, false);
+          sel.dataset.prev = data.provider;
+        } else {
+          sel.value = prev;
+          if (statusEl) statusEl.textContent = data.error || "Save failed.";
+          showToast(data.error || 'Failed to update provider.', true);
+        }
+      } catch (err) {
+        sel.value = prev;
+        if (statusEl) statusEl.textContent = "Network error.";
+        showToast('Network error.', true);
+      } finally {
+        sel.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
