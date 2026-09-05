@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Request Withdrawal - {{ store.name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+  <style>
+    :root{
+      --bg:#f8fafc;
+      --card:#ffffff;
+      --text:#0f172a;
+      --muted:#64748b;
+      --ring:#e2e8f0;
+      --primary:#0284c7;
+      --primary-dark:#0369a1;
+      --success:#16a34a;
+      --warning:#f59e0b;
+      --shadow:0 18px 42px rgba(15,23,42,.08);
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      min-height:100vh;
+      background:var(--bg);
+      color:var(--text);
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    }
+    .topbar{
+      position:sticky;
+      top:0;
+      z-index:10;
+      background:#fff;
+      border-bottom:1px solid var(--ring);
+      box-shadow:0 8px 24px rgba(15,23,42,.04);
+    }
+    .topbar-inner{
+      max-width:1080px;
+      margin:0 auto;
+      padding:.75rem 1rem;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:1rem;
+    }
+    .brand{
+      min-width:0;
+      display:flex;
+      align-items:center;
+      gap:.75rem;
+    }
+    .brand-icon{
+      width:40px;
+      height:40px;
+      border-radius:999px;
+      display:grid;
+      place-items:center;
+      color:#fff;
+      background:linear-gradient(135deg,#0284c7,#16a34a);
+      flex:0 0 auto;
+    }
+    .brand-title{
+      font-weight:800;
+      line-height:1.15;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .brand-sub{
+      color:var(--muted);
+      font-size:.82rem;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .page{
+      max-width:1080px;
+      margin:1.4rem auto 3rem;
+      padding:0 1rem;
+    }
+    .page-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:1rem;
+      margin-bottom:1rem;
+    }
+    .eyebrow{
+      color:var(--primary);
+      font-size:.78rem;
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+    }
+    h1{
+      font-size:clamp(1.55rem,3vw,2.2rem);
+      font-weight:850;
+      margin:.15rem 0 .25rem;
+      letter-spacing:0;
+    }
+    .lead{
+      margin:0;
+      color:var(--muted);
+      max-width:680px;
+    }
+    .btn-pill{
+      border-radius:999px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:.4rem;
+      font-weight:700;
+      min-height:40px;
+      white-space:nowrap;
+    }
+    .btn-primary{
+      background:var(--primary);
+      border-color:var(--primary);
+    }
+    .btn-primary:hover{
+      background:var(--primary-dark);
+      border-color:var(--primary-dark);
+    }
+    .layout{
+      display:grid;
+      grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);
+      gap:1rem;
+      align-items:start;
+    }
+    .panel{
+      background:var(--card);
+      border:1px solid var(--ring);
+      border-radius:16px;
+      box-shadow:var(--shadow);
+    }
+    .panel-body{ padding:1rem; }
+    .panel-head{
+      padding:1rem 1rem .75rem;
+      border-bottom:1px solid var(--ring);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:.75rem;
+    }
+    .panel-title{
+      margin:0;
+      font-size:1rem;
+      font-weight:800;
+    }
+    .stat-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:.75rem;
+      margin-bottom:1rem;
+    }
+    .stat{
+      border:1px solid var(--ring);
+      border-radius:12px;
+      padding:.85rem;
+      background:#fff;
+    }
+    .stat-label{
+      font-size:.78rem;
+      color:var(--muted);
+      margin-bottom:.25rem;
+    }
+    .stat-value{
+      font-size:1.25rem;
+      font-weight:850;
+      line-height:1.1;
+    }
+    .method-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:.75rem;
+    }
+    .method-option{
+      border:1px solid var(--ring);
+      border-radius:12px;
+      padding:.85rem;
+      cursor:pointer;
+      background:#fff;
+      min-height:96px;
+    }
+    .method-option:has(input:checked){
+      border-color:rgba(2,132,199,.55);
+      background:#f0f9ff;
+      box-shadow:0 0 0 3px rgba(2,132,199,.08);
+    }
+    .method-option input{ margin-top:.2rem; }
+    .method-title{
+      font-weight:800;
+      margin-bottom:.1rem;
+    }
+    .method-copy{
+      font-size:.83rem;
+      color:var(--muted);
+    }
+    .info-box{
+      border:1px dashed #cbd5e1;
+      border-radius:12px;
+      background:#f8fafc;
+      padding:.85rem;
+      color:var(--muted);
+      font-size:.9rem;
+    }
+    .history-table th{
+      color:var(--muted);
+      font-size:.76rem;
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      white-space:nowrap;
+    }
+    .history-table td{
+      font-size:.88rem;
+      vertical-align:middle;
+    }
+    .status-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:.3rem;
+      border-radius:999px;
+      padding:.2rem .55rem;
+      font-size:.76rem;
+      font-weight:800;
+      text-transform:capitalize;
+      border:1px solid var(--ring);
+      background:#f8fafc;
+    }
+    .status-pending{ color:#a16207; background:#fffbeb; border-color:#fde68a; }
+    .status-paid{ color:#15803d; background:#f0fdf4; border-color:#bbf7d0; }
+    .status-rejected{ color:#b91c1c; background:#fef2f2; border-color:#fecaca; }
+    .small-muted{ color:var(--muted); font-size:.86rem; }
+    @media (max-width: 820px){
+      .page-head,.topbar-inner{ flex-direction:column; align-items:stretch; }
+      .layout{ grid-template-columns:1fr; }
+      .stat-grid,.method-grid{ grid-template-columns:1fr; }
+      .topbar-actions{ display:flex; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-icon"><i class="bi bi-cash-stack"></i></div>
+        <div class="min-w-0">
+          <div class="brand-title">{{ store.name }}</div>
+          <div class="brand-sub">Store withdrawal request</div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <a class="btn btn-outline-secondary btn-pill" href="{{ url_for('customer_store.customer_store_dashboard', slug=store.slug) }}">
+          <i class="bi bi-arrow-left"></i>
+          Store Dashboard
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="page">
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="stat-label">Profit Balance</div>
+        <div class="stat-value text-success">GHS {{ '%.2f'|format(withdrawable or 0) }}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Wallet Balance</div>
+        <div class="stat-value text-info">GHS {{ '%.2f'|format(wallet_balance or 0) }}</div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <section class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Withdrawal Details</h2>
+          <span class="small-muted">Minimum GHS {{ '%.2f'|format(min_withdraw or 20) }}</span>
+        </div>
+        <div class="panel-body">
+          <div id="formAlert" class="alert d-none" role="alert"></div>
+
+          <div class="mb-3">
+            <label class="form-label small text-muted mb-1" for="amountInput">Amount (GHS)</label>
+            <input
+              type="number"
+              class="form-control form-control-lg"
+              id="amountInput"
+              min="{{ '%.2f'|format(min_withdraw or 20) }}"
+              max="{{ '%.2f'|format(withdrawable or 0) }}"
+              step="0.01"
+              value="{% if (withdrawable or 0) >= (min_withdraw or 20) %}{{ '%.2f'|format(withdrawable or 0) }}{% endif %}"
+              placeholder="Enter amount"
+            >
+            <div class="form-text">Available: GHS {{ '%.2f'|format(withdrawable or 0) }}</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small text-muted mb-2">Method</label>
+            <div class="method-grid">
+              <label class="method-option">
+                <div class="d-flex align-items-start gap-2">
+                  <input class="form-check-input" type="radio" name="method" value="momo" checked>
+                  <div>
+                    <div class="method-title"><i class="bi bi-phone me-1"></i>Mobile Money</div>
+                    <div class="method-copy">Create a pending request for admin payout.</div>
+                  </div>
+                </div>
+              </label>
+              <label class="method-option">
+                <div class="d-flex align-items-start gap-2">
+                  <input class="form-check-input" type="radio" name="method" value="wallet">
+                  <div>
+                    <div class="method-title"><i class="bi bi-wallet2 me-1"></i>Nagonu Wallet</div>
+                    <div class="method-copy">Credit your wallet automatically.</div>
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div class="info-box mb-3" id="momoBox">
+            <div class="fw-bold text-dark mb-1">Mobile Money payout</div>
+            {% if payout and (payout.msisdn or payout.recipient_name) %}
+              <div>{{ payout.recipient_name or '-' }}</div>
+              <div>{{ payout.network or '-' }} | {{ payout.msisdn or '-' }}</div>
+            {% else %}
+              <div class="text-danger">No MoMo payout details found. Add payout settings before using MoMo.</div>
+            {% endif %}
+            <div class="mt-3">
+              <a class="btn btn-outline-primary btn-sm btn-pill" href="{{ url_for('customer_store.customer_store_payout_page', slug=store.slug) }}">
+                <i class="bi bi-gear"></i>
+                Payout Settings
+              </a>
+            </div>
+          </div>
+
+          <div class="info-box mb-3 d-none" id="walletBox">
+            <div class="fw-bold text-dark mb-1">Nagonu Wallet</div>
+            <div>Your wallet will be credited immediately after a successful request.</div>
+          </div>
+
+          <div class="d-flex flex-wrap gap-2 justify-content-end">
+            <a class="btn btn-light btn-pill" href="{{ url_for('customer_store.customer_store_dashboard', slug=store.slug) }}">Cancel</a>
+            <button class="btn btn-primary btn-pill" type="button" id="submitBtn" {% if (withdrawable or 0) < (min_withdraw or 20) %}disabled{% endif %}>
+              <span id="submitText"><i class="bi bi-send"></i> Submit Request</span>
+              <span id="submitSpin" class="d-none">
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                Submitting...
+              </span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Recent Requests</h2>
+          <button class="btn btn-sm btn-outline-secondary btn-pill" type="button" id="refreshBtn">
+            <i class="bi bi-arrow-clockwise"></i>
+            Refresh
+          </button>
+        </div>
+        <div class="panel-body">
+          <div class="table-responsive">
+            <table class="table table-sm history-table align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Ref</th>
+                  <th class="text-end">Amount</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="requestRows">
+                <tr><td colspan="3" class="small-muted">Loading requests...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    var withdrawable = Number("{{ '%.2f'|format(withdrawable or 0) }}") || 0;
+    var minWithdraw = Number("{{ '%.2f'|format(min_withdraw or 20) }}") || 20;
+    var amountInput = document.getElementById('amountInput');
+    var submitBtn = document.getElementById('submitBtn');
+    var submitText = document.getElementById('submitText');
+    var submitSpin = document.getElementById('submitSpin');
+    var formAlert = document.getElementById('formAlert');
+    var requestRows = document.getElementById('requestRows');
+    var refreshBtn = document.getElementById('refreshBtn');
+    var momoBox = document.getElementById('momoBox');
+    var walletBox = document.getElementById('walletBox');
+
+    function selectedMethod(){
+      var checked = document.querySelector('input[name="method"]:checked');
+      return checked ? checked.value : 'momo';
+    }
+
+    function setLoading(on){
+      if(submitBtn) submitBtn.disabled = on || withdrawable < minWithdraw;
+      if(submitText) submitText.classList.toggle('d-none', on);
+      if(submitSpin) submitSpin.classList.toggle('d-none', !on);
+    }
+
+    function showAlert(type, message){
+      if(!formAlert) return;
+      formAlert.className = 'alert alert-' + type;
+      formAlert.textContent = message || '';
+      formAlert.classList.toggle('d-none', !message);
+    }
+
+    async function fetchWithTimeout(url, options, timeoutMs){
+      var controller = new AbortController();
+      var timer = setTimeout(function(){ controller.abort(); }, timeoutMs || 12000);
+      try{
+        var opts = options || {};
+        opts.signal = controller.signal;
+        return await fetch(url, opts);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function statusPill(status){
+      var s = String(status || '').toLowerCase();
+      var cls = 'status-pill';
+      if(s === 'pending') cls += ' status-pending';
+      if(s === 'paid') cls += ' status-paid';
+      if(s === 'rejected') cls += ' status-rejected';
+      return '<span class="' + cls + '">' + (s || '-') + '</span>';
+    }
+
+    async function loadRequests(){
+      if(!requestRows) return;
+      requestRows.innerHTML = '<tr><td colspan="3" class="small-muted">Loading requests...</td></tr>';
+      try{
+        var r = await fetchWithTimeout("{{ url_for('customer_store.api_customer_store_withdraw_requests', slug=store.slug) }}?limit=8", null, 10000);
+        var j = await r.json();
+        if(!j.success || !j.items || !j.items.length){
+          requestRows.innerHTML = '<tr><td colspan="3" class="small-muted">No withdrawal requests yet.</td></tr>';
+          return;
+        }
+        requestRows.innerHTML = j.items.map(function(item){
+          return '<tr>' +
+            '<td><code>' + (item.reference || '-') + '</code><div class="small-muted">' + (item.method || '-') + '</div></td>' +
+            '<td class="text-end">GHS ' + Number(item.amount || 0).toFixed(2) + '</td>' +
+            '<td>' + statusPill(item.status) + '</td>' +
+          '</tr>';
+        }).join('');
+      }catch(e){
+        requestRows.innerHTML = '<tr><td colspan="3" class="text-danger small">Failed to load requests.</td></tr>';
+      }
+    }
+
+    function toggleMethodBoxes(){
+      var method = selectedMethod();
+      if(momoBox) momoBox.classList.toggle('d-none', method !== 'momo');
+      if(walletBox) walletBox.classList.toggle('d-none', method !== 'wallet');
+    }
+
+    document.querySelectorAll('input[name="method"]').forEach(function(input){
+      input.addEventListener('change', toggleMethodBoxes);
+    });
+    if(refreshBtn) refreshBtn.addEventListener('click', loadRequests);
+
+    if(submitBtn){
+      submitBtn.addEventListener('click', async function(){
+        var amount = Number((amountInput && amountInput.value) || 0);
+        var method = selectedMethod();
+
+        if(!amount || amount <= 0){
+          showAlert('warning', 'Enter a valid amount.');
+          return;
+        }
+        if(withdrawable < minWithdraw){
+          showAlert('warning', 'Profit balance must be at least GHS ' + minWithdraw.toFixed(2) + '.');
+          return;
+        }
+        if(amount < minWithdraw){
+          showAlert('warning', 'Minimum withdrawal amount is GHS ' + minWithdraw.toFixed(2) + '.');
+          return;
+        }
+        if(amount > withdrawable + 0.0001){
+          showAlert('warning', 'Amount cannot exceed profit balance.');
+          return;
+        }
+
+        setLoading(true);
+        showAlert('', '');
+        try{
+          var r = await fetchWithTimeout("{{ url_for('customer_store.api_customer_store_request_withdraw', slug=store.slug) }}", {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ amount: amount, method: method })
+          }, 20000);
+          var j = await r.json();
+          if(!r.ok || !j.success){
+            showAlert('danger', (j && j.message) ? j.message : 'Failed to submit request.');
+            setLoading(false);
+            return;
+          }
+          showAlert('success', j.message || (method === 'wallet' ? 'Wallet credited successfully.' : 'Withdrawal request submitted successfully.'));
+          await loadRequests();
+        }catch(e){
+          showAlert('danger', 'Network error. Try again.');
+        }finally{
+          setLoading(false);
+        }
+      });
+    }
+
+    toggleMethodBoxes();
+    loadRequests();
+  </script>
+</body>
+</html>

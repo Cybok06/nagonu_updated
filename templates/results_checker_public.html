@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Purchase WASSCE and BECE result checkers securely online.">
+  <title>Results Checker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <style>
+    :root{--ink:#10223f;--blue:#175cff;--cyan:#14b8d4;--gold:#ffb547;--paper:#f4f8ff}
+    *{box-sizing:border-box} body{font-family:Manrope,system-ui,sans-serif;color:var(--ink);background:var(--paper);margin:0}
+    .hero{min-height:330px;color:#fff;position:relative;display:flex;align-items:center;overflow:hidden;background:linear-gradient(105deg,rgba(5,20,52,.96),rgba(18,69,160,.84)),url('https://www.sirhans.com/images/checker.png') center/cover}
+    .hero:after{content:"";position:absolute;width:420px;height:420px;border-radius:50%;right:-120px;top:-160px;background:rgba(43,211,255,.18);filter:blur(4px)}
+    .hero-copy{position:relative;z-index:1;max-width:760px;padding:54px 0;animation:heroSlide .8s cubic-bezier(.2,.75,.25,1) both}
+    .eyebrow{display:inline-flex;align-items:center;gap:.5rem;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);border-radius:999px;padding:.5rem .85rem;font-size:.78rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    .hero h1{font-size:clamp(2.35rem,6vw,4.8rem);font-weight:800;letter-spacing:-.055em;line-height:.98;margin:1.25rem 0}
+    @keyframes heroSlide{from{opacity:0;transform:translateX(-70px)}to{opacity:1;transform:translateX(0)}}
+    .offers{padding:72px 0 90px}.section-title{text-align:center;max-width:650px;margin:0 auto 42px}.section-title h2{font-weight:800;letter-spacing:-.035em}.section-title p{color:#66758e}
+    .checker-card{height:100%;border:1.5px solid #b8cff0;border-radius:26px;background:#fff;box-shadow:0 20px 55px rgba(31,73,125,.10);overflow:hidden;transition:transform .5s ease,opacity .5s ease,box-shadow .25s ease;opacity:0;transform:translateX(-65px)}
+    .checker-card.in-view{opacity:1;transform:translateX(0)}
+    .checker-card:hover{transform:translateY(-7px);box-shadow:0 28px 70px rgba(31,73,125,.18)}
+    .card-top{height:12px;background:linear-gradient(90deg,var(--blue),var(--cyan))}.bece .card-top{background:linear-gradient(90deg,#7628dc,#e44bba)}
+    .checker-icon{width:74px;height:74px;display:grid;place-items:center;border-radius:22px;background:#eaf2ff;color:var(--blue);font-size:2rem}.bece .checker-icon{background:#f5eaff;color:#8328d9}
+    .checker-card h3{font-weight:800;letter-spacing:-.025em}.desc{color:#67758c;line-height:1.7;min-height:58px}.price{font-size:2rem;font-weight:800;letter-spacing:-.04em}.stock{font-size:.8rem;font-weight:800;border-radius:999px;padding:.38rem .7rem;background:#e9fbf2;color:#137146}.stock.out{background:#fff0f0;color:#b42336}
+    .btn-buy{border:0;border-radius:14px;padding:.9rem 1.2rem;font-weight:800;background:linear-gradient(90deg,var(--blue),#277ddc);color:#fff}.btn-buy:hover{color:#fff;filter:brightness(1.06)}
+    .modal-content{border:1.5px solid #9ebce8;border-radius:24px;box-shadow:0 30px 80px rgba(10,30,65,.25)}.form-control{border:1.5px solid #a9c2e6;border-radius:12px;padding:.82rem 1rem;box-shadow:0 4px 14px rgba(23,92,255,.05)}.form-control:focus{border-color:var(--blue);box-shadow:0 0 0 .22rem rgba(23,92,255,.14)}.secure-note{background:#edf8ff;border:1px solid #c5e7fa;border-radius:14px;color:#315272;padding:.8rem;font-size:.82rem}
+    footer{border-top:1px solid #d8e5f6;background:#fff;color:#6b7890;padding:24px 0;text-align:center;font-size:.88rem}
+    @media(prefers-reduced-motion:reduce){.hero-copy,.checker-card{animation:none;transition:none;opacity:1;transform:none}}
+    @media(max-width:576px){.hero{min-height:285px}.hero-copy{padding:42px 0}.offers{padding:52px 0}.checker-card{border-radius:20px}.hero h1{font-size:2.35rem}}
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <div class="hero-copy">
+        <span class="eyebrow"><i class="bi bi-shield-check"></i> Secure instant delivery</span>
+        <h1>Purchase all your checkers here.</h1>
+      </div>
+    </div>
+  </header>
+
+  <main class="offers" id="checkers">
+    <div class="container">
+      <div class="section-title"><h2>Choose your result checker</h2><p>Each checker is delivered once and reserved for you after payment.</p></div>
+      <div class="row g-4 justify-content-center">
+        {% for card in checker_cards %}
+        <div class="col-12 col-md-6 col-lg-5">
+          <article class="checker-card {{ card.type }}">
+            <div class="card-top"></div>
+            <div class="p-4 p-lg-5">
+              <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+                <div class="checker-icon"><i class="bi bi-patch-check-fill"></i></div>
+                <span class="stock {% if card.available <= 0 %}out{% endif %}">{% if card.available > 0 %}Available{% else %}Out of stock{% endif %}</span>
+              </div>
+              <h3>{{ card.label }}</h3><p class="desc">{{ card.description }}</p>
+              <div class="d-flex align-items-end justify-content-between gap-3 my-4"><div><small class="text-muted">Price</small><div class="price">GHS {{ '%.2f'|format(card.price) }}</div></div></div>
+              <button class="btn btn-buy w-100 buy-checker" data-type="{{ card.type }}" data-label="{{ card.label }}" data-price="{{ card.price }}" {% if card.available <= 0 or card.price <= 0 or not paystack_pk %}disabled{% endif %}>
+                {% if card.available <= 0 %}Out of stock{% elif not paystack_pk %}Payment unavailable{% else %}Purchase {{ card.type|upper }} checker{% endif %}
+              </button>
+            </div>
+          </article>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </main>
+
+  <footer><div class="container">&copy; <span id="year"></span> Nagonu. All rights reserved.</div></footer>
+
+  <div class="modal fade" id="buyModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-body p-4 p-md-5">
+    <button class="btn-close float-end" data-bs-dismiss="modal" aria-label="Close"></button><h3 class="fw-bold mb-1" id="modalTitle">Purchase checker</h3><p class="text-muted mb-4">Enter your delivery details to continue.</p>
+    <form id="buyerForm"><div class="mb-3"><label class="form-label fw-bold">Email address</label><input class="form-control" id="buyerEmail" type="email" autocomplete="email" required placeholder="you@example.com"></div><div class="mb-3"><label class="form-label fw-bold">Phone number</label><input class="form-control" id="buyerPhone" type="tel" inputmode="numeric" maxlength="10" required placeholder="0xxxxxxxxx"></div>
+      <div class="secure-note mb-3"><i class="bi bi-lock-fill me-1"></i> Payment is processed securely by Paystack.</div><div class="alert alert-danger d-none" id="payError"></div>
+      <button class="btn btn-buy w-100" id="payButton" type="submit"><span id="payText">Pay securely</span><span class="spinner-border spinner-border-sm ms-2 d-none" id="paySpinner"></span></button>
+    </form>
+  </div></div></div></div>
+
+  <script type="application/json" id="paystackKey">{{ paystack_pk|tojson }}</script>
+  <script src="https://js.paystack.co/v1/inline.js"></script><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    (()=>{document.getElementById('year').textContent=new Date().getFullYear();
+      const cards=document.querySelectorAll('.checker-card');
+      if('IntersectionObserver' in window){const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{if(entry.isIntersecting){entry.target.classList.add('in-view');observer.unobserve(entry.target)}}),{threshold:.18});cards.forEach(card=>observer.observe(card))}else{cards.forEach(card=>card.classList.add('in-view'))}
+      const renderedKey=JSON.parse(document.getElementById('paystackKey').textContent||'""');const modal=bootstrap.Modal.getOrCreateInstance(document.getElementById('buyModal'));let selected=null;
+      const err=document.getElementById('payError'),btn=document.getElementById('payButton'),spin=document.getElementById('paySpinner'),txt=document.getElementById('payText');
+      const buttonLabel=()=>selected?'Pay GHS '+selected.price.toFixed(2):'Pay securely';
+      const busy=(on,label)=>{btn.disabled=on;spin.classList.toggle('d-none',!on);txt.textContent=on?(label||'Please wait...'):buttonLabel()};const fail=m=>{err.textContent=m;err.classList.remove('d-none');busy(false)};
+      async function getPaystackKey(){const res=await fetch('/api/results-checker/paystack-config',{method:'GET',credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});const data=await res.json().catch(()=>({}));if(!res.ok||!data.success)throw new Error(data.message||'Payment is not configured.');const key=String(data.public_key||renderedKey||'').trim();if(!key)throw new Error('Payment is not configured.');return key}
+      document.querySelectorAll('.buy-checker').forEach(b=>b.addEventListener('click',()=>{selected={type:b.dataset.type,label:b.dataset.label,price:Number(b.dataset.price)};document.getElementById('modalTitle').textContent='Purchase '+selected.label;txt.textContent='Pay GHS '+selected.price.toFixed(2);err.classList.add('d-none');modal.show()}));
+      document.getElementById('buyerPhone').addEventListener('input',e=>e.target.value=e.target.value.replace(/\D/g,'').slice(0,10));
+      document.getElementById('buyerForm').addEventListener('submit',async e=>{e.preventDefault();err.classList.add('d-none');const email=document.getElementById('buyerEmail').value.trim(),phone=document.getElementById('buyerPhone').value.trim();if(!selected||!/^0\d{9}$/.test(phone)){fail('Enter a valid 10-digit phone number starting with 0.');return}if(typeof PaystackPop==='undefined'){fail('Paystack did not load. Please refresh the page and try again.');return}const ref='CHK-'+Date.now()+'-'+Math.floor(Math.random()*1e6);busy(true,'Opening Paystack...');
+        try {
+          const key=await getPaystackKey();
+          const handler=PaystackPop.setup({
+            key:key,
+            email:email,
+            amount:Math.round(selected.price*100),
+            currency:'GHS',
+            reference:ref,
+            metadata:{checker_type:selected.type,phone:phone,source:'public_results_checker'},
+            callback:function(response){
+              busy(true,'Verifying payment...');
+              (async function(){
+                try {
+                  const res=await fetch('/results-checker/checkout',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},credentials:'same-origin',body:JSON.stringify({checker_type:selected.type,reference:response.reference||ref,email:email,phone:phone})});
+                  const j=await res.json().catch(function(){return {}});
+                  if(!res.ok||!j.success){fail(j.message||'Could not deliver checker. Keep this payment reference: '+ref);return}
+                  window.location.assign(j.result_url);
+                } catch (_) {fail('Network error. Your payment reference is '+ref)}
+              })();
+            },
+            onClose:function(){busy(false)}
+          });
+          handler.openIframe();
+        } catch(ex) {fail(ex&&ex.message?ex.message:'Could not open Paystack. Please try again.')}
+      });
+    })();
+  </script>
+</body></html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Nagonu — Receipt {{ batch_id }}</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg">
+  <style>
+    :root{--ink:#020617;--muted:#6b7280;--accent:#2563eb;--border:#e5e7eb}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;background:radial-gradient(circle at top,#dbeafe 0,#f9fafb 40%,#eef2ff 100%);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}
+    .invoice-modal{width:100%;max-width:680px;background:#fff;border-radius:24px;box-shadow:0 18px 45px rgba(15,23,42,.18);padding:22px 18px 18px;position:relative}@media(min-width:576px){.invoice-modal{padding:26px 24px 22px}}
+    .modal-header-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.modal-title-small{font-size:.9rem;font-weight:600}.btn-close-x{border:0;background:transparent;font-size:1.35rem;line-height:1;color:#9ca3af;cursor:pointer}.btn-close-x:hover{color:#4b5563}
+    .status-icon-wrap{display:flex;justify-content:center;margin:2px 0 0}.status-icon-img{max-width:160px;width:42%;height:auto}.main-title{text-align:center;font-size:1.3rem;font-weight:750;margin:0 0 4px}.subtitle{text-align:center;font-size:.88rem;color:var(--muted);margin-bottom:14px}
+    .info-card{background:#f9fafb;border-radius:16px;padding:12px 14px;font-size:.85rem;margin-bottom:18px}.info-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 10px}.info-label{font-size:.74rem;color:var(--muted)}.info-value{font-weight:650;margin-top:2px;overflow-wrap:anywhere}
+    .section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}.section-label{font-size:.88rem;font-weight:650}.section-count{font-size:.75rem;color:var(--muted);background:#f3f4f6;border-radius:999px;padding:3px 9px}
+    .item-list{list-style:none;padding:0;margin:0;font-size:.85rem;border-top:1px solid var(--border)}.item-list li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:11px 2px;border-bottom:1px solid var(--border)}.item-top{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.item-service{font-weight:600}.order-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem;color:#1d4ed8;background:#eff6ff;border:1px solid #dbeafe;border-radius:999px;padding:2px 7px;text-decoration:none}.order-code:hover{background:#dbeafe}.item-meta{font-size:.76rem;color:var(--muted);margin-top:3px}
+    .status-pill{display:inline-flex;border-radius:999px;padding:2px 7px;font-size:.68rem;font-weight:700;text-transform:capitalize;background:#fef3c7;color:#92400e}.status-pill.delivered,.status-pill.completed{background:#dcfce7;color:#166534}.status-pill.failed{background:#fee2e2;color:#991b1b}.item-amount{font-weight:650;white-space:nowrap;text-align:right}.view-link{display:block;font-size:.72rem;font-weight:500;color:var(--accent);text-decoration:none;margin-top:4px}.view-link:hover{text-decoration:underline}
+    .total-row{display:flex;justify-content:space-between;font-size:.95rem;font-weight:700;padding-top:11px}.receipt-note{display:flex;gap:8px;align-items:flex-start;margin-top:12px;padding:9px 11px;border-radius:12px;background:#eff6ff;color:#475569;font-size:.75rem}
+    .actions-row{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap}.btn-soft,.btn-primary,.btn-whatsapp{border-radius:999px;padding:9px 14px;font-size:.9rem;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}.btn-soft{flex:1;border:1px solid var(--border);background:#f9fafb;color:#374151}.btn-primary{flex:1;border:0;background:var(--accent);color:#fff;box-shadow:0 10px 25px rgba(37,99,235,.35)}.btn-whatsapp{flex:1 1 100%;border:0;background:#22c55e;color:#fff;box-shadow:0 10px 25px rgba(22,163,74,.35)}.btn-primary:hover,.btn-whatsapp:hover{filter:brightness(.97);color:#fff}
+    @media(max-width:480px){.status-icon-img{width:55%}.item-list li{gap:7px}.order-code{font-size:.66rem}}@media print{body{display:block;padding:0;background:#fff}.invoice-modal{max-width:none;box-shadow:none;border-radius:0;padding:0}.actions-row,.btn-close-x,.view-link{display:none!important}}
+  </style>
+</head>
+<body>
+<div class="invoice-modal">
+  <div class="modal-header-row">
+    <div class="modal-title-small">Your Orders ({{ orders|length }})</div>
+    <button class="btn-close-x" aria-label="Close" onclick="history.length>1?history.back():location.href='/'">&times;</button>
+  </div>
+  <div class="status-icon-wrap"><img src="https://res.cloudinary.com/dcmewvlyx/image/upload/v1764665465/Successful_purchase-pana_mxuirj.png" alt="Payment successful" class="status-icon-img"></div>
+  <h1 class="main-title">Order received successfully</h1>
+  <p class="subtitle">Every item has its own order ID and will be processed separately.</p>
+
+  <div class="info-card"><div class="info-row">
+    <div><div class="info-label">Batch Reference:</div><div class="info-value">{{ batch_id }}</div></div>
+    <div><div class="info-label">Date:</div><div class="info-value">{% if first_order.created_at %}{{ first_order.created_at.strftime('%Y-%m-%d %H:%M:%S') }}{% else %}-{% endif %}</div></div>
+    <div><div class="info-label">Payment Method:</div><div class="info-value">{{ first_order.paid_from|replace('_',' ')|title if first_order.paid_from else 'Wallet Payment' }}</div></div>
+    <div><div class="info-label">Total Amount:</div><div class="info-value">GHS {{ '%.2f'|format(batch_total) }}</div></div>
+  </div></div>
+
+  <div class="section-head"><div class="section-label">Order Items:</div><div class="section-count">{{ orders|length }} separate order{{ '' if orders|length == 1 else 's' }}</div></div>
+  <ul class="item-list">
+    {% for order in orders %}
+      {% set item=(order.get('items') or [{}])[0] %}{% set status=item.get('line_status') or order.get('status') or 'processing' %}
+      <li>
+        <div>
+          <div class="item-top"><span class="item-service">{{ item.get('serviceName') or item.get('service_name') or 'Service' }}</span><a class="order-code" href="{{ url_for('checkout.invoice_view',order_id=order.get('order_id')) }}">{{ order.get('order_id') }}</a><span class="status-pill {{ status|lower }}">{{ status|replace('_',' ') }}</span></div>
+          <div class="item-meta">{% if item.get('phone') %}{{ item.get('phone') }}{% endif %}{% if item.get('value') %} • {{ item.get('value') }}{% elif item.get('value_obj') and item.get('value_obj').get('volume') %} • {{ item.get('value_obj').get('volume') }}{% endif %}</div>
+        </div>
+        <div class="item-amount">GHS {{ '%.2f'|format(item.get('amount',0)|float) }}<a class="view-link" href="{{ url_for('checkout.invoice_view',order_id=order.get('order_id')) }}">View receipt</a></div>
+      </li>
+    {% endfor %}
+  </ul>
+  <div class="total-row"><span>Total</span><span>GHS {{ '%.2f'|format(batch_total) }}</span></div>
+  <div class="receipt-note"><i class="bi bi-info-circle-fill"></i><span>This receipt groups the payment only. Each item above is stored, tracked, and processed as an independent order.</span></div>
+  <div class="actions-row"><button type="button" class="btn-whatsapp" id="btn-whatsapp-share"><i class="bi bi-whatsapp"></i>Share via WhatsApp</button><button type="button" class="btn-soft" onclick="window.print()"><i class="bi bi-printer"></i>Print</button><a href="{% if first_order.get('store_slug') %}{{ url_for('stores.store_public_page', slug=first_order.get('store_slug')) }}{% else %}/customer/dashboard{% endif %}" class="btn-primary"><i class="bi bi-{% if first_order.get('store_slug') %}shop{% else %}house-door-fill{% endif %}"></i>{% if first_order.get('store_slug') %}Back to Store{% else %}Back to Homepage{% endif %}</a></div>
+</div>
+<script>
+(function(){const btn=document.getElementById('btn-whatsapp-share');if(!btn)return;const invoiceUrl={{ url_for('checkout.invoice_batch_view',batch_id=batch_id,_external=True)|tojson }};const orderIds={{ orders|map(attribute='order_id')|list|join(', ')|tojson }};btn.addEventListener('click',()=>window.open('https://wa.me/?text='+encodeURIComponent(`Here is my Nagonu receipt. Order IDs: ${orderIds}. ${invoiceUrl}`),'_blank'));})();
+</script>
+</body>
+</html>

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Nagonu Data Services — Affordable, Reliable Data • MTN • AirtelTigo • Telecel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Primary SEO -->
+  <meta name="description" content="Nagonu Data Services — affordable, reliable data bundles for MTN, AirtelTigo, and Telecel. Track your activity in your dashboard." />
+  <meta name="keywords" content="Nagonu, data bundles Ghana, MTN data, AirtelTigo data, Telecel data, AFA registration, WASSCE checker, BECE checker" />
+  <meta name="author" content="Nagonu Data Services" />
+  <link rel="canonical" href="{{ request.url_root | trim('/') if request else '/' }}" />
+  <meta name="robots" content="index,follow" />
+  <meta name="theme-color" content="#0ea5e9" />
+  <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Nagonu Data Services" />
+  <meta property="og:description" content="Affordable, reliable data for MTN, AirtelTigo & Telecel." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="{{ request.url_root | trim('/') if request else '/' }}" />
+  <meta property="og:site_name" content="Nagonu Data Services" />
+  <meta property="og:image" content="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg" />
+  <meta property="og:locale" content="en_GH" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Nagonu Data Services" />
+  <meta name="twitter:description" content="Affordable, reliable data bundles." />
+  <meta name="twitter:image" content="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg" />
+
+  <!-- JSON-LD -->
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"Organization",
+    "name":"Nagonu Data Services",
+    "url":"{{ request.url_root | trim('/') if request else '/' }}",
+    "logo":"https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg",
+    "sameAs":[]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"WebSite",
+    "name":"Nagonu Data Services",
+    "url":"{{ request.url_root | trim('/') if request else '/' }}",
+    "potentialAction":{
+      "@type":"SearchAction",
+      "target":"{{ request.url_root | trim('/') if request else '' }}/search?q={query}",
+      "query-input":"required name=query"
+    }
+  }
+  </script>
+
+  <!-- Preloads -->
+  <link rel="preload" as="image" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754393415/two_people_tewigi.webp" />
+  <link rel="preload" as="image" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754393109/two_people_ipa1rb.webp" />
+
+  <!-- Bootstrap + Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+
+  <style>
+    :root{ --sea:#0ea5e9; --sea-deep:#0b6fa1; }
+
+    /* Navbar */
+    .navbar{ background: linear-gradient(90deg, var(--sea-deep), var(--sea)); }
+    .navbar-brand img{ height:52px; width:52px; border-radius:12px; object-fit:cover; border:2px solid #fff3; }
+    .nav-link{ color:#eaf7ff !important; font-weight:500; }
+    .nav-link:hover{ opacity:.9; }
+    .btn-cta{ border-radius:999px; }
+
+    /* Hero */
+    .hero-wrap{ position:relative; min-height:72vh; color:#fff; overflow:hidden; }
+    .hero-content{ position:absolute; inset:0; z-index:2; display:grid; place-items:center; text-align:center; padding:1.5rem; animation:fadeIn 1.2s both; }
+    @keyframes fadeIn{ from{opacity:0; transform:translateY(18px);} to{opacity:1; transform:none;} }
+    .carousel, .carousel-item, .carousel-item img{ height:72vh; }
+    .carousel-item img{ width:100%; object-fit:cover; filter:brightness(80%) blur(2px); }
+
+    /* Sections */
+    .services-section{ background:#f7fbfe; scroll-margin-top: 90px; }
+    .section-title{ font-weight:800; letter-spacing:.2px; color:#0b6fa1; }
+    .service-card{ border:none; border-radius:16px; overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,.06); transition:transform .25s, box-shadow .25s; background:#fff; }
+    .service-card:hover{ transform:translateY(-6px); box-shadow:0 12px 28px rgba(0,0,0,.10); }
+    .service-thumb{ height:160px; display:flex; align-items:center; justify-content:center; background:linear-gradient(90deg,#e9f7ff,#f3fbff); }
+    .service-thumb img{ width:100%; height:100%; object-fit:cover; }
+    .service-body{ padding:14px 16px 18px; }
+    .service-title{ font-size:1.05rem; font-weight:700; color:#06354a; margin:0 0 6px; }
+    .service-desc{ font-size:.95rem; color:#5b6b76; }
+
+    .reveal-up{ opacity:0; transform:translateY(22px) scale(.98); transition:opacity .6s, transform .6s; }
+    .reveal-in{ opacity:1 !important; transform:none !important; }
+
+    /* Footer */
+    .site-footer{ background:#062b3a; color:#dff2ff; }
+    .site-footer a{ color:#bfe8ff; text-decoration:none; }
+    .site-footer a:hover{ text-decoration:underline; }
+
+    /* Modals */
+    .modal-body p{ margin-bottom:.75rem; }
+    .modal-body ol{ padding-left:1rem; }
+    .modal-body li{ margin: .35rem 0; }
+    .modal-header{ border-bottom: none; }
+    .modal-footer{ border-top: none; }
+  </style>
+</head>
+<body>
+  {% if store_notice %}
+  <div class="d-flex min-vh-100 align-items-center justify-content-center px-3">
+    <div class="alert alert-warning text-center mb-0" role="alert">
+      {{ store_notice }}
+    </div>
+  </div>
+  {% else %}
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-dark px-3">
+    <a class="navbar-brand d-flex align-items-center" href="/">
+      <img src="https://imagedelivery.net/h9fmMoa1o2c2P55TcWJGOg/e7fe381c-fd00-439a-8475-4b4494f46300/public" alt="Nagonu Logo" loading="eager">
+      <span class="ms-2 fw-semibold text-white">Nagonu</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div id="navMain" class="collapse navbar-collapse">
+      <ul class="navbar-nav ms-auto align-items-lg-center">
+        <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
+        <li class="nav-item"><a class="nav-link" href="#services">Services</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#aboutModal">About</a></li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Legal</a>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#tosModal">Terms of Service</a></li>
+            <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Policy</a></li>
+          </ul>
+        </li>
+        <li class="nav-item ms-lg-3 my-2 my-lg-0">
+          <a href="/login" class="btn btn-outline-light btn-cta">Login</a>
+        </li>
+        <li class="nav-item ms-lg-2 me-lg-2">
+          <a href="/signup" class="btn btn-light btn-cta text-primary">Get Started</a>
+        </li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero-wrap position-relative">
+    <div id="heroCarousel" class="carousel slide carousel-fade" data-bs-ride="carousel" data-bs-interval="5000" aria-label="Hero carousel">
+      <div class="carousel-inner">
+        <div class="carousel-item active">
+          <img src="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754393109/two_people_ipa1rb.webp" alt="Welcome to Nagonu">
+        </div>
+        <div class="carousel-item">
+          <img src="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754393415/two_people_tewigi.webp" alt="Easy data purchase">
+        </div>
+        <div class="carousel-item">
+          <img src="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754393605/custome_pic_qwrcig.jpg" alt="Customer first">
+        </div>
+      </div>
+    </div>
+
+    <div class="hero-content container">
+      <div>
+        <h1 class="display-5 fw-bold">Affordable, Reliable Data—Anytime</h1>
+        <p class="lead mt-2 mb-4">Fund once, and manage everything in your dashboard.</p>
+        <div class="d-flex gap-2 justify-content-center flex-wrap">
+          <a href="#services" class="btn btn-primary btn-lg px-4" id="ctaExplore">Explore Services</a>
+          <a href="/login" class="btn btn-outline-light btn-lg px-4">Open Dashboard</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Services -->
+  <section id="services" class="services-section py-5">
+    <div class="container">
+      <h2 class="section-title text-center mb-4">Services</h2>
+      <p class="text-center text-muted mb-4">Browse our categories below. Order from your dashboard—new here? Just tap <em>Buy Now</em> to create your account.</p>
+
+      <div class="row g-4">
+        {% set all_services = (services or []) + (express_services or []) %}
+        {% if not all_services %}
+          <div class="col-12 text-center text-muted">No services available.</div>
+        {% else %}
+          {% for svc in all_services %}
+          <div class="col-12 col-lg-6 reveal-up">
+            <div class="card service-card h-100">
+              <div class="service-thumb">
+                {% if svc.image_url %}
+                  <img src="{{ svc.image_url }}" alt="{{ svc.name }}" loading="lazy">
+                {% else %}
+                  <img src="https://via.placeholder.com/640x360?text={{ svc.name | urlencode }}" alt="{{ svc.name }}" loading="lazy">
+                {% endif %}
+              </div>
+              <div class="service-body d-flex flex-column">
+                <h3 class="service-title">{{ svc.name }}</h3>
+                <p class="service-desc mb-3">
+                  {{ (svc.description or 'Available via your dashboard.') }}
+                </p>
+                <div class="mt-auto d-grid gap-2 d-sm-flex">
+                  <!-- BUY NOW -> signup -->
+                  <a href="/signup" class="btn btn-primary flex-fill">
+                    <i class="bi bi-lightning-charge"></i> Buy Now
+                  </a>
+                  <!-- Open dashboard (login) -->
+                  <a href="/login" class="btn btn-outline-primary flex-fill">Open in Dashboard</a>
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  
+
+  <!-- Footer -->
+  <footer class="site-footer py-4">
+    <div class="container d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+      <div class="small">
+        © <span id="yearNow"></span> Nagonu Data Services. All rights reserved.
+      </div>
+      <div class="small d-flex gap-3">
+        <a href="#" data-bs-toggle="modal" data-bs-target="#aboutModal">About</a>
+        <a href="#" data-bs-toggle="modal" data-bs-target="#tosModal">Terms of Service</a>
+        <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Policy</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ===== Modals ===== -->
+
+  <!-- About Us Modal -->
+  <div class="modal fade" id="aboutModal" tabindex="-1" aria-labelledby="aboutModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="aboutModalLabel">About Nagonu Data Services</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p><strong>Nagonu Data Services</strong> provides affordable, reliable data bundles across MTN, AirtelTigo, and Telecel. We focus on speed, transparency, and a smooth purchase experience—so you can fund once and manage everything from your dashboard.</p>
+          <p>Our promise is simple: fair pricing, clear status updates, and responsive support. Whether you’re topping up for personal use or managing multiple lines, Nagonu helps you stay connected—with ease.</p>
+          <p class="mb-0"><em>Team Nagonu.</em></p>
+        </div>
+        <div class="modal-footer">
+          <a href="/signup" class="btn btn-primary">Create Account</a>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Terms of Service Modal -->
+  <div class="modal fade" id="tosModal" tabindex="-1" aria-labelledby="tosModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="tosModalLabel">Terms of Service</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <ol>
+            <li>By placing an order with our website, you acknowledge that you have read and agree to these Terms of Service.</li>
+            <li>We reserve the right to change these Terms of Service without notice. Please regularly check this page for updates.</li>
+            <li>You agree to use our website in compliance with the qualifications and agreements outlined in sections 7 and 8 of these Terms of Service.</li>
+            <li>Our rates are subject to change at any time in accordance with our Telcos Policy or Supplier Agreement. We will notify you of any rate changes through our website or other means.</li>
+            <li>We strive to deliver services promptly, but delivery times are estimates only and not guaranteed. Estimated delivery times are 0–24 hours. After 24 hours, you may be eligible for a refund, excluding cases of network difficulties.</li>
+            <li>Refunds will not be issued for orders that do not meet our qualification requirements.</li>
+            <li>To avoid issues, please:
+              <ol type="i">
+                <li>Place orders for services in the correct category (e.g., MTN in the MTN column, not in Airtel/Tigo column, and vice versa).</li>
+                <li>Ensure the phone number is correct and complete.</li>
+              </ol>
+            </li>
+            <li>Meet the 3 core qualifications for Afa minutes orders as outlined on our WhatsApp page before placing; otherwise, refunds for unqualified orders will be handled on merit.</li>
+          </ol>
+          <p class="mb-0"><em>Best Regards,<br/>Team Nagonu.</em></p>
+        </div>
+        <div class="modal-footer">
+          <a href="/signup" class="btn btn-primary">Agree &amp; Sign Up</a>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Privacy Policy Modal -->
+  <div class="modal fade" id="privacyModal" tabindex="-1" aria-labelledby="privacyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="privacyModalLabel">Privacy Policy</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p>Welcome to our website. This Privacy Policy describes how we collect, use, disclose, and protect your personal information. By using our services, you agree to the terms outlined in this policy.</p>
+
+          <h6>Information We Collect</h6>
+          <p><strong>Personal Information:</strong> We may collect personal information, such as your name, email address, and payment details, when you use our services.</p>
+          <p><strong>Usage Data:</strong> We automatically collect information about how you interact with our website and services, including your IP address, browser type, and pages visited.</p>
+
+          <h6>How We Use Your Information</h6>
+          <p><strong>Service Delivery:</strong> We use your personal information to deliver the services you've requested, including processing orders and providing customer support.</p>
+          <p><strong>Communications:</strong> We may contact you with important service-related announcements, newsletters, and promotional offers based on your preferences.</p>
+
+          <h6>Data Security</h6>
+          <p>We implement industry-standard security measures to protect your personal information from unauthorized access, disclosure, alteration, and destruction.</p>
+
+          <h6>Information Sharing</h6>
+          <p>We do not sell, trade, or otherwise transfer your personal information to third parties without your consent, except as required by law.</p>
+
+          <h6>Cookies and Tracking Technologies</h6>
+          <p>We use cookies and similar tracking technologies to enhance your experience, gather usage information, and improve our services.</p>
+
+          <h6>Updates</h6>
+          <p>We reserve the right to update this Privacy Policy at any time. We'll notify you of any significant changes through the contact information you provide.</p>
+
+          <h6>Contact Us</h6>
+          <p>If you have any questions or concerns about this Privacy Policy, please contact us at our panel support.</p>
+
+          <p class="mb-0"><em>Team Nagonu.</em></p>
+        </div>
+        <div class="modal-footer">
+          <a href="/signup" class="btn btn-primary">Create Account</a>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // Smooth scroll
+    const explore = document.getElementById('ctaExplore');
+    if (explore){
+      explore.addEventListener('click', function(e){
+        e.preventDefault();
+        const target = document.getElementById('services');
+        if (target) target.scrollIntoView({behavior:'smooth'});
+      });
+    }
+
+    // Status form helper
+    window.gotoStatus = function(ev){
+      ev.preventDefault();
+      const inp = document.getElementById('statusPhone');
+      if (!inp) return false;
+      let d = (inp.value||'').replace(/\D+/g,'');
+      if (d.startsWith('233')) d = '0'+d.slice(3);
+      if (d.length > 10) d = d.slice(-10);
+      window.location.href = '/check-status?phone='+encodeURIComponent(d);
+      return false;
+    };
+
+    // Reveal animation
+    const container = document.querySelector('#services');
+    if(container){
+      const els = container.querySelectorAll('.reveal-up');
+      if(!('IntersectionObserver' in window) || !els.length){
+        els.forEach(el => el.classList.add('reveal-in'));
+      }else{
+        const io = new IntersectionObserver((entries)=>{
+          entries.forEach((entry)=>{
+            if(entry.isIntersecting){
+              const idx = Array.prototype.indexOf.call(els, entry.target);
+              entry.target.style.transitionDelay=(idx%6)*60+'ms';
+              entry.target.classList.add('reveal-in');
+              io.unobserve(entry.target);
+            }
+          });
+        },{threshold:.15});
+        els.forEach(el => io.observe(el));
+      }
+    }
+
+    // Footer year
+    document.getElementById('yearNow').textContent = new Date().getFullYear();
+  </script>
+  {% endif %}
+</body>
+</html>
+

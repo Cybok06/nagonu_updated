@@ -1,0 +1,2325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin — Orders</title>
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+
+  <style>
+    :root{
+      --primary:#2563eb;--primary-2:#1d4ed8;--primary-3:#3b82f6;
+      --bg:#f8fafc;--bg-2:#f1f5f9;--card:#ffffff;--border:#e2e8f0;
+      --text:#0b1b2b;--muted:#64748b;
+      --ok:#16a34a;--ok-soft:#ecfdf5;          /* delivered */
+      --warn:#f59e0b;--warn-soft:#fffbeb;      /* pending  */
+      --info:#0ea5e9;--info-soft:#e6f6fe;      /* processing */
+      --bad:#ef4444;--bad-soft:#fef2f2;        /* failed */
+      --violet:#6366f1;--violet-soft:#eef2ff;  /* refunded */
+      --teal:#14b8a6;--teal-soft:#e6fffb;      /* completed */
+      --shadow-md:0 4px 12px rgba(2,10,28,.08);
+      --shadow-lg:0 12px 28px rgba(2,10,28,.12);
+      --radius:16px;
+    }
+
+    body{background:linear-gradient(135deg,var(--bg) 0%,var(--bg-2) 100%);color:var(--text);font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+    .container{max-width:1880px}
+    h2{color:var(--primary);font-weight:800;letter-spacing:.2px}
+    .subhead{color:var(--muted)}
+    .chip{display:inline-flex;align-items:center;gap:.5rem;background:#eef2ff;color:#3730a3;padding:.4rem .7rem;border-radius:999px;border:1px solid #c7d2fe;font-size:.82rem}
+
+    /* Sticky header (title + actions) */
+    .sticky-header{position:sticky;top:0;background:linear-gradient(135deg,var(--bg) 0%,var(--bg-2) 100%);
+      z-index:20;padding:.5rem 0 .75rem;margin-bottom:.25rem}
+
+    /* Filters */
+    .filter-bar{display:none;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:1rem 1.25rem;position:sticky;top:4.25rem;z-index:10}
+    .filter-bar.show{display:block}
+    .filter-row{row-gap:.75rem}
+    .form-select,.form-control{border:2px solid var(--border);border-radius:10px;padding:.55rem .8rem}
+    .form-select:focus,.form-control:focus{border-color:var(--primary);box-shadow:0 0 0 .2rem rgba(37,99,235,.25)}
+
+    /* Filter toggle hint */
+    .filter-toggle{display:flex;gap:.5rem}
+
+    .actions-bar{display:flex;flex-wrap:wrap;gap:.5rem}
+    .btn-icon{display:inline-flex;align-items:center;gap:.5rem}
+    .auto-update-card{background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%);border:1px solid #cfe0ff;border-radius:20px;box-shadow:var(--shadow-md);padding:1.1rem 1.25rem}
+    .auto-update-head{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap}
+    .auto-update-title{font-weight:800;color:#1e3a8a}
+    .auto-update-sub{color:var(--muted);max-width:720px}
+    .auto-update-services{max-height:220px;overflow:auto;border:1px solid #dbeafe;border-radius:16px;padding:.85rem;background:#fff}
+    .auto-update-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.65rem}
+    .auto-update-option{display:flex;align-items:center;gap:.55rem;border:1px solid #e2e8f0;border-radius:12px;padding:.55rem .7rem;background:#f8fafc}
+    .auto-update-option .form-check-input{margin:0}
+    .auto-update-meta{display:flex;flex-wrap:wrap;gap:.5rem}
+    .auto-update-meta .chip{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
+    .auto-update-summary{
+      margin-top:1rem;
+      padding:1rem;
+      border:1px solid #dbeafe;
+      border-radius:16px;
+      background:#f8fbff;
+    }
+    .auto-update-summary-grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+      gap:.85rem;
+    }
+    .auto-update-summary-label{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+    .auto-update-summary-value{font-weight:800;color:#0f172a}
+    .auto-update-service-tags{display:flex;flex-wrap:wrap;gap:.45rem}
+    .auto-update-service-tag{
+      display:inline-flex;
+      align-items:center;
+      padding:.34rem .65rem;
+      border-radius:999px;
+      background:#fff;
+      border:1px solid #bfdbfe;
+      color:#1e3a8a;
+      font-size:.82rem;
+      font-weight:700;
+    }
+    .auto-update-tag-remove{
+      border:none;
+      background:transparent;
+      color:#1d4ed8;
+      font-size:.9rem;
+      line-height:1;
+      padding:0;
+      margin-left:.45rem;
+      cursor:pointer;
+    }
+    .auto-update-tag-remove:hover{color:#dc2626}
+
+    .table-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);overflow:visible}
+    table.table{margin:0}
+    thead th{background:linear-gradient(135deg,var(--primary) 0%,var(--primary-2) 100%);color:#fff;border:none;text-transform:uppercase;font-size:.8rem;letter-spacing:.6px}
+    tbody tr:hover{background:#f0f7ff}
+    td,th{vertical-align:middle}
+    .table-responsive{scrollbar-width:thin;overflow-x:visible}
+    .table-responsive .table{table-layout:auto;width:100%}
+    #linesTbody td:nth-child(2), #ordersTbody td:nth-child(2){min-width:120px}
+    #linesTbody td:nth-child(3), #ordersTbody td:nth-child(3){min-width:190px}
+    #linesTbody td:nth-child(4), #ordersTbody td:nth-child(4){min-width:220px}
+    #linesTbody td:nth-child(5), #ordersTbody td:nth-child(5){min-width:120px}
+    #linesTbody td:nth-child(6), #ordersTbody td:nth-child(6){min-width:140px}
+    #linesTbody td:nth-child(7), #ordersTbody td:nth-child(7){min-width:120px}
+    #linesTbody td:nth-child(8), #ordersTbody td:nth-child(8){min-width:120px}
+    #linesTbody td:nth-child(9), #ordersTbody td:nth-child(10){min-width:140px}
+    #linesTbody td:nth-child(10), #ordersTbody td:nth-child(11){min-width:160px}
+
+    /* Status chips */
+    .status-chip{display:inline-flex;align-items:center;gap:.45rem;padding:.35rem .65rem;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid transparent}
+    .st-delivered{color:var(--ok);background:var(--ok-soft);border-color:#a7f3d0}
+    .st-failed{color:var(--bad);background:var(--bad-soft);border-color:#fecaca}
+    .st-processing{color:var(--info);background:var(--info-soft);border-color:#bae6fd}
+    .st-refunded{color:var(--violet);background:var(--violet-soft);border-color:#c7d2fe}
+    .st-pending{color:var(--warn);background:var(--warn-soft);border-color:#fde68a}
+    .st-completed{color:var(--teal);background:var(--teal-soft);border-color:#99f6e4}
+
+    /* Paid-from badge */
+    .pf-badge{border-radius:999px;padding:.45rem .65rem;font-weight:700}
+    .pf-wallet{background:#ecfeff;color:#155e75;border:1px solid #a5f3fc}
+    .pf-card{background:#f0f9ff;color:#1e3a8a;border:1px solid #bfdbfe}
+    .pf-momo{background:#fefce8;color:#713f12;border:1px solid #fde68a}
+    .pf-paystack{background:#eef2ff;color:#1e1b4b;border:1px solid #c7d2fe}
+    .pf-flutterwave{background:#fff7ed;color:#7c2d12;border:1px solid #fed7aa}
+    .pf-bank{background:#f5f3ff;color:#4c1d95;border:1px solid #ddd6fe}
+
+    .api-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .65rem;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid transparent}
+    .api-chip-passed{color:#166534;background:rgba(34,197,94,.12);border-color:#bbf7d0}
+    .api-chip-not{color:#475569;background:rgba(148,163,184,.15);border-color:#e2e8f0}
+
+    .prov-badge{display:inline-flex;align-items:center;gap:.35rem;padding:.25rem .55rem;border-radius:999px;font-size:.72rem;font-weight:700;border:1px solid transparent}
+    .prov-codecraft{color:#1d4ed8;background:#e0e7ff;border-color:#c7d2fe}
+    .prov-datakazina{color:#b45309;background:#fef3c7;border-color:#fde68a}
+    .prov-skplug{color:#166534;background:#dcfce7;border-color:#86efac}
+    .ussd-badge{display:inline-flex;align-items:center;gap:.35rem;padding:.25rem .55rem;border-radius:999px;font-size:.72rem;font-weight:800;color:#075985;background:#e0f2fe;border:1px solid #7dd3fc;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+
+    /* Inline actions tray (desktop) */
+    .status-actions{display:none;gap:.35rem;flex-wrap:wrap;align-items:center;margin-left:.25rem}
+    .status-actions.show{display:inline-flex}
+    .status-actions.hidden{display:none}
+    .status-actions .btn{padding:.2rem .5rem;font-size:.75rem;border-radius:999px}
+
+    /* Card view (mobile) */
+    @media (max-width: 767.98px){
+      .table-wrap{display:none}
+      .cards{display:grid;gap:1rem}
+      .order-card{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-md);padding:1rem}
+      .order-card .header{display:flex;justify-content:space-between;gap:.5rem;align-items:center}
+      .order-card .meta{color:var(--muted);font-size:.85rem}
+      .order-card .items{margin:.5rem 0 0}
+      .order-card .it{display:flex;justify-content:space-between;border-top:1px dashed var(--border);padding-top:.5rem;margin-top:.5rem}
+      .order-card .tot{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}
+      .order-card .footer{display:flex;gap:.5rem;align-items:center;margin-top:.75rem;flex-wrap:wrap}
+      .order-card .footer .form-check-input{width:22px;height:22px}
+      .order-card .btn-sm{padding:.45rem .6rem}
+      .card-actions{display:flex;gap:.35rem;flex-wrap:wrap; width:100%}
+      .card-actions.hidden{display:none}
+      .card-actions form {display:inline}
+      .card-actions .btn {font-size:.75rem; padding:.35rem .55rem; border-radius:999px}
+    }
+    @media (min-width: 768px){
+      .cards{display:none}
+    }
+
+    /* Bigger touch targets for checkboxes */
+    .form-check-input{width:18px;height:18px}
+    .table .form-check-input{transform:translateY(2px)}
+
+    /* Offcanvas & jobs list */
+    .offcanvas{border-left:1px solid var(--border)}
+    .schedule-row{display:flex;align-items:center;justify-content:space-between;border-bottom:1px dashed var(--border);padding:.6rem 0}
+    .muted{color:var(--muted)}
+
+    /* Floating bar for selected (mobile) */
+    .floating-bar{
+      position:fixed;left:0;right:0;bottom:0;background:#0b1220cc;color:#fff;backdrop-filter:blur(8px);
+      display:none;z-index:1050;padding:.6rem .9rem;box-shadow:0 -8px 24px rgba(2,10,28,.22)
+    }
+    .floating-bar.show{display:flex;align-items:center;gap:.75rem;justify-content:space-between}
+    .floating-bar .btn{box-shadow:var(--shadow-md)}
+
+    /* Export */
+    .export-trigger{background:linear-gradient(135deg,#facc15 0%, #eab308 100%);color:#422006;border:1px solid #ca8a04}
+    .export-trigger:hover{color:#422006;background:linear-gradient(135deg,#fde047 0%, #facc15 100%);border-color:#a16207}
+    .export-modal .modal-content{border:none;border-radius:22px;overflow:hidden;box-shadow:var(--shadow-lg)}
+    .export-modal .modal-header{background:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);border-bottom:1px solid #bfdbfe}
+    .export-modal .modal-body{background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%)}
+    .export-panel{border:1px solid #dbeafe;border-radius:18px;background:#fff;padding:1rem;box-shadow:0 10px 24px rgba(37,99,235,.08)}
+    .export-panel-title{font-weight:800;color:#1e3a8a;margin-bottom:.75rem}
+    .format-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.75rem}
+    .format-option{position:relative}
+    .format-option input{position:absolute;opacity:0;pointer-events:none}
+    .format-card{display:flex;flex-direction:column;align-items:flex-start;gap:.35rem;border:2px solid #dbeafe;border-radius:16px;padding:.9rem;background:#fff;cursor:pointer;transition:.2s ease}
+    .format-card i{font-size:1.1rem;color:#2563eb}
+    .format-option input:checked + .format-card{border-color:#2563eb;background:#eff6ff;box-shadow:0 10px 18px rgba(37,99,235,.12)}
+    .timeframe-pills{display:flex;flex-wrap:wrap;gap:.65rem}
+    .time-pill{position:relative}
+    .time-pill input{position:absolute;opacity:0;pointer-events:none}
+    .time-pill-label{display:inline-flex;align-items:center;gap:.45rem;padding:.65rem .9rem;border:2px solid #dbeafe;border-radius:999px;background:#fff;cursor:pointer;font-weight:700;color:#1e3a8a}
+    .time-pill input:checked + .time-pill-label{background:#eff6ff;border-color:#2563eb}
+    .export-loading{position:fixed;inset:0;background:rgba(15,23,42,.68);backdrop-filter:blur(10px);display:none;align-items:center;justify-content:center;z-index:2000;padding:1rem}
+    .export-loading.show{display:flex}
+    .export-loading-card{width:min(100%,460px);background:#fff;border-radius:24px;padding:1.4rem;border:1px solid #dbeafe;box-shadow:0 24px 60px rgba(15,23,42,.25)}
+    .export-spinner{width:62px;height:62px;border-radius:50%;border:5px solid #dbeafe;border-top-color:#2563eb;animation:spin 1s linear infinite;margin:0 auto 1rem}
+    .export-progress-track{height:10px;background:#e2e8f0;border-radius:999px;overflow:hidden}
+    .export-progress-bar{height:100%;width:24%;border-radius:999px;background:linear-gradient(90deg,#2563eb,#38bdf8);transition:width .25s ease}
+    .export-loading-step{font-weight:700;color:#0f172a}
+    .export-loading-sub{color:#64748b;font-size:.95rem}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    .orders-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem;align-items:start}
+    .exported-sidebar{background:var(--card);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow-md);padding:.85rem;position:sticky;top:5rem;justify-self:end;width:100%;max-width:260px}
+    .exported-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:1rem}
+    .exported-badge-list{display:grid;gap:.75rem;max-height:70vh;overflow:auto;padding-right:.2rem}
+    .exported-badge-item{border:1px solid #fde68a;background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border-radius:16px;padding:.85rem;cursor:pointer;transition:.2s ease}
+    .exported-badge-item:hover{transform:translateY(-1px);box-shadow:0 12px 22px rgba(234,179,8,.18)}
+    .exported-badge-title{font-weight:800;color:#713f12}
+    .exported-badge-meta{color:#92400e;font-size:.9rem}
+    .exported-badge-count{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:34px;border-radius:999px;background:#fff;color:#a16207;font-weight:800;border:1px solid #fcd34d}
+    .exported-empty{border:1px dashed #cbd5e1;border-radius:16px;padding:1.2rem;text-align:center;color:var(--muted);background:#f8fafc}
+    .exported-skeleton{border:1px solid #e2e8f0;border-radius:16px;padding:1rem;background:#fff}
+    .badge-detail-list{display:grid;gap:.7rem;max-height:46vh;overflow:auto;padding-right:.2rem}
+    .badge-number-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;border:1px solid #e2e8f0;border-radius:14px;padding:.75rem .85rem;background:#fff}
+    .badge-number-main{display:flex;align-items:flex-start;gap:.75rem;min-width:0}
+    .badge-number-phone{font-weight:800;color:#0f172a;letter-spacing:.2px}
+    .badge-status-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.34rem .65rem;border-radius:999px;font-size:.75rem;font-weight:800}
+    .badge-detail-loading{display:none}
+    .badge-detail-loading.show{display:block}
+    .badge-detail-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.75rem}
+    .badge-detail-box{border:1px solid #dbeafe;border-radius:14px;background:#f8fbff;padding:.8rem}
+    .badge-toolbar{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-bottom:.85rem}
+
+    @media (min-width: 1200px){
+      .orders-layout{grid-template-columns:minmax(0,1fr) 260px}
+    }
+
+    /* Skeleton swipe cards */
+    .skeleton-swipe{
+      display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+      padding:.5rem .25rem;margin:0 0 1rem 0
+    }
+    .skeleton-swipe::-webkit-scrollbar{height:8px}
+    .skeleton-swipe::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}
+    .skeleton-card{
+      min-width:220px;max-width:240px;flex:0 0 auto;
+      background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-md);
+      padding:1rem;scroll-snap-align:start;position:relative;overflow:hidden
+    }
+    .skeleton-line{height:12px;border-radius:8px;background:#e5e7eb;margin:.4rem 0;position:relative;overflow:hidden}
+    .skeleton-line.lg{height:16px}
+    .skeleton-line.sm{height:10px;width:70%}
+    .skeleton-pill{height:22px;width:90px;border-radius:999px;background:#e5e7eb;margin-top:.5rem;position:relative;overflow:hidden}
+    .skeleton-shimmer::after{
+      content:"";position:absolute;top:-50%;left:-50%;width:200%;height:200%;
+      background:linear-gradient(120deg, transparent 0%, rgba(255,255,255,.6) 50%, transparent 100%);
+      animation:shimmer 1.2s infinite;
+    }
+    @keyframes shimmer{
+      0%{transform:translateX(-50%)}
+      100%{transform:translateX(50%)}
+    }
+  </style>
+</head>
+<body>
+  {% include 'admin_sidebar.html' %}
+
+  <div class="container py-3 py-md-4">
+    <!-- Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-start sticky-header">
+      <div class="mb-2">
+        <h2 class="mb-1"><i class="fas fa-box me-2"></i>Customer Orders</h2>
+        <div class="subhead d-flex flex-wrap gap-2">
+          <span class="chip"><i class="fa-solid fa-database"></i> Total: <span id="totalOrders">0</span></span>
+          {% if (view_mode or '') != 'orders' %}<span class="chip"><i class="fa-solid fa-layer-group"></i> Lines: <span id="totalLines">0</span></span>{% endif %}
+          {% if status_filter %}<span class="chip"><i class="fa-solid fa-filter"></i> Status: {{ status_filter|capitalize }}</span>{% endif %}
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <div class="btn-group" role="group" aria-label="View mode">
+          <a href="{{ view_line_url }}" class="btn btn-outline-primary btn-icon {% if (view_mode or '') != 'orders' %}active{% endif %}">
+            <i class="fa-solid fa-list"></i> Line View
+          </a>
+          <a href="{{ view_order_url }}" class="btn btn-outline-primary btn-icon {% if (view_mode or '') == 'orders' %}active{% endif %}">
+            <i class="fa-solid fa-layer-group"></i> Order View
+          </a>
+        </div>
+
+        <!-- Filters toggle (all sizes) -->
+        <button class="btn btn-outline-secondary btn-icon" id="toggleFilters" aria-expanded="false" aria-controls="filtersCard">
+          <i class="fa-solid fa-sliders"></i> Filters
+        </button>
+
+        <!-- View Schedules -->
+        <button class="btn btn-outline-primary btn-icon" data-bs-toggle="offcanvas" data-bs-target="#jobsOffcanvas">
+          <i class="fa-solid fa-clock-rotate-left"></i> Scheduled Orders
+        </button>
+
+        <button class="btn btn-outline-dark btn-icon" data-bs-toggle="modal" data-bs-target="#autoUpdateModal">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Auto Update
+        </button>
+
+        <button class="btn export-trigger btn-icon" data-bs-toggle="modal" data-bs-target="#exportModal" id="openExportModal">
+          <i class="fa-solid fa-file-export"></i> Export Undelivered
+        </button>
+
+        <!-- Bulk Deliver within current filters -->
+        <form method="POST" action="{{ url_for('admin_orders.bulk_deliver_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}">
+          <button class="btn btn-success btn-icon" data-confirm="Mark ALL processing orders in the current filters as DELIVERED?">
+            <i class="fa-solid fa-truck-fast"></i> Mark Processing → Delivered
+          </button>
+        </form>
+
+        <!-- NEW: Mark Selected → Delivered (desktop header) -->
+        <button class="btn btn-dark btn-icon" id="markSelectedDelivered">
+          <i class="fa-solid fa-check-double"></i> Mark Selected → Delivered
+        </button>
+
+        <!-- Schedule for selected -->
+        <button class="btn btn-outline-dark btn-icon" id="openScheduleSelected" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+          <i class="fa-solid fa-calendar-plus"></i> Schedule Status (Selected)
+        </button>
+      </div>
+    </div>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+            <i class="fas fa-info-circle me-2"></i>{{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Filters -->
+    <div class="filter-toggle mb-2">
+      <span class="text-muted small"><i class="fa-regular fa-circle-question me-1"></i>Tap “Filters” to refine</span>
+    </div>
+
+    <form method="get" class="filter-bar mb-3" id="filtersCard">
+      <input type="hidden" name="view" value="{{ view_mode or 'lines' }}">
+      <div class="row filter-row">
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-hashtag me-1"></i>Order ID</label>
+          <input type="text" name="order_id" value="{{ order_id_q or '' }}" class="form-control" placeholder="Paste or type order id">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-user me-1"></i>Customer</label>
+          <input type="text" name="customer" value="{{ customer_q or '' }}" class="form-control" placeholder="Name / email / phone / username">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-clipboard-check me-1"></i>Status</label>
+          <select name="status" class="form-select">
+            <option value="">All</option>
+            {% for s in ['processing','delivered','failed','partially_refunded','refunded','pending','completed'] %}
+              <option value="{{ s }}" {% if s == status_filter %}selected{% endif %}>{{ s|replace('_', ' ')|title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-database me-1"></i>Source</label>
+          <select name="source" class="form-select">
+            <option value="all" {% if (source or '')=='all' %}selected{% endif %}>All Orders</option>
+            <option value="main" {% if (source or '')=='main' %}selected{% endif %}>Main Orders</option>
+            <option value="campus" {% if (source or '')=='campus' %}selected{% endif %}>Campus Data</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-wallet me-1"></i>Paid From</label>
+          <select name="paid_from" class="form-select">
+            <option value="">Any</option>
+            {% for src in ['wallet','card','momo','paystack','flutterwave','bank'] %}
+              <option value="{{ src }}" {% if (paid_from or '')==src %}selected{% endif %}>{{ src|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-plug-circle-check me-1"></i>API</label>
+          <select name="api_filter" class="form-select">
+            <option value="">All</option>
+            <option value="passed" {% if api_filter == 'passed' %}selected{% endif %}>Passed through API</option>
+            <option value="not_passed" {% if api_filter == 'not_passed' %}selected{% endif %}>Did not pass through API</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-arrow-down-1-9 me-1"></i>Min Total (₵)</label>
+          <input type="number" step="0.01" name="min_total" value="{{ min_total or '' }}" class="form-control" placeholder="0.00">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-arrow-up-9-1 me-1"></i>Max Total (₵)</label>
+          <input type="number" step="0.01" name="max_total" value="{{ max_total or '' }}" class="form-control" placeholder="1000.00">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-calendar-day me-1"></i>From</label>
+          <input type="date" name="date_from" value="{{ date_from or '' }}" class="form-control">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-calendar-check me-1"></i>To</label>
+          <input type="date" name="date_to" value="{{ date_to or '' }}" class="form-control">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-regular fa-clock me-1"></i>Time From</label>
+          <input type="time" name="time_from" value="{{ time_from or '' }}" class="form-control">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-clock me-1"></i>Time To</label>
+          <input type="time" name="time_to" value="{{ time_to or '' }}" class="form-control">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-boxes-stacked me-1"></i>Item Service</label>
+          <input type="text" name="item_service" value="{{ item_service or '' }}" class="form-control" placeholder="e.g., Bigtime Data">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-tags me-1"></i>Item Offer</label>
+          <input type="text" name="item_offer" value="{{ item_offer or '' }}" class="form-control" placeholder="e.g., 1GB">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label"><i class="fa-solid fa-mobile-screen-button me-1"></i>Item Phone</label>
+          <input type="text" name="item_phone" value="{{ item_phone or '' }}" class="form-control" placeholder="e.g., 055xxxxxxx">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-sort me-1"></i>Sort</label>
+          <select name="sort" class="form-select">
+            <option value="newest" {% if (sort or '')=='newest' %}selected{% endif %}>Newest first</option>
+            <option value="oldest" {% if (sort or '')=='oldest' %}selected{% endif %}>Oldest first</option>
+            <option value="amount_desc" {% if (sort or '')=='amount_desc' %}selected{% endif %}>Amount: High → Low</option>
+            <option value="amount_asc" {% if (sort or '')=='amount_asc' %}selected{% endif %}>Amount: Low → High</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label"><i class="fa-solid fa-list-ol me-1"></i>Per Page</label>
+          <select name="per_page" class="form-select">
+            {% for n in [10,20,30,50,100] %}
+              <option value="{{ n }}" {% if (per_page or 10)|int == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-3 d-flex align-items-end gap-2">
+          <button type="submit" class="btn btn-primary btn-icon w-100 w-md-auto">
+            <i class="fa-solid fa-magnifying-glass"></i> Apply Filters
+          </button>
+          <a href="{{ url_for('admin_orders.admin_view_orders', view=view_mode) }}" class="btn btn-outline-secondary btn-icon w-100 w-md-auto">
+            <i class="fa-solid fa-rotate-left"></i> Reset
+          </a>
+        </div>
+      </div>
+    </form>
+
+    <div class="orders-layout">
+      <div>
+
+    <!-- TABLE (md+) -->
+    {% if (view_mode or '') != 'orders' %}
+    <div class="table-wrap mb-3">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead class="text-center">
+            <tr>
+              <th style="width:42px">
+                <input class="form-check-input" type="checkbox" id="checkAll">
+              </th>
+              <th><i class="fas fa-receipt me-1"></i>Order ID</th>
+              <th><i class="fas fa-user me-1"></i>Customer</th>
+              <th><i class="fas fa-shopping-cart me-1"></i>Item</th>
+              <th><i class="fas fa-money-bill-wave me-1"></i>Amount (&#8373;)</th>
+              <th><i class="fas fa-tasks me-1"></i>Line Status</th>
+              <th><i class="fas fa-server me-1"></i>Provider</th>
+              <th><i class="fas fa-plug me-1"></i>API Status</th>
+              <th><i class="fas fa-calendar me-1"></i>Date</th>
+              <th style="width:140px">Quick</th>
+            </tr>
+          </thead>
+          <tbody id="linesTbody">
+            {% for _ in range(10) %}
+            <tr class="skeleton-row">
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line lg skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line skeleton-shimmer"></div><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-pill skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="table-wrap mb-3">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead class="text-center">
+            <tr>
+              <th style="width:42px">
+                <input class="form-check-input" type="checkbox" id="checkAll">
+              </th>
+              <th><i class="fas fa-receipt me-1"></i>Order ID</th>
+              <th><i class="fas fa-user me-1"></i>Customer</th>
+              <th><i class="fas fa-shopping-cart me-1"></i>Items</th>
+              <th><i class="fas fa-money-bill-wave me-1"></i>Total (&#8373;)</th>
+              <th><i class="fas fa-tasks me-1"></i>Status</th>
+              <th><i class="fas fa-credit-card me-1"></i>Paid From</th>
+              <th><i class="fas fa-plug me-1"></i>API</th>
+              <th><i class="fas fa-server me-1"></i>API Provider</th>
+              <th><i class="fas fa-calendar me-1"></i>Date</th>
+              <th style="width:110px">Quick</th>
+            </tr>
+          </thead>
+          <tbody id="ordersTbody">
+            {% for _ in range(10) %}
+            <tr class="skeleton-row">
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line lg skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line skeleton-shimmer"></div><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-pill skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+              <td><div class="skeleton-line sm skeleton-shimmer"></div></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <div id="ordersError" class="alert alert-danger d-none shadow-sm" role="alert">
+      <div class="d-flex justify-content-between align-items-center">
+        <div><i class="fas fa-triangle-exclamation me-2"></i>Failed to load orders.</div>
+        <button class="btn btn-sm btn-light" id="retryLoad">Retry</button>
+      </div>
+    </div>
+
+    <!-- Skeleton swipe (visible by default while loading) -->
+    <div id="skeletonSwipe" class="skeleton-swipe">
+      {% for _ in range(8) %}
+      <div class="skeleton-card">
+        <div class="skeleton-line lg skeleton-shimmer"></div>
+        <div class="skeleton-line sm skeleton-shimmer"></div>
+        <div class="skeleton-line skeleton-shimmer"></div>
+        <div class="skeleton-line skeleton-shimmer"></div>
+        <div class="skeleton-pill skeleton-shimmer"></div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- CARD LIST (xs-sm) -->
+    <div class="cards mb-5" id="cardsContainer"></div>
+    <!-- Pagination -->
+    <div id="paginationWrap" class="d-flex justify-content-between align-items-center mt-3"></div>
+      </div>
+
+      <aside class="exported-sidebar">
+        <div class="exported-head">
+          <div>
+            <div class="fw-bold"><i class="fa-solid fa-badge-check me-2"></i>Exported Badges</div>
+            <div class="small text-muted">Load export batches only when you need them.</div>
+          </div>
+          <button class="btn btn-sm btn-outline-primary" id="viewExportBatches" type="button">
+            <i class="fa-solid fa-eye"></i> View
+          </button>
+          <button class="btn btn-sm btn-outline-secondary d-none" id="refreshExportBatches" type="button">
+            <i class="fa-solid fa-rotate"></i>
+          </button>
+        </div>
+
+        <div id="exportedBatchesList" class="exported-badge-list">
+          <div class="exported-empty">
+            <i class="fa-regular fa-eye d-block mb-2"></i>
+            Export batches are paused for faster page load.
+            <div class="mt-2">
+              <button class="btn btn-sm btn-outline-primary" id="viewExportBatchesInline" type="button">
+                View Export Batches
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Hidden form for "Mark Selected → Delivered" -->
+  <form method="POST" id="bulkSelectedDeliverForm" action="{{ url_for('admin_orders.bulk_deliver_selected') }}" class="d-none">
+    <input type="hidden" name="order_ids" id="bulkSelectedIds">
+      <input type="hidden" name="line_ids" id="bulkSelectedLineIds">
+  </form>
+
+  <!-- Floating bulk bar (mobile) -->
+  <div class="floating-bar" id="floatingBar">
+    <div><span id="selCount" class="badge bg-light text-dark">0</span> selected</div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-light btn-sm" id="fbSchedule" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+        <i class="fa-solid fa-calendar-plus me-1"></i>Schedule
+      </button>
+      <button class="btn btn-success btn-sm" id="fbDeliver">
+        <i class="fa-solid fa-check-double me-1"></i>Deliver
+      </button>
+      <a href="{{ url_for('admin_orders.admin_view_orders') }}{% if filters_query %}?{{ filters_query }}{% endif %}" class="btn btn-light btn-sm">
+        Reset
+      </a>
+    </div>
+  </div>
+
+  <div class="modal fade export-modal" id="exportModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <form class="modal-content" id="exportForm">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title mb-1"><i class="fa-solid fa-file-export me-2"></i>Export Undelivered Orders</h5>
+            <div class="small text-muted">Download only undelivered lines for a service within a date window.</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <div class="modal-body">
+          <div id="exportFormAlert" class="alert alert-danger d-none" role="alert"></div>
+
+          <div class="row g-3">
+            <div class="col-12 col-lg-7">
+              <div class="export-panel h-100">
+                <div class="export-panel-title">Filter Export</div>
+                <div class="row g-3">
+                  <div class="col-12">
+                    <label class="form-label">Service</label>
+                    <div id="exportServiceGroup" class="rounded-4 border bg-white p-2" style="max-height:260px;overflow:auto;">
+                      <div class="small text-muted px-2 py-2">Open this modal to load export services.</div>
+                    </div>
+                    <div class="form-text">Tick one or more services to include in this export.</div>
+                  </div>
+
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Network</label>
+                    <select class="form-select" name="network" id="exportNetwork" required disabled>
+                      <option value="">Choose network</option>
+                    </select>
+                  </div>
+
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Source</label>
+                    <select class="form-select" name="source" id="exportSource">
+                      <option value="all" {% if (source or '') == 'all' %}selected{% endif %}>All orders</option>
+                      <option value="main" {% if (source or '') == 'main' %}selected{% endif %}>Main orders</option>
+                      <option value="campus" {% if (source or '') == 'campus' %}selected{% endif %}>Campus data</option>
+                    </select>
+                  </div>
+
+                  <div class="col-12">
+                    <label class="form-label d-block">Time Frame</label>
+                    <div class="timeframe-pills">
+                      <label class="time-pill">
+                        <input type="radio" name="timeframe" value="today" checked>
+                        <span class="time-pill-label"><i class="fa-regular fa-sun"></i> Today</span>
+                      </label>
+                      <label class="time-pill">
+                        <input type="radio" name="timeframe" value="custom">
+                        <span class="time-pill-label"><i class="fa-regular fa-calendar-days"></i> Custom Range</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="col-12">
+                    <div class="row g-3" id="exportTodayRange">
+                      <div class="col-12 col-md-6">
+                        <label class="form-label">Today From</label>
+                        <input type="time" class="form-control" name="today_start_time" id="exportTodayStartTime" value="00:00">
+                      </div>
+                      <div class="col-12 col-md-6">
+                        <label class="form-label">Today To</label>
+                        <input type="time" class="form-control" name="today_end_time" id="exportTodayEndTime" value="23:59">
+                      </div>
+                    </div>
+
+                    <div class="row g-3 d-none" id="exportCustomRange">
+                      <div class="col-12 col-md-6">
+                        <label class="form-label">Start Date & Time</label>
+                        <input type="datetime-local" class="form-control" name="date_from" id="exportDateFrom">
+                      </div>
+                      <div class="col-12 col-md-6">
+                        <label class="form-label">End Date & Time</label>
+                        <input type="datetime-local" class="form-control" name="date_to" id="exportDateTo">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12 col-lg-5">
+              <div class="export-panel h-100">
+                <div class="export-panel-title">Choose File Type</div>
+                <div class="format-grid">
+                  <label class="format-option">
+                    <input type="radio" name="format" value="txt" checked>
+                    <span class="format-card">
+                      <i class="fa-regular fa-file-lines"></i>
+                      <strong>TXT</strong>
+                      <small class="text-muted">Simple plain text</small>
+                    </span>
+                  </label>
+                  <label class="format-option">
+                    <input type="radio" name="format" value="excel">
+                    <span class="format-card">
+                      <i class="fa-regular fa-file-excel"></i>
+                      <strong>Excel</strong>
+                      <small class="text-muted">Spreadsheet export</small>
+                    </span>
+                  </label>
+                  <label class="format-option">
+                    <input type="radio" name="format" value="pdf">
+                    <span class="format-card">
+                      <i class="fa-regular fa-file-pdf"></i>
+                      <strong>PDF</strong>
+                      <small class="text-muted">Printable report</small>
+                    </span>
+                  </label>
+                </div>
+
+                <div class="mt-4 rounded-4 p-3" style="background:#eff6ff;border:1px solid #bfdbfe;">
+                  <div class="fw-bold text-primary mb-1">What gets exported</div>
+                  <div class="small text-muted">
+                    Matching undelivered lines only.
+                    Delivered and completed lines stay out of the file automatically.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary btn-icon" type="submit" id="submitExportBtn">
+            <i class="fa-solid fa-download"></i> Export Now
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="export-loading" id="exportLoading">
+    <div class="export-loading-card text-center">
+      <div class="export-spinner"></div>
+      <div class="export-loading-step mb-2" id="exportLoadingStep">Preparing export</div>
+      <div class="export-loading-sub mb-3" id="exportLoadingSub">Fetching undelivered orders and formatting your file.</div>
+      <div class="export-progress-track">
+        <div class="export-progress-bar" id="exportProgressBar"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="exportBadgeDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title mb-1" id="exportBadgeDetailTitle"><i class="fa-solid fa-badge-check me-2"></i>Exported Badge</h5>
+            <div class="small text-muted" id="exportBadgeDetailSubtitle">Batch details</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div id="exportBadgeDetailAlert" class="alert alert-danger d-none"></div>
+
+          <div id="badgeDetailLoading" class="badge-detail-loading show">
+            <div class="exported-skeleton mb-3">
+              <div class="skeleton-line lg skeleton-shimmer"></div>
+              <div class="skeleton-line skeleton-shimmer"></div>
+            </div>
+            <div class="exported-skeleton">
+              <div class="skeleton-line lg skeleton-shimmer"></div>
+              <div class="skeleton-line skeleton-shimmer"></div>
+              <div class="skeleton-line sm skeleton-shimmer"></div>
+            </div>
+          </div>
+
+          <div id="badgeDetailContent" class="d-none">
+            <div class="badge-detail-meta mb-3" id="exportBadgeMeta"></div>
+            <div class="badge-toolbar">
+              <label class="d-inline-flex align-items-center gap-2 m-0">
+                <input type="checkbox" class="form-check-input" id="badgeSelectAll">
+                <span class="small text-muted">Select all numbers in this badge</span>
+              </label>
+              <div class="small text-muted"><span id="badgeSelectedCount">0</span> selected</div>
+            </div>
+            <div class="badge-detail-list" id="exportBadgeNumbers"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Close</button>
+          <button class="btn btn-primary btn-icon" type="button" id="markSelectedBadgeDeliveredBtn">
+            <i class="fa-solid fa-list-check"></i> Mark Selected
+          </button>
+          <button class="btn btn-success btn-icon" type="button" id="markBadgeDeliveredBtn">
+            <i class="fa-solid fa-check-double"></i> Mark Delivered
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Schedule Modal -->
+  <div class="modal fade" id="scheduleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="POST" action="{{ url_for('admin_orders.schedule_status') }}">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-calendar-plus me-2"></i>Schedule Status Change</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Selection</label>
+            <div class="small text-muted">You can select multiple orders or lines from the list. This will populate automatically.</div>
+            <div id="selectedOrdersPreview" class="mt-2"></div>
+          </div>
+
+          <input type="hidden" name="order_ids" id="scheduleOrderIds">
+          <input type="hidden" name="line_ids" id="scheduleLineIds">
+
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">New Status</label>
+              <select name="status" class="form-select" required>
+                {% for s in ['processing','delivered','failed','refunded','pending','completed'] %}
+                  <option value="{{ s }}">{{ s|capitalize }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Delay (minutes)</label>
+              <input type="number" min="0" step="1" class="form-control" name="delay_minutes" id="delayMinutes" placeholder="e.g., 10">
+              <div class="form-text">Set a delay OR specify an exact time below.</div>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Run At (UTC)</label>
+              <input type="datetime-local" class="form-control" id="runAtLocal" placeholder="YYYY-MM-DD HH:MM">
+              <input type="hidden" name="run_at" id="runAtUtc">
+            </div>
+
+            <div class="col-12">
+              <label class="form-label">Note (optional)</label>
+              <input type="text" class="form-control" name="note" placeholder="Reason or extra info for audit">
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" type="submit">
+            <i class="fa-solid fa-calendar-check me-1"></i> Schedule
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal fade" id="autoUpdateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <form class="modal-content" method="POST" action="{{ url_for('admin_orders.save_auto_update_settings') }}">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-wand-magic-sparkles me-2"></i>Auto Update</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="auto-update-head mb-3">
+            <div>
+              <div class="auto-update-title mb-1">Auto-deliver selected services</div>
+            </div>
+          </div>
+
+          <div class="row g-3 align-items-start">
+            <div class="col-12 col-lg-4">
+              <label class="form-label d-flex align-items-center justify-content-between gap-3">
+                <span><i class="fa-solid fa-toggle-on me-1"></i>Enable Auto Update</span>
+                <div class="form-check form-switch m-0">
+                  <input class="form-check-input" type="checkbox" name="active" value="1" {% if auto_update_settings.active %}checked{% endif %}>
+                </div>
+              </label>
+              <label class="form-label mt-3"><i class="fa-regular fa-hourglass-half me-1"></i>Minutes</label>
+              <input type="number" min="1" step="1" name="minutes" class="form-control" value="{{ auto_update_settings.minutes or 10 }}" placeholder="10">
+            </div>
+
+            <div class="col-12 col-lg-8">
+              <label class="form-label"><i class="fa-solid fa-list-check me-1"></i>Select Services</label>
+              <div class="auto-update-services">
+                <div class="auto-update-grid">
+                  {% for service_name in auto_update_service_names %}
+                    <label class="auto-update-option">
+                      <input class="form-check-input" type="checkbox" name="service_names" value="{{ service_name }}" {% if service_name in auto_update_settings.service_names %}checked{% endif %}>
+                      <span>{{ service_name }}</span>
+                    </label>
+                  {% endfor %}
+                  {% if not auto_update_service_names %}
+                    <div class="text-muted small">No services found yet.</div>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="form-text">Saved services: <span id="autoUpdateSelectedCount">{{ auto_update_settings.service_names|length }}</span> selected.</div>
+
+              <div class="auto-update-summary">
+                <div class="auto-update-summary-grid">
+                  <div>
+                    <div class="auto-update-summary-label">Status</div>
+                    <div class="auto-update-summary-value" id="autoUpdateStatusValue">{{ 'Active' if auto_update_settings.active else 'Disabled' }}</div>
+                  </div>
+                  <div>
+                    <div class="auto-update-summary-label">Time Chosen</div>
+                    <div class="auto-update-summary-value" id="autoUpdateMinutesValue">{{ auto_update_settings.minutes or 0 }} minute(s)</div>
+                  </div>
+                  <div>
+                    <div class="auto-update-summary-label">Saved At</div>
+                    <div class="auto-update-summary-value">
+                      {% if auto_update_settings.updated_at %}
+                        {{ auto_update_settings.updated_at.strftime('%Y-%m-%d %H:%M') }} UTC
+                      {% else %}
+                        Not saved yet
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-3">
+                  <div class="auto-update-summary-label mb-2">Services Added</div>
+                  <div class="auto-update-service-tags" id="autoUpdateServiceTags">
+                    {% for service_name in auto_update_settings.service_names %}
+                      <span class="auto-update-service-tag" data-service-tag="{{ service_name|e }}">
+                        <span>{{ service_name }}</span>
+                        <button class="auto-update-tag-remove" type="button" data-remove-service="{{ service_name|e }}" aria-label="Remove {{ service_name }}">×</button>
+                      </span>
+                    {% endfor %}
+                    {% if not auto_update_settings.service_names %}
+                      <span class="small text-muted" id="autoUpdateNoServices">No services saved yet.</span>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary btn-icon" type="submit">
+            <i class="fa-solid fa-floppy-disk"></i> Save Auto Update
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Offcanvas: Scheduled Jobs -->
+  <div class="offcanvas offcanvas-end" tabindex="-1" id="jobsOffcanvas" aria-labelledby="jobsLabel">
+    <div class="offcanvas-header">
+      <h5 id="jobsLabel" class="mb-0"><i class="fa-solid fa-clock-rotate-left me-2"></i>Scheduled Jobs</h5>
+      <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+      <div id="jobsList" class="small"></div>
+      <div class="text-center mt-3">
+        <button class="btn btn-outline-primary btn-sm" id="refreshJobs"><i class="fa-solid fa-rotate"></i> Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // ---------- helpers ----------
+    const $$ = (sel, root=document)=>Array.from(root.querySelectorAll(sel));
+    const $  = (sel, root=document)=>root.querySelector(sel);
+    const pad2 = n => String(n).padStart(2,'0');
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const fmtMoney = (n) => Number(n || 0).toFixed(2);
+    const exportCatalogEndpoint = "{{ url_for('admin_orders.export_catalog') }}";
+    const exportEndpoint = "{{ url_for('admin_orders.export_undelivered_orders') }}";
+    const exportBatchesEndpoint = "{{ url_for('admin_orders.list_export_batches') }}";
+    const ORDERS_CLIENT_CACHE_PREFIX = 'admin-orders-cache:v2:';
+    const ORDERS_CLIENT_CACHE_TTL_MS = 2 * 60 * 1000;
+
+    const dataEndpoint = "{{ url_for('admin_orders.admin_orders_data') }}";
+    const adminOrdersUrl = "{{ url_for('admin_orders.admin_view_orders') }}";
+    const linesTbody = document.getElementById('linesTbody');
+    const ordersTbody = document.getElementById('ordersTbody');
+    const cardsContainer = document.getElementById('cardsContainer');
+    const paginationWrap = document.getElementById('paginationWrap');
+    const totalOrdersEl = document.getElementById('totalOrders');
+    const totalLinesEl = document.getElementById('totalLines');
+    const skeletonSwipe = document.getElementById('skeletonSwipe');
+    const ordersError = document.getElementById('ordersError');
+    const retryLoadBtn = document.getElementById('retryLoad');
+
+    function preservedQuery(){
+      const params = new URLSearchParams(window.location.search);
+      params.delete('page');
+      params.delete('prefetch');
+      return params.toString();
+    }
+
+    function dataQuery(){
+      const params = new URLSearchParams(window.location.search);
+      params.delete('prefetch');
+      const qs = params.toString();
+      return qs ? `?${qs}` : '';
+    }
+
+    function buildPageLink(p){
+      const params = new URLSearchParams(window.location.search);
+      params.set('page', String(p));
+      params.delete('prefetch');
+      const qs = params.toString();
+      return qs ? `${adminOrdersUrl}?${qs}` : adminOrdersUrl;
+    }
+
+    function clientCacheKey(){
+      return `${ORDERS_CLIENT_CACHE_PREFIX}${window.location.pathname}?${dataQuery().replace(/^\?/, '')}`;
+    }
+
+    function readClientOrdersCache(){
+      try{
+        const raw = window.sessionStorage.getItem(clientCacheKey());
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed?.payload || !parsed?.ts) return null;
+        if ((Date.now() - Number(parsed.ts || 0)) > ORDERS_CLIENT_CACHE_TTL_MS) return null;
+        return parsed;
+      }catch(_){
+        return null;
+      }
+    }
+
+    function writeClientOrdersCache(payload, etag){
+      if (!payload) return;
+      try{
+        window.sessionStorage.setItem(clientCacheKey(), JSON.stringify({
+          ts: Date.now(),
+          etag: etag || '',
+          payload,
+        }));
+      }catch(_){}
+    }
+
+    function statusChipClass(st){
+      if (st === 'delivered') return 'st-delivered';
+      if (st === 'failed') return 'st-failed';
+      if (st === 'processing') return 'st-processing';
+      if (st === 'refunded') return 'st-refunded';
+      if (st === 'partially_refunded') return 'st-refunded';
+      if (st === 'pending') return 'st-pending';
+      if (st === 'completed') return 'st-completed';
+      return 'st-processing';
+    }
+
+    function statusLabel(st){
+      return String(st || '').split('_').filter(Boolean).map(word =>
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ');
+    }
+
+    function statusBadgeHtml(status){
+      const st = String(status || 'unknown').toLowerCase();
+      const cls = statusChipClass(st);
+      return `<span class="badge-status-chip ${cls}"><i class="fa-solid fa-circle"></i> ${esc(st.charAt(0).toUpperCase() + st.slice(1))}</span>`;
+    }
+
+    function providerBadge(prov){
+      const p = (prov || '').toLowerCase();
+      if (!p) return '<span class="text-muted small">&mdash;</span>';
+      if (p === 'codecraft') return '<span class="prov-badge prov-codecraft">CodeCraft</span>';
+      if (p === 'bundleportal') return '<span class="prov-badge prov-codecraft">BundlePortal</span>';
+      if (p === 'datakazina') return '<span class="prov-badge prov-datakazina">DataKazina</span>';
+      if (p === 'skplug') return '<span class="prov-badge prov-skplug">SkPlug</span>';
+      return `<span class="prov-badge">${esc(p)}</span>`;
+    }
+
+    function showLoading(on){
+      if (skeletonSwipe) skeletonSwipe.style.display = on ? 'flex' : 'none';
+    }
+
+    function showError(on){
+      if (ordersError) ordersError.classList.toggle('d-none', !on);
+    }
+
+    function parseDownloadFilename(headerValue){
+      if (!headerValue) return '';
+      const utfMatch = headerValue.match(/filename\*=UTF-8''([^;]+)/i);
+      if (utfMatch?.[1]) return decodeURIComponent(utfMatch[1]);
+      const plainMatch = headerValue.match(/filename="?([^"]+)"?/i);
+      return plainMatch?.[1] || '';
+    }
+
+    function renderEmptyTable(colCount, label){
+      return `
+        <tr>
+          <td colspan="${colCount}" class="text-center text-muted py-5">
+            <i class="fas fa-inbox fa-3x mb-3 d-block"></i>
+            <h5>No ${label} found</h5>
+            <p class="mb-0">Try adjusting your filter criteria</p>
+          </td>
+        </tr>
+      `;
+    }
+
+    function ussdBadge(row){
+      return row && row.is_ussd_order ? '<span class="ussd-badge ms-1"><i class="fa-solid fa-mobile-screen-button"></i> USSD</span>' : '';
+    }
+
+    function renderLinesTable(lines){
+      if (!linesTbody) return;
+      if (!lines.length){
+        linesTbody.innerHTML = renderEmptyTable(10, 'order lines');
+        return;
+      }
+      const qs = preservedQuery();
+      const suffix = qs ? `?${qs}` : '';
+      linesTbody.innerHTML = lines.map(line => {
+        const item = line.item || {};
+        const lineRaw = (item.line_status || '').toLowerCase();
+        const lineSt = lineRaw === 'completed' ? 'delivered' : (lineRaw || 'processing');
+        const lineIsRefunded = lineSt === 'refunded';
+        const prov = providerBadge(item.provider);
+        const apiStatus = item.api_status ? esc(item.api_status) : '&mdash;';
+        const createdAt = line.created_at_display || 'N/A';
+        return `
+          <tr>
+            <td class="text-center">
+              <input class="form-check-input row-check" data-kind="line" type="checkbox" value="${esc(line.line_id)}" ${lineIsRefunded ? 'disabled title="This line is already refunded."' : ''}>
+            </td>
+            <td class="fw-semibold">
+              ${esc(line.order_id || '')}
+              ${ussdBadge(line)}
+              ${line.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
+            </td>
+            <td>
+              <div class="fw-semibold">${esc(line.user?.first_name || '')} ${esc(line.user?.last_name || '')}</div>
+              <div class="small text-muted">
+                <i class="fas fa-envelope me-1"></i>${esc(line.user?.email || '')}<br>
+                <i class="fas fa-phone-alt me-1"></i><strong>${esc(line.user?.phone || '')}</strong>
+              </div>
+            </td>
+            <td>
+              <div class="fw-semibold">${esc(item.serviceName || '')} &ndash; ${esc(item.value || '')}</div>
+              <div class="small text-muted"><i class="fas fa-mobile-alt me-1"></i>${esc(item.phone || '')}</div>
+            </td>
+            <td class="text-center fw-semibold text-success">
+              <i class="fas fa-coins me-1"></i>&#8373;${fmtMoney(item.amount)}
+            </td>
+            <td class="text-center">
+              <span class="status-chip ${statusChipClass(lineSt)}">
+                <i class="fa-solid fa-circle"></i> ${esc(statusLabel(lineSt))}
+              </span>
+              ${lineIsRefunded ? `<div class="small text-muted mt-1">Refunded &#8373;${fmtMoney(item.refund_amount || item.amount)}</div>` : ''}
+            </td>
+            <td class="text-center">${prov}</td>
+            <td class="text-center"><span class="small text-muted">${apiStatus}</span></td>
+            <td class="text-center">
+              <small class="muted"><i class="fas fa-clock me-1"></i>${esc(createdAt)}</small>
+            </td>
+            <td class="text-center">
+              <div class="d-flex flex-wrap gap-2 justify-content-center">
+                ${lineIsRefunded ? '<span class="text-muted small">Refund complete</span>' : (lineSt === 'delivered' ? ['refunded'] : ['delivered','processing','failed','refunded']).map(newst => {
+                  const btnClass = newst === 'delivered' ? 'success' : (newst === 'processing' ? 'info' : (newst === 'failed' ? 'danger' : 'primary'));
+                  const refundText = line.is_store_order
+                    ? 'Refund this store line? Only the agent base amount will be credited; customer markup is excluded.'
+                    : 'Mark this line as Refunded?';
+                  const confirm = newst === 'refunded' ? `data-confirm="${refundText}"` : '';
+                  return `
+                    <form method="POST" class="m-0 d-inline" action="${adminOrdersUrl}/${encodeURIComponent(line.order_mongo_id_param)}/items/${line.item_index}/status${suffix}">
+                      <input type="hidden" name="line_status" value="${newst}">
+                      <button type="submit" class="btn btn-outline-${btnClass} btn-sm" ${confirm}>
+                        ${newst.charAt(0).toUpperCase() + newst.slice(1)}
+                      </button>
+                    </form>
+                  `;
+                }).join('')}
+                <button class="btn btn-sm btn-dark" data-quick-schedule="${esc(line.line_id)}" data-kind="line" data-bs-toggle="modal" data-bs-target="#scheduleModal" ${lineIsRefunded ? 'disabled title="This line is already refunded."' : ''}>
+                  <i class="fa-solid fa-calendar-plus"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderOrdersTable(orders){
+      if (!ordersTbody) return;
+      if (!orders.length){
+        ordersTbody.innerHTML = renderEmptyTable(11, 'orders');
+        return;
+      }
+      const qs = preservedQuery();
+      const suffix = qs ? `?${qs}` : '';
+      ordersTbody.innerHTML = orders.map(order => {
+        const stRaw = (order.status || '').toLowerCase();
+        const st = stRaw === 'completed' ? 'delivered' : (stRaw || 'processing');
+        const isCompleted = st === 'delivered';
+        const itemsHtml = (order.items || []).map(item => `
+          <li class="mb-1 border-bottom pb-1">
+            <strong>${esc(item.serviceName || '')}</strong> &ndash; ${esc(item.value || '')}<br>
+            <span class="d-block"><i class="fas fa-mobile-alt me-1 text-muted"></i><strong>${esc(item.phone || '')}</strong></span>
+            <span class="d-block mt-1"><i class="fas fa-tag me-1 text-muted"></i>&#8373;${fmtMoney(item.amount)}</span>
+          </li>
+        `).join('');
+        const paidFrom = (order.paid_from || 'N/A').toLowerCase();
+        const pfClass = paidFrom === 'wallet' ? 'pf-wallet' : (paidFrom === 'card' ? 'pf-card' : (paidFrom === 'momo' ? 'pf-momo' : (paidFrom === 'paystack' ? 'pf-paystack' : (paidFrom === 'flutterwave' ? 'pf-flutterwave' : (paidFrom === 'bank' ? 'pf-bank' : 'pf-card')))));
+        const apiChip = order.api_passed
+          ? '<span class="api-chip api-chip-passed"><i class="fas fa-check-circle"></i> Passed through API</span>'
+          : '<span class="api-chip api-chip-not"><i class="fas fa-minus-circle"></i> Did not pass through API</span>';
+        const providers = (order.api_providers || []).map(p => providerBadge(p)).join('');
+        return `
+          <tr>
+            <td class="text-center">
+              <input class="form-check-input row-check" data-kind="order" type="checkbox" value="${esc(order.order_id_param)}" ${isCompleted ? 'disabled title="Delivered orders are final."' : ''}>
+            </td>
+            <td class="fw-semibold">
+              ${esc(order.order_id || '')}
+              ${ussdBadge(order)}
+              ${order.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
+            </td>
+            <td>
+              <div class="fw-semibold">${esc(order.user?.first_name || '')} ${esc(order.user?.last_name || '')}</div>
+              <div class="small text-muted">
+                <i class="fas fa-envelope me-1"></i>${esc(order.user?.email || '')}<br>
+                <i class="fas fa-phone-alt me-1"></i><strong>${esc(order.user?.phone || '')}</strong>
+              </div>
+            </td>
+            <td>
+              <ul class="list-unstyled small mb-0">${itemsHtml}</ul>
+            </td>
+            <td class="text-center fw-semibold text-success">
+              <i class="fas fa-coins me-1"></i>&#8373;${fmtMoney(order.total_amount)}
+            </td>
+            <td class="text-center">
+              <div class="d-flex flex-wrap gap-2 align-items-center justify-content-center">
+                <span class="status-chip ${statusChipClass(st)}">
+                  <i class="fa-solid fa-circle"></i> ${esc(statusLabel(st))}
+                </span>
+                <button type="button" class="btn btn-sm btn-outline-secondary btn-icon toggle-actions" data-actions="actions-${esc(order.order_id_key)}">
+                  <i class="fa-solid fa-ellipsis"></i> Actions
+                </button>
+              </div>
+              <div class="status-actions mt-2" id="actions-${esc(order.order_id_key)}">
+                ${isCompleted ? `
+                  <form method="POST" class="m-0 d-inline" action="${adminOrdersUrl}/${encodeURIComponent(order.order_id_param)}/update${suffix}">
+                    <input type="hidden" name="status" value="refunded">
+                    <button type="submit" class="btn btn-outline-primary btn-sm" data-confirm="${order.is_store_order ? 'Refund this delivered store order? Only the agent base amount will be credited; customer markup is excluded.' : 'Refund this delivered order? This credits the wallet if not already refunded.'}">
+                      Refund
+                    </button>
+                  </form>` : ['failed','refunded','processing','delivered'].map(newst => {
+                  const btnClass = newst === 'failed' ? 'danger' : (newst === 'delivered' ? 'success' : (newst === 'processing' ? 'info' : 'primary'));
+                  const refundText = order.is_store_order
+                    ? 'Refund this store order? Only the agent base amount will be credited; the customer-paid markup is excluded.'
+                    : 'Mark this order as Refunded? This credits the wallet if not already.';
+                  const confirm = newst === 'refunded' ? `data-confirm="${refundText}"` : '';
+                  return `
+                    <form method="POST" class="m-0 d-inline" action="${adminOrdersUrl}/${encodeURIComponent(order.order_id_param)}/update${suffix}">
+                      <input type="hidden" name="status" value="${newst}">
+                      <button type="submit" class="btn btn-outline-${btnClass} btn-sm" ${confirm}>
+                        ${newst.charAt(0).toUpperCase() + newst.slice(1)}
+                      </button>
+                    </form>
+                  `;
+                }).join('')}
+              </div>
+            </td>
+            <td class="text-center">
+              <span class="pf-badge ${pfClass}">
+                <i class="fas fa-wallet me-1"></i>${esc(paidFrom.charAt(0).toUpperCase() + paidFrom.slice(1))}
+              </span>
+            </td>
+            <td class="text-center">${apiChip}</td>
+            <td class="text-center">
+              ${providers ? '<div class="d-flex flex-wrap gap-2 justify-content-center">' + providers + '</div>' : '&mdash;'}
+            </td>
+            <td class="text-center">
+              <small class="muted"><i class="fas fa-clock me-1"></i>${esc(order.created_at_display || 'N/A')}</small>
+            </td>
+            <td class="text-center">
+              <button class="btn btn-sm btn-dark" data-quick-schedule="${esc(order.order_id_param)}" data-kind="order" data-bs-toggle="modal" data-bs-target="#scheduleModal" ${isCompleted ? 'disabled title="Delivered orders are final."' : ''}>
+                <i class="fa-solid fa-calendar-plus"></i>
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderCards(data){
+      if (!cardsContainer) return;
+      const viewMode = data.view_mode || 'lines';
+      if (viewMode === 'orders'){
+        if (!data.orders || !data.orders.length){
+          cardsContainer.innerHTML = `
+            <div class="order-card text-center text-muted py-4">
+              <i class="fas fa-inbox fa-2x mb-2 d-block"></i>
+              <h6>No orders found</h6>
+              <div>Try adjusting your filter criteria</div>
+            </div>`;
+          return;
+        }
+        const qs = preservedQuery();
+        const suffix = qs ? `?${qs}` : '';
+        cardsContainer.innerHTML = data.orders.map(order => {
+          const stRaw = (order.status || '').toLowerCase();
+          const st = stRaw === 'completed' ? 'delivered' : (stRaw || 'processing');
+          const isCompleted = st === 'delivered';
+          const paidFrom = (order.paid_from || 'N/A').toLowerCase();
+          const pfClass = paidFrom === 'wallet' ? 'pf-wallet' : (paidFrom === 'card' ? 'pf-card' : (paidFrom === 'momo' ? 'pf-momo' : (paidFrom === 'paystack' ? 'pf-paystack' : (paidFrom === 'flutterwave' ? 'pf-flutterwave' : (paidFrom === 'bank' ? 'pf-bank' : 'pf-card')))));
+          const itemsHtml = (order.items || []).map(item => `
+            <div class="it">
+              <div>
+                <strong>${esc(item.serviceName || '')}</strong> &ndash; ${esc(item.value || '')}<br>
+                <small class="text-muted"><i class="fas fa-mobile-alt me-1"></i>${esc(item.phone || '')}</small>
+              </div>
+              <div class="fw-semibold">&#8373;${fmtMoney(item.amount)}</div>
+            </div>
+          `).join('');
+          const providers = (order.api_providers || []).map(p => providerBadge(p)).join('');
+          return `
+            <div class="order-card">
+              <div class="header">
+                <div>
+                  <div class="fw-bold">
+                    #${esc(order.order_id || '')}
+                    ${ussdBadge(order)}
+                    ${order.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
+                  </div>
+                  <div class="meta">
+                    ${esc(order.user?.first_name || '')} ${esc(order.user?.last_name || '')} &bull;
+                    <i class="fa-regular fa-clock"></i> ${esc(order.created_at_display || 'N/A')}
+                  </div>
+                </div>
+                <div>
+                  <span class="status-chip ${statusChipClass(st)}">
+                    <i class="fa-solid fa-circle"></i> ${esc(statusLabel(st))}
+                  </span>
+                </div>
+              </div>
+              <div class="items">${itemsHtml}</div>
+              <div class="tot">
+                <span class="fw-semibold text-success"><i class="fas fa-coins me-1"></i>&#8373;${fmtMoney(order.total_amount)}</span>
+                <span class="pf-badge ms-auto ${pfClass}">
+                  <i class="fas fa-wallet me-1"></i>${esc(paidFrom.charAt(0).toUpperCase() + paidFrom.slice(1))}
+                </span>
+              </div>
+              <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
+                ${order.api_passed
+                  ? '<span class="api-chip api-chip-passed"><i class="fas fa-check-circle"></i> Passed through API</span>'
+                  : '<span class="api-chip api-chip-not"><i class="fas fa-minus-circle"></i> Did not pass through API</span>'}
+                ${providers ? providers : '<span class="text-muted small">&mdash;</span>'}
+              </div>
+              <div class="footer">
+                <input class="form-check-input row-check" data-kind="order" type="checkbox" value="${esc(order.order_id_param)}" ${isCompleted ? 'disabled title="Delivered orders are final."' : ''}>
+                <button class="btn btn-outline-secondary btn-sm w-100 toggle-actions" type="button" data-actions="card-actions-${esc(order.order_id_key)}">
+                  <i class="fa-solid fa-ellipsis"></i> Actions
+                </button>
+                <div class="card-actions hidden" id="card-actions-${esc(order.order_id_key)}">
+                  ${isCompleted ? `
+                    <form method="POST" action="${adminOrdersUrl}/${encodeURIComponent(order.order_id_param)}/update${suffix}">
+                      <input type="hidden" name="status" value="refunded">
+                      <button type="submit" class="btn btn-outline-primary btn-sm" data-confirm="${order.is_store_order ? 'Refund this delivered store order? Only the agent base amount will be credited; customer markup is excluded.' : 'Refund this delivered order? This credits the wallet if not already refunded.'}">Refund</button>
+                    </form>` : ['delivered','processing','failed','refunded'].map(newst => {
+                    const btnClass = newst === 'delivered' ? 'success' : (newst === 'processing' ? 'info' : (newst === 'failed' ? 'danger' : 'primary'));
+                    const refundText = order.is_store_order
+                      ? 'Refund this store order? Only the agent base amount will be credited; the customer-paid markup is excluded.'
+                      : 'Mark this order as Refunded? This credits the wallet if not already.';
+                    const confirm = newst === 'refunded' ? `data-confirm="${refundText}"` : '';
+                    return `
+                      <form method="POST" action="${adminOrdersUrl}/${encodeURIComponent(order.order_id_param)}/update${suffix}">
+                        <input type="hidden" name="status" value="${newst}">
+                        <button type="submit" class="btn btn-outline-${btnClass} btn-sm" ${confirm}>
+                          ${newst.charAt(0).toUpperCase() + newst.slice(1)}
+                        </button>
+                      </form>
+                    `;
+                  }).join('')}
+                  <button class="btn btn-dark btn-sm" data-quick-schedule="${esc(order.order_id_param)}" data-kind="order" data-bs-toggle="modal" data-bs-target="#scheduleModal" ${isCompleted ? 'disabled title="Only Refund is available for delivered orders."' : ''}>
+                    <i class="fa-solid fa-calendar-plus"></i> Schedule
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        if (!data.order_lines || !data.order_lines.length){
+          cardsContainer.innerHTML = `
+            <div class="order-card text-center text-muted py-4">
+              <i class="fas fa-inbox fa-2x mb-2 d-block"></i>
+              <h6>No order lines found</h6>
+              <div>Try adjusting your filter criteria</div>
+            </div>`;
+          return;
+        }
+        const qs = preservedQuery();
+        const suffix = qs ? `?${qs}` : '';
+        cardsContainer.innerHTML = data.order_lines.map(line => {
+          const item = line.item || {};
+          const lineRaw = (item.line_status || '').toLowerCase();
+          const lineSt = lineRaw === 'completed' ? 'delivered' : (lineRaw || 'processing');
+          const lineIsRefunded = lineSt === 'refunded';
+          return `
+            <div class="order-card">
+              <div class="header">
+                <div>
+                  <div class="fw-bold">
+                    #${esc(line.order_id || '')}
+                    ${ussdBadge(line)}
+                    ${line.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
+                  </div>
+                  <div class="meta">
+                    ${esc(line.user?.first_name || '')} ${esc(line.user?.last_name || '')} &bull;
+                    <i class="fa-regular fa-clock"></i> ${esc(line.created_at_display || 'N/A')}
+                  </div>
+                </div>
+                <div>
+                  <span class="status-chip ${statusChipClass(lineSt)}">
+                    <i class="fa-solid fa-circle"></i> ${esc(statusLabel(lineSt))}
+                  </span>
+                  ${lineIsRefunded ? `<div class="small text-muted mt-1">Refunded &#8373;${fmtMoney(item.refund_amount || item.amount)}</div>` : ''}
+                </div>
+              </div>
+              <div class="items">
+                <div class="it">
+                  <div>
+                    <strong>${esc(item.serviceName || '')}</strong> &ndash; ${esc(item.value || '')}<br>
+                    <small class="text-muted"><i class="fas fa-mobile-alt me-1"></i>${esc(item.phone || '')}</small>
+                  </div>
+                  <div class="fw-semibold">&#8373;${fmtMoney(item.amount)}</div>
+                </div>
+              </div>
+              <div class="tot">
+                ${providerBadge(item.provider)}
+                <span class="ms-auto small text-muted">API: ${item.api_status ? esc(item.api_status) : '&mdash;'}</span>
+              </div>
+              <div class="footer">
+                <input class="form-check-input row-check" data-kind="line" type="checkbox" value="${esc(line.line_id)}" ${lineIsRefunded ? 'disabled title="This line is already refunded."' : ''}>
+                <button class="btn btn-outline-secondary btn-sm w-100 toggle-actions" type="button" data-actions="card-actions-${esc(line.line_id).replace(/:/g,'_')}" ${lineIsRefunded ? 'disabled title="This line is already refunded."' : ''}>
+                  <i class="fa-solid fa-ellipsis"></i> Actions
+                </button>
+                <div class="card-actions hidden" id="card-actions-${esc(line.line_id).replace(/:/g,'_')}">
+                  ${lineIsRefunded ? '<span class="text-muted small">Refund complete</span>' : (lineSt === 'delivered' ? ['refunded'] : ['delivered','processing','failed','refunded']).map(newst => {
+                    const btnClass = newst === 'delivered' ? 'success' : (newst === 'processing' ? 'info' : (newst === 'failed' ? 'danger' : 'primary'));
+                    const refundText = line.is_store_order
+                      ? 'Refund this store line? Only the agent base amount will be credited; customer markup is excluded.'
+                      : 'Mark this line as Refunded?';
+                    const confirm = newst === 'refunded' ? `data-confirm="${refundText}"` : '';
+                    return `
+                      <form method="POST" action="${adminOrdersUrl}/${encodeURIComponent(line.order_mongo_id_param)}/items/${line.item_index}/status${suffix}">
+                        <input type="hidden" name="line_status" value="${newst}">
+                        <button type="submit" class="btn btn-outline-${btnClass} btn-sm" ${confirm}>
+                          ${newst.charAt(0).toUpperCase() + newst.slice(1)}
+                        </button>
+                      </form>
+                    `;
+                  }).join('')}
+                  <button class="btn btn-dark btn-sm" data-quick-schedule="${esc(line.line_id)}" data-kind="line" data-bs-toggle="modal" data-bs-target="#scheduleModal">
+                    <i class="fa-solid fa-calendar-plus"></i> Schedule
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    function renderPagination(data){
+      if (!paginationWrap) return;
+      const totalPages = data.total_pages || 1;
+      const page = data.page || 1;
+      if (totalPages <= 1){
+        paginationWrap.innerHTML = '';
+        return;
+      }
+      const pageItems = [];
+      const pushPage = (value) => {
+        if (pageItems[pageItems.length - 1] !== value) pageItems.push(value);
+      };
+      pushPage(1);
+      if (page > 4) pushPage('ellipsis-left');
+      for (let p = Math.max(2, page - 2); p <= Math.min(totalPages - 1, page + 2); p += 1){
+        pushPage(p);
+      }
+      if (page < totalPages - 3) pushPage('ellipsis-right');
+      if (totalPages > 1) pushPage(totalPages);
+
+      const pages = pageItems.map(item => {
+        if (String(item).startsWith('ellipsis')){
+          return `<li class="page-item disabled"><span class="page-link">&hellip;</span></li>`;
+        }
+        return `
+          <li class="page-item ${item === page ? 'active' : ''}">
+            <a class="page-link" href="${buildPageLink(item)}">${item}</a>
+          </li>
+        `;
+      }).join('');
+      const prev = page > 1 ? `
+        <li class="page-item">
+          <a class="page-link" href="${buildPageLink(page - 1)}"><i class="fas fa-chevron-left"></i> Prev</a>
+        </li>` : '';
+      const next = page < totalPages ? `
+        <li class="page-item">
+          <a class="page-link" href="${buildPageLink(page + 1)}">Next <i class="fas fa-chevron-right"></i></a>
+        </li>` : '';
+      paginationWrap.innerHTML = `
+        <div class="text-muted small">Page ${page} of ${totalPages}</div>
+        <nav>
+          <ul class="pagination pagination-sm mb-0">
+            ${prev}${pages}${next}
+          </ul>
+        </nav>`;
+    }
+
+    function renderData(data){
+      showError(false);
+      if (totalOrdersEl) totalOrdersEl.textContent = data.total_orders ?? 0;
+      if (totalLinesEl) totalLinesEl.textContent = data.order_lines_count ?? 0;
+      if (data.view_mode === 'orders') renderOrdersTable(data.orders || []);
+      else renderLinesTable(data.order_lines || []);
+      renderCards(data);
+      renderPagination(data);
+      showLoading(false);
+      if (checkAll) checkAll.checked = false;
+      updateFloatingBar();
+    }
+
+    async function loadOrders(){
+      showError(false);
+      const cached = readClientOrdersCache();
+      if (cached?.payload){
+        renderData(cached.payload);
+        showLoading(false);
+      }
+      try{
+        const headers = {};
+        if (cached?.etag) headers['If-None-Match'] = cached.etag;
+        const res = await fetch(`${dataEndpoint}${dataQuery()}`, {
+          credentials:'same-origin',
+          headers,
+          cache:'no-store',
+        });
+        if (res.status === 304 && cached?.payload){
+          renderData(cached.payload);
+          return;
+        }
+        if (!res.ok) throw new Error('Network');
+        const data = await res.json();
+        writeClientOrdersCache(data, res.headers.get('ETag'));
+        renderData(data);
+      }catch(e){
+        if (cached?.payload){
+          renderData(cached.payload);
+          return;
+        }
+        showLoading(false);
+        showError(true);
+      }
+    }
+
+    retryLoadBtn?.addEventListener('click', loadOrders);
+
+    // Mobile: toggle filter card
+    const toggleFiltersBtn = document.getElementById('toggleFilters');
+    const filtersCard = document.getElementById('filtersCard');
+    toggleFiltersBtn?.addEventListener('click', ()=>{
+      const willShow = !filtersCard.classList.contains('show');
+      filtersCard.classList.toggle('show', willShow);
+      toggleFiltersBtn.setAttribute('aria-expanded', willShow ? 'true' : 'false');
+    });
+
+    const exportForm = document.getElementById('exportForm');
+    const exportModalEl = document.getElementById('exportModal');
+    const exportFormAlert = document.getElementById('exportFormAlert');
+    const exportServiceGroup = document.getElementById('exportServiceGroup');
+    const exportNetwork = document.getElementById('exportNetwork');
+    const exportTodayRange = document.getElementById('exportTodayRange');
+    const exportTodayStartTime = document.getElementById('exportTodayStartTime');
+    const exportTodayEndTime = document.getElementById('exportTodayEndTime');
+    const exportCustomRange = document.getElementById('exportCustomRange');
+    const exportDateFrom = document.getElementById('exportDateFrom');
+    const exportDateTo = document.getElementById('exportDateTo');
+    const exportLoading = document.getElementById('exportLoading');
+    const exportLoadingStep = document.getElementById('exportLoadingStep');
+    const exportLoadingSub = document.getElementById('exportLoadingSub');
+    const exportProgressBar = document.getElementById('exportProgressBar');
+    const submitExportBtn = document.getElementById('submitExportBtn');
+    const exportedBatchesList = document.getElementById('exportedBatchesList');
+    const viewExportBatchesBtn = document.getElementById('viewExportBatches');
+    const viewExportBatchesInlineBtn = document.getElementById('viewExportBatchesInline');
+    const refreshExportBatchesBtn = document.getElementById('refreshExportBatches');
+    const exportBadgeDetailModalEl = document.getElementById('exportBadgeDetailModal');
+    const exportBadgeDetailTitle = document.getElementById('exportBadgeDetailTitle');
+    const exportBadgeDetailSubtitle = document.getElementById('exportBadgeDetailSubtitle');
+    const exportBadgeDetailAlert = document.getElementById('exportBadgeDetailAlert');
+    const badgeDetailLoading = document.getElementById('badgeDetailLoading');
+    const badgeDetailContent = document.getElementById('badgeDetailContent');
+    const exportBadgeMeta = document.getElementById('exportBadgeMeta');
+    const exportBadgeNumbers = document.getElementById('exportBadgeNumbers');
+    const badgeSelectAll = document.getElementById('badgeSelectAll');
+    const badgeSelectedCount = document.getElementById('badgeSelectedCount');
+    const markSelectedBadgeDeliveredBtn = document.getElementById('markSelectedBadgeDeliveredBtn');
+    const markBadgeDeliveredBtn = document.getElementById('markBadgeDeliveredBtn');
+    let exportLoadingTimer = null;
+    let exportProgress = 18;
+    let activeExportBatchId = '';
+    let exportCatalogLoaded = false;
+    let exportCatalogLoading = false;
+    let exportServiceNetworkMap = {};
+    let exportBatchesLoaded = false;
+    let exportBatchesLoading = false;
+
+    function setExportAlert(message){
+      if (!exportFormAlert) return;
+      exportFormAlert.textContent = message || '';
+      exportFormAlert.classList.toggle('d-none', !message);
+    }
+
+    function getExportServiceChecks() {
+      return exportServiceGroup ? Array.from(exportServiceGroup.querySelectorAll('input[name="service_name"]')) : [];
+    }
+
+    function renderExportCatalogLoading(){
+      if (!exportServiceGroup) return;
+      exportServiceGroup.innerHTML = `
+        <div class="exported-skeleton">
+          <div class="skeleton-line lg skeleton-shimmer"></div>
+          <div class="skeleton-line skeleton-shimmer"></div>
+          <div class="skeleton-line sm skeleton-shimmer"></div>
+        </div>`;
+      if (exportNetwork) {
+        exportNetwork.disabled = true;
+        exportNetwork.innerHTML = '<option value="">Loading networks...</option>';
+      }
+    }
+
+    function renderExportCatalog(services, networks){
+      if (exportServiceGroup) {
+        if (!services?.length) {
+          exportServiceGroup.innerHTML = '<div class="small text-muted px-2 py-2">No services available for export yet.</div>';
+        } else {
+          exportServiceGroup.innerHTML = services.map(service => `
+            <label class="form-check d-flex align-items-start gap-2 px-2 py-2 mb-0 border-bottom" style="cursor:pointer;">
+              <input class="form-check-input mt-1" type="checkbox" name="service_name" value="${esc(service)}">
+              <span class="form-check-label">${esc(service)}</span>
+            </label>
+          `).join('');
+        }
+      }
+
+      if (exportNetwork) {
+        exportNetwork.disabled = false;
+        exportNetwork.innerHTML = `
+          <option value="">Choose network</option>
+          <option value="ANY">Any network</option>
+          ${(networks || []).map(network => `<option value="${esc(network)}">${esc(network)}</option>`).join('')}
+        `;
+      }
+
+      getExportServiceChecks().forEach(input => {
+        input.addEventListener('change', syncExportNetworkFromServices);
+      });
+    }
+
+    async function ensureExportCatalogLoaded(){
+      if (exportCatalogLoaded || exportCatalogLoading) return;
+      exportCatalogLoading = true;
+      renderExportCatalogLoading();
+      try{
+        const res = await fetch(exportCatalogEndpoint, {credentials:'same-origin'});
+        if (!res.ok) throw new Error('Could not load export filters.');
+        const data = await res.json();
+        if (!data?.ok) throw new Error(data?.message || 'Could not load export filters.');
+        exportServiceNetworkMap = data.service_network_map || {};
+        renderExportCatalog(data.services || [], data.networks || []);
+        exportCatalogLoaded = true;
+      }catch(err){
+        if (exportServiceGroup) {
+          exportServiceGroup.innerHTML = `<div class="small text-danger px-2 py-2">${esc(err?.message || 'Could not load export filters.')}</div>`;
+        }
+        if (exportNetwork) {
+          exportNetwork.disabled = true;
+          exportNetwork.innerHTML = '<option value="">Could not load networks</option>';
+        }
+      }finally{
+        exportCatalogLoading = false;
+      }
+    }
+
+    function toggleExportCustomRange(){
+      const useCustom = exportForm?.querySelector('input[name="timeframe"]:checked')?.value === 'custom';
+      exportTodayRange?.classList.toggle('d-none', useCustom);
+      exportCustomRange?.classList.toggle('d-none', !useCustom);
+      if (exportDateFrom) exportDateFrom.required = !!useCustom;
+      if (exportDateTo) exportDateTo.required = !!useCustom;
+      if (exportTodayStartTime) exportTodayStartTime.required = !useCustom;
+      if (exportTodayEndTime) exportTodayEndTime.required = !useCustom;
+    }
+
+    function beginExportLoading(){
+      if (!exportLoading) return;
+      const steps = [
+        ['Preparing export', 'Checking filters and building your export request.'],
+        ['Collecting undelivered orders', 'Matching service, network, and timeframe.'],
+        ['Formatting file', 'Generating the selected TXT, Excel, or PDF download.'],
+        ['Finalizing download', 'Almost done. Your file will download automatically.'],
+      ];
+      let stepIndex = 0;
+      exportProgress = 22;
+      exportProgressBar.style.width = `${exportProgress}%`;
+      exportLoadingStep.textContent = steps[0][0];
+      exportLoadingSub.textContent = steps[0][1];
+      exportLoading.classList.add('show');
+      clearInterval(exportLoadingTimer);
+      exportLoadingTimer = setInterval(() => {
+        stepIndex = Math.min(stepIndex + 1, steps.length - 1);
+        exportProgress = Math.min(exportProgress + 19, 88);
+        exportProgressBar.style.width = `${exportProgress}%`;
+        exportLoadingStep.textContent = steps[stepIndex][0];
+        exportLoadingSub.textContent = steps[stepIndex][1];
+      }, 900);
+    }
+
+    function endExportLoading(){
+      clearInterval(exportLoadingTimer);
+      exportLoadingTimer = null;
+      if (exportProgressBar) exportProgressBar.style.width = '100%';
+      if (exportLoading) {
+        exportLoading.classList.remove('show');
+        exportLoading.style.display = 'none';
+        // Force a clean state in case a previous inline display value was kept.
+        requestAnimationFrame(() => {
+          exportLoading.style.display = '';
+        });
+      }
+    }
+
+    function cleanupModalBackdrops(){
+      document.body.classList.remove('modal-open');
+      document.body.style.removeProperty('overflow');
+      document.body.style.removeProperty('padding-right');
+      $$('.modal-backdrop').forEach(el => el.remove());
+    }
+
+    function setBadgeDetailAlert(message){
+      if (!exportBadgeDetailAlert) return;
+      exportBadgeDetailAlert.textContent = message || '';
+      exportBadgeDetailAlert.classList.toggle('d-none', !message);
+    }
+
+    function renderExportBatchesLoading(){
+      if (!exportedBatchesList) return;
+      exportedBatchesList.innerHTML = `
+        <div class="exported-skeleton">
+          <div class="skeleton-line lg skeleton-shimmer"></div>
+          <div class="skeleton-line sm skeleton-shimmer"></div>
+        </div>
+        <div class="exported-skeleton">
+          <div class="skeleton-line lg skeleton-shimmer"></div>
+          <div class="skeleton-line sm skeleton-shimmer"></div>
+        </div>`;
+    }
+
+    function renderExportBatches(batches){
+      if (!exportedBatchesList) return;
+      if (!batches?.length){
+        exportedBatchesList.innerHTML = `
+          <div class="exported-empty">
+            <i class="fa-regular fa-folder-open d-block mb-2"></i>
+            No exported badges yet.
+          </div>`;
+        return;
+      }
+      exportedBatchesList.innerHTML = batches.map(batch => `
+        <button type="button" class="exported-badge-item text-start" data-export-batch-id="${esc(batch.id)}">
+          <div class="d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <div class="exported-badge-title">${esc(batch.label)} ${esc(batch.network)}</div>
+              <div class="exported-badge-meta">${esc(batch.created_at_time_display || batch.created_at_display || '')}</div>
+            </div>
+            <span class="exported-badge-count">${esc(batch.count)}</span>
+          </div>
+        </button>
+      `).join('');
+    }
+
+    async function loadExportBatches(){
+      if (exportBatchesLoading) return;
+      exportBatchesLoading = true;
+      renderExportBatchesLoading();
+      try{
+        const res = await fetch(exportBatchesEndpoint, {credentials:'same-origin'});
+        if (!res.ok) throw new Error('Failed');
+        const data = await res.json();
+        renderExportBatches(data.batches || []);
+        exportBatchesLoaded = true;
+        viewExportBatchesBtn?.classList.add('d-none');
+        viewExportBatchesInlineBtn?.classList.add('d-none');
+        refreshExportBatchesBtn?.classList.remove('d-none');
+      }catch(_){
+        exportedBatchesList.innerHTML = `
+          <div class="exported-empty text-danger">
+            Failed to load exported badges.
+          </div>`;
+      }finally{
+        exportBatchesLoading = false;
+      }
+    }
+
+    function setBadgeDetailLoading(on){
+      badgeDetailLoading?.classList.toggle('show', !!on);
+      badgeDetailContent?.classList.toggle('d-none', !!on);
+    }
+
+    function getSelectedBadgeLineIds(){
+      return $$('.badge-line-check:checked', exportBadgeNumbers).map(el => el.value);
+    }
+
+    function updateBadgeSelectionState(){
+      const checks = $$('.badge-line-check', exportBadgeNumbers);
+      const checked = checks.filter(el => el.checked);
+      if (badgeSelectedCount) badgeSelectedCount.textContent = checked.length;
+      if (badgeSelectAll) {
+        badgeSelectAll.checked = !!checks.length && checked.length === checks.length;
+        badgeSelectAll.indeterminate = checked.length > 0 && checked.length < checks.length;
+      }
+      if (markSelectedBadgeDeliveredBtn) markSelectedBadgeDeliveredBtn.disabled = checked.length === 0;
+    }
+
+    function renderExportBadgeDetail(batch){
+      if (!batch) return;
+      exportBadgeDetailTitle.innerHTML = `<i class="fa-solid fa-badge-check me-2"></i>${esc(batch.label)} ${esc(batch.network)}`;
+      exportBadgeDetailSubtitle.textContent = `${batch.count || 0} numbers exported`;
+      exportBadgeMeta.innerHTML = `
+        <div class="badge-detail-box">
+          <div class="small text-muted">Network</div>
+          <div class="fw-bold">${esc(batch.network || '')}</div>
+        </div>
+        <div class="badge-detail-box">
+          <div class="small text-muted">Service</div>
+          <div class="fw-bold">${esc(batch.service_name || '')}</div>
+        </div>
+        <div class="badge-detail-box">
+          <div class="small text-muted">Time Range</div>
+          <div class="fw-bold">${esc(batch.date_from || '')} to ${esc(batch.date_to || '')}</div>
+        </div>
+        <div class="badge-detail-box">
+          <div class="small text-muted">Badge</div>
+          <div class="fw-bold">${esc(batch.label || '')}</div>
+        </div>`;
+      exportBadgeNumbers.innerHTML = (batch.lines || []).map(line => `
+        <div class="badge-number-row">
+          <div class="badge-number-main">
+            <input class="form-check-input badge-line-check" type="checkbox" value="${esc(line.line_id || '')}" ${String(line.status || '').toLowerCase() === 'delivered' ? 'disabled' : ''}>
+            <div>
+              <div class="badge-number-phone">${esc(line.phone || '')}</div>
+              <div class="small text-muted">
+                ${esc(line.network || '')}${line.offer ? ` • ${esc(line.offer)}` : ''}${line.order_id ? ` • ${esc(line.order_id)}` : ''}
+              </div>
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-2 align-items-center justify-content-end">
+            ${statusBadgeHtml(line.status)}
+            ${line.order_status ? statusBadgeHtml(line.order_status) : ''}
+          </div>
+        </div>
+      `).join('') || `<div class="exported-empty">No numbers found in this badge.</div>`;
+      if (badgeSelectAll) badgeSelectAll.checked = false;
+      updateBadgeSelectionState();
+    }
+
+    async function openExportBadgeDetail(batchId){
+      activeExportBatchId = batchId || '';
+      setBadgeDetailAlert('');
+      setBadgeDetailLoading(true);
+      markBadgeDeliveredBtn.disabled = true;
+      bootstrap.Modal.getOrCreateInstance(exportBadgeDetailModalEl).show();
+      try{
+        const res = await fetch(`${exportBatchesEndpoint}/${encodeURIComponent(batchId)}`, {credentials:'same-origin'});
+        if (!res.ok) throw new Error('Could not load exported badge.');
+        const data = await res.json();
+        renderExportBadgeDetail(data.batch);
+        markBadgeDeliveredBtn.disabled = false;
+        setBadgeDetailLoading(false);
+      }catch(err){
+        setBadgeDetailAlert(err?.message || 'Could not load exported badge.');
+        setBadgeDetailLoading(false);
+      }
+    }
+
+    exportForm?.querySelectorAll('input[name="timeframe"]').forEach(input => {
+      input.addEventListener('change', toggleExportCustomRange);
+    });
+    toggleExportCustomRange();
+
+    function getSelectedExportServices() {
+      return getExportServiceChecks()
+        .filter(input => input.checked)
+        .map(input => input.value || '')
+        .filter(Boolean);
+    }
+
+    function syncExportNetworkFromServices() {
+      if (!exportNetwork) return;
+      const selectedServices = getSelectedExportServices();
+      if (!selectedServices.length) {
+        exportNetwork.value = '';
+        return;
+      }
+
+      const guessedNetworks = Array.from(new Set(
+        selectedServices
+          .map(service => exportServiceNetworkMap?.[service] || '')
+          .filter(Boolean)
+      ));
+
+      if (guessedNetworks.length === 1) {
+        exportNetwork.value = guessedNetworks[0];
+      } else if (guessedNetworks.length > 1) {
+        exportNetwork.value = 'ANY';
+      }
+    }
+
+    exportModalEl?.addEventListener('shown.bs.modal', () => {
+      setExportAlert('');
+      ensureExportCatalogLoaded();
+    });
+    exportModalEl?.addEventListener('hidden.bs.modal', cleanupModalBackdrops);
+
+    function handleViewExportBatches(){
+      if (exportBatchesLoaded) return;
+      loadExportBatches();
+    }
+
+    refreshExportBatchesBtn?.addEventListener('click', loadExportBatches);
+    viewExportBatchesBtn?.addEventListener('click', handleViewExportBatches);
+    viewExportBatchesInlineBtn?.addEventListener('click', handleViewExportBatches);
+
+    document.addEventListener('click', (e) => {
+      const badgeBtn = e.target.closest('[data-export-batch-id]');
+      if (!badgeBtn) return;
+      openExportBadgeDetail(badgeBtn.getAttribute('data-export-batch-id'));
+    });
+
+    badgeSelectAll?.addEventListener('change', () => {
+      $$('.badge-line-check', exportBadgeNumbers).forEach(el => {
+        if (!el.disabled) el.checked = badgeSelectAll.checked;
+      });
+      updateBadgeSelectionState();
+    });
+
+    exportBadgeNumbers?.addEventListener('change', (e) => {
+      if (!e.target.classList.contains('badge-line-check')) return;
+      updateBadgeSelectionState();
+    });
+
+    exportForm?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      setExportAlert('');
+
+      const formData = new FormData(exportForm);
+      const selectedServices = getSelectedExportServices();
+      if (!selectedServices.length) {
+        setExportAlert('Choose at least one service first.');
+        return;
+      }
+      if (!formData.get('network')) {
+        setExportAlert('Choose a network before exporting.');
+        return;
+      }
+
+      submitExportBtn.disabled = true;
+      beginExportLoading();
+      try {
+        const res = await fetch(exportEndpoint, {
+          method: 'POST',
+          body: formData,
+          credentials: 'same-origin',
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!res.ok) {
+          let message = 'Export failed. Please try again.';
+          if (contentType.includes('application/json')) {
+            const payload = await res.json();
+            message = payload?.message || message;
+          }
+          throw new Error(message);
+        }
+
+        const blob = await res.blob();
+        const filename = parseDownloadFilename(res.headers.get('content-disposition')) || `undelivered-export.${formData.get('format') === 'excel' ? 'xlsx' : formData.get('format')}`;
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+
+        const exportModalInstance = bootstrap.Modal.getOrCreateInstance(exportModalEl);
+        exportModalInstance.hide();
+        setExportAlert('');
+        loadExportBatches();
+      } catch (err) {
+        setExportAlert(err?.message || 'Export failed. Please try again.');
+      } finally {
+        endExportLoading();
+        setTimeout(cleanupModalBackdrops, 220);
+        submitExportBtn.disabled = false;
+      }
+    });
+
+    markBadgeDeliveredBtn?.addEventListener('click', async () => {
+      if (!activeExportBatchId) return;
+      setBadgeDetailAlert('');
+      markBadgeDeliveredBtn.disabled = true;
+      markSelectedBadgeDeliveredBtn.disabled = true;
+      beginExportLoading();
+      exportLoadingStep.textContent = 'Marking delivered';
+      exportLoadingSub.textContent = 'Updating all lines linked to this exported badge.';
+      try{
+        const res = await fetch(`${exportBatchesEndpoint}/${encodeURIComponent(activeExportBatchId)}/mark-delivered`, {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data?.message || 'Could not mark exported badge as delivered.');
+        await openExportBadgeDetail(activeExportBatchId);
+        loadExportBatches();
+        loadOrders();
+      }catch(err){
+        setBadgeDetailAlert(err?.message || 'Could not mark exported badge as delivered.');
+      }finally{
+        endExportLoading();
+        markBadgeDeliveredBtn.disabled = false;
+        updateBadgeSelectionState();
+      }
+    });
+
+    markSelectedBadgeDeliveredBtn?.addEventListener('click', async () => {
+      if (!activeExportBatchId) return;
+      const lineIds = getSelectedBadgeLineIds();
+      if (!lineIds.length){
+        setBadgeDetailAlert('Select at least one number first.');
+        return;
+      }
+      setBadgeDetailAlert('');
+      markSelectedBadgeDeliveredBtn.disabled = true;
+      markBadgeDeliveredBtn.disabled = true;
+      beginExportLoading();
+      exportLoadingStep.textContent = 'Marking selected delivered';
+      exportLoadingSub.textContent = 'Updating only the numbers you selected in this badge.';
+      try{
+        const res = await fetch(`${exportBatchesEndpoint}/${encodeURIComponent(activeExportBatchId)}/mark-delivered-selected`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({line_ids: lineIds}),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data?.message || 'Could not mark selected numbers as delivered.');
+        await openExportBadgeDetail(activeExportBatchId);
+        loadExportBatches();
+        loadOrders();
+      }catch(err){
+        setBadgeDetailAlert(err?.message || 'Could not mark selected numbers as delivered.');
+      }finally{
+        endExportLoading();
+        markBadgeDeliveredBtn.disabled = false;
+        updateBadgeSelectionState();
+      }
+    });
+
+    // Status actions toggle
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('.toggle-actions');
+      if (!btn) return;
+      const targetId = btn.getAttribute('data-actions');
+      const el = targetId ? document.getElementById(targetId) : null;
+      if (!el) return;
+      if (el.classList.contains('status-actions')) {
+        el.classList.toggle('show');
+      } else {
+        el.classList.toggle('hidden');
+      }
+    });
+
+    // Select all / per-row selection (desktop)
+    const checkAll = document.getElementById('checkAll');
+    function getSelection(){
+      const checks = $$('.row-check').filter(c => c.checked);
+      if (!checks.length) return { kind: 'order', ids: [] };
+      const kind = checks[0].dataset.kind || (checks[0].value.includes(':') ? 'line' : 'order');
+      return { kind, ids: checks.map(c => c.value) };
+    }
+    checkAll?.addEventListener('change', () => {
+      $$('.row-check').forEach(c => c.checked = checkAll.checked);
+      updateFloatingBar();
+    });
+
+    // sync floating bar on any checkbox change
+    document.addEventListener('change', (e)=>{
+      if (e.target.classList.contains('row-check')) updateFloatingBar();
+    });
+
+    // Schedule modal wiring
+    const openSelBtn = document.getElementById('openScheduleSelected');
+    const scheduleOrderIds = document.getElementById('scheduleOrderIds');
+    const scheduleLineIds = document.getElementById('scheduleLineIds');
+    const selectedOrdersPreview = document.getElementById('selectedOrdersPreview');
+    const runAtLocal = document.getElementById('runAtLocal');
+    const runAtUtc = document.getElementById('runAtUtc');
+
+    openSelBtn?.addEventListener('click', () => {
+      const sel = getSelection();
+      if (sel.kind === 'line') {
+        scheduleLineIds.value = sel.ids.join(',');
+        scheduleOrderIds.value = '';
+      } else {
+        scheduleOrderIds.value = sel.ids.join(',');
+        scheduleLineIds.value = '';
+      }
+      selectedOrdersPreview.innerHTML = sel.ids.length
+        ? `<span class="badge text-bg-dark">${sel.ids.length}</span> ${sel.kind === 'line' ? 'lines' : 'orders'} selected`
+        : `<span class="text-danger">No selection yet ? you can still add one from the list.</span>`;
+    });
+
+    // Per-row quick schedule adds that row to modal
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-quick-schedule]');
+      if (!b) return;
+      const id = b.getAttribute('data-quick-schedule');
+      const kind = b.getAttribute('data-kind') || (id.includes(':') ? 'line' : 'order');
+      const target = (kind === 'line') ? scheduleLineIds : scheduleOrderIds;
+      const other = (kind === 'line') ? scheduleOrderIds : scheduleLineIds;
+      const current = target.value ? target.value.split(',').filter(Boolean) : [];
+      if (!current.includes(id)) current.push(id);
+      target.value = current.join(',');
+      other.value = '';
+      selectedOrdersPreview.innerHTML = `<span class="badge text-bg-dark">${current.length}</span> ${kind === 'line' ? 'lines' : 'orders'} selected`;
+    });
+
+    // Convert datetime-local (local) -> UTC "YYYY-MM-DD HH:MM"
+    runAtLocal?.addEventListener('change', () => {
+      if (!runAtLocal.value){ runAtUtc.value = ''; return; }
+      const dt = new Date(runAtLocal.value);
+      const y = dt.getUTCFullYear(), m = pad2(dt.getUTCMonth()+1), d = pad2(dt.getUTCDate());
+      const hh = pad2(dt.getUTCHours()), mm = pad2(dt.getUTCMinutes());
+      runAtUtc.value = `${y}-${m}-${d} ${hh}:${mm}`;
+    });
+
+    // Jobs offcanvas loader
+    async function loadJobs(){
+      const list = document.getElementById('jobsList');
+      list.innerHTML = '<div class="text-center text-muted py-2"><i class="fa-solid fa-spinner fa-spin me-2"></i>Loading…</div>';
+      try{
+        const res = await fetch('{{ url_for("admin_orders.list_schedules") }}', {credentials:'same-origin'});
+        if (!res.ok) throw new Error('Network');
+        const data = await res.json();
+        if (!data.jobs || !data.jobs.length){
+          list.innerHTML = '<div class="text-center text-muted">No scheduled jobs.</div>';
+          return;
+        }
+        const baseCancel = '{{ url_for("admin_orders.cancel_schedule", job_id="__JOB__") }}';
+        list.innerHTML = data.jobs.map(j => {
+          const cancelUrl = baseCancel.replace('__JOB__', encodeURIComponent(j.id));
+          const statusTxt = (Array.isArray(j.args) && j.args[1]) ? `Status → <b>${j.args[1]}</b>` : '';
+          return `
+          <div class="schedule-row">
+            <div>
+              <div><strong>ID:</strong> <code>${j.id}</code></div>
+              <div class="muted"><i class="fa-regular fa-clock me-1"></i>${j.next_run_time ?? '—'}</div>
+              <div class="muted"><small>${statusTxt}</small></div>
+            </div>
+            <form method="POST" action="${cancelUrl}">
+              <button class="btn btn-sm btn-outline-danger" data-confirm="Cancel this schedule?">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </form>
+          </div>`;
+        }).join('');
+      }catch(e){
+        list.innerHTML = '<div class="text-danger">Failed to load schedules.</div>';
+      }
+    }
+    const jobsOffcanvas = document.getElementById('jobsOffcanvas');
+    jobsOffcanvas?.addEventListener('shown.bs.offcanvas', loadJobs);
+    document.getElementById('refreshJobs')?.addEventListener('click', loadJobs);
+
+    // Floating bulk bar (mobile)
+    const floatingBar = document.getElementById('floatingBar');
+    const selCount = document.getElementById('selCount');
+    const fbSchedule = document.getElementById('fbSchedule');
+    const fbDeliver = document.getElementById('fbDeliver');
+
+    function updateFloatingBar(){
+      const count = getSelection().ids.length;
+      selCount.textContent = count;
+      if (count > 0) floatingBar.classList.add('show');
+      else floatingBar.classList.remove('show');
+    }
+
+    fbSchedule?.addEventListener('click', ()=>{
+      const sel = getSelection();
+      if (sel.kind === 'line') {
+        scheduleLineIds.value = sel.ids.join(',');
+        scheduleOrderIds.value = '';
+      } else {
+        scheduleOrderIds.value = sel.ids.join(',');
+        scheduleLineIds.value = '';
+      }
+      selectedOrdersPreview.innerHTML = sel.ids.length
+        ? `<span class="badge text-bg-dark">${sel.ids.length}</span> ${sel.kind === 'line' ? 'lines' : 'orders'} selected`
+        : `<span class="text-danger">No selection yet.</span>`;
+    });
+
+    // Bulk Selected → Delivered (desktop button)
+    const markSelectedDeliveredBtn = document.getElementById('markSelectedDelivered');
+    const bulkSelectedDeliverForm = document.getElementById('bulkSelectedDeliverForm');
+    const bulkSelectedIds = document.getElementById('bulkSelectedIds');
+    const bulkSelectedLineIds = document.getElementById('bulkSelectedLineIds');
+    const autoUpdateMinutesInput = document.querySelector('#autoUpdateModal input[name="minutes"]');
+    const autoUpdateActiveInput = document.querySelector('#autoUpdateModal input[name="active"]');
+    const autoUpdateServiceChecks = $$('input[name="service_names"]', document.getElementById('autoUpdateModal') || document);
+    const autoUpdateSelectedCount = document.getElementById('autoUpdateSelectedCount');
+    const autoUpdateMinutesValue = document.getElementById('autoUpdateMinutesValue');
+    const autoUpdateStatusValue = document.getElementById('autoUpdateStatusValue');
+    const autoUpdateServiceTags = document.getElementById('autoUpdateServiceTags');
+
+    function renderAutoUpdateServiceTags(){
+      if (!autoUpdateServiceTags) return;
+      const selected = autoUpdateServiceChecks
+        .filter(input => input.checked)
+        .map(input => (input.value || '').trim())
+        .filter(Boolean);
+
+      if (autoUpdateSelectedCount) autoUpdateSelectedCount.textContent = selected.length;
+      if (autoUpdateMinutesValue) {
+        const minutes = Number(autoUpdateMinutesInput?.value || 0) || 0;
+        autoUpdateMinutesValue.textContent = `${minutes} minute(s)`;
+      }
+      if (autoUpdateStatusValue) autoUpdateStatusValue.textContent = autoUpdateActiveInput?.checked ? 'Active' : 'Disabled';
+
+      if (!selected.length) {
+        autoUpdateServiceTags.innerHTML = '<span class="small text-muted" id="autoUpdateNoServices">No services saved yet.</span>';
+        return;
+      }
+
+      autoUpdateServiceTags.innerHTML = selected.map(name => `
+        <span class="auto-update-service-tag" data-service-tag="${esc(name)}">
+          <span>${esc(name)}</span>
+          <button class="auto-update-tag-remove" type="button" data-remove-service="${esc(name)}" aria-label="Remove ${esc(name)}">×</button>
+        </span>
+      `).join('');
+    }
+
+    autoUpdateServiceChecks.forEach(input => input.addEventListener('change', renderAutoUpdateServiceTags));
+    autoUpdateMinutesInput?.addEventListener('input', renderAutoUpdateServiceTags);
+    autoUpdateActiveInput?.addEventListener('change', renderAutoUpdateServiceTags);
+
+    autoUpdateServiceTags?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-remove-service]');
+      if (!btn) return;
+      const serviceName = btn.getAttribute('data-remove-service') || '';
+      const target = autoUpdateServiceChecks.find(input => (input.value || '').trim() === serviceName);
+      if (target) target.checked = false;
+      renderAutoUpdateServiceTags();
+    });
+
+    renderAutoUpdateServiceTags();
+
+    function submitBulkDeliverSelected(){
+      const sel = getSelection();
+      if (!sel.ids.length){
+        alert('Select at least one order or line.');
+        return;
+      }
+      if (sel.kind === 'line') {
+        bulkSelectedLineIds.value = sel.ids.join(',');
+        bulkSelectedIds.value = '';
+      } else {
+        bulkSelectedIds.value = sel.ids.join(',');
+        bulkSelectedLineIds.value = '';
+      }
+      bulkSelectedDeliverForm.submit();
+    }
+
+    markSelectedDeliveredBtn?.addEventListener('click', submitBulkDeliverSelected);
+    fbDeliver?.addEventListener('click', submitBulkDeliverSelected);
+
+    // Centralized confirm (for any data-confirm buttons)
+    document.addEventListener('click', (e) => {
+      const submitBtn = e.target.closest('button[type="submit"][data-confirm], .btn[data-confirm]');
+      if (!submitBtn) return;
+      const msg = submitBtn.getAttribute('data-confirm') || 'Are you sure?';
+      if (!window.confirm(msg)) { e.preventDefault(); e.stopPropagation(); }
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      showLoading(true);
+      loadOrders();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Deposit Funds • Nagonu</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <script src="https://js.paystack.co/v1/inline.js"></script>
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+
+  <style>
+    :root{ --focus:#0ea5e9; }
+    body {
+      min-height: 100dvh;
+      background:
+        radial-gradient(1200px 800px at 80% -10%, rgba(14,165,233,.15), transparent 60%),
+        linear-gradient(180deg, #f7fbff 0%, #eef7fc 100%);
+    }
+    .page-wrap { padding: 1.25rem; }
+    @media (min-width: 992px){ .page-wrap { padding: 2rem 2rem 3rem; } }
+    .page-header { display:flex; align-items:center; justify-content:center; gap:.6rem; margin-bottom:1rem; text-align:center; }
+    .page-header img{ width:42px; height:42px; border-radius:10px; object-fit:cover; border:2px solid #0ea5e9; background:#fff; }
+    .page-header .title{ font-weight:800; letter-spacing:.2px; color:#053047; }
+    .page-sub{ color:#446174; }
+    .deposit-card{
+      background:#fff; border:1px solid #e9eef6; border-radius:16px;
+      box-shadow:0 10px 30px rgba(5,48,71,.08); max-width:720px; margin-inline:auto;
+      animation: slideIn .45s ease both;
+    }
+    @keyframes slideIn{ from{opacity:0; transform: translateY(10px);} to{opacity:1; transform:none;} }
+    .amount-chip{
+      border-radius:999px; border:1px solid #cfe9f7; padding:.35rem .8rem;
+      background:#f3fbff; color:#0b6fa1; cursor:pointer; transition:all .15s ease; user-select:none;
+      display:inline-flex; align-items:center; gap:.35rem;
+    }
+    .amount-chip:hover{ background:#e9f7ff; transform: translateY(-1px); }
+    .amount-chip.active{
+      background:#0ea5e9; border-color:#0ea5e9; color:#fff;
+      box-shadow:0 10px 22px rgba(14,165,233,.22);
+    }
+    .form-label{ font-weight:600; color:#053047; }
+    .form-control{ height:48px; border-radius:12px; }
+    .form-text{ color:#6b7f90; }
+    .btn-primary{ background:#0ea5e9; border-color:#0ea5e9; border-radius:12px; }
+    .btn-primary:hover{ filter:brightness(.96); }
+    .btn-success{ border-radius:12px; }
+    .btn-icon{ display:inline-flex; align-items:center; gap:.5rem; }
+    .breakdown { background:#f9fcff; border:1px dashed #cfe1ee; border-radius:12px; padding:12px 14px; }
+    .breakdown .row{ --bs-gutter-x: 0.75rem; }
+    .toast-container{ position: fixed; top: 1rem; right: 1rem; z-index: 1080; }
+    .nav-pills .nav-link{ border-radius:999px; font-weight:700; }
+    .nav-pills .nav-link.active{ background:#0ea5e9; }
+    .manual-box{ background:#f9fcff; border:1px solid #d9e9f5; border-radius:14px; padding:1rem; }
+    .detail-row{ display:flex; justify-content:space-between; gap:1rem; padding:.6rem 0; border-bottom:1px dashed #dbe8f2; }
+    .detail-row:last-child{ border-bottom:none; }
+    .detail-row .label{ color:#617789; font-weight:600; }
+    .detail-row .value{ font-weight:800; color:#053047; text-align:right; }
+    .copy-wrap{display:inline-flex;align-items:center;gap:.55rem;flex-wrap:wrap;justify-content:flex-end;}
+    .copy-btn{
+      border:1px solid #c8deee;background:#fff;color:#0369a1;
+      border-radius:999px;padding:.28rem .7rem;font-size:.83rem;font-weight:800;
+    }
+    .copy-btn:hover{background:#eaf6ff;}
+    .history-btn{border-radius:999px;font-weight:700}
+    .history-list{display:grid;gap:.85rem}
+    .history-item{
+      border:1px solid #dbe8f2;
+      border-radius:14px;
+      background:#f9fcff;
+      padding:.95rem 1rem;
+    }
+    .history-ref{font-weight:800;color:#053047}
+    .history-meta{color:#6b7f90;font-size:.9rem}
+    .status-badge{
+      display:inline-flex;align-items:center;gap:.35rem;padding:.28rem .65rem;border-radius:999px;
+      font-size:.78rem;font-weight:800;border:1px solid transparent;
+    }
+    .status-pending{background:#fff7db;color:#8a5a00;border-color:#f3d37a}
+    .status-success{background:#e9fbef;color:#166534;border-color:#a7f3c1}
+    .status-rejected{background:#fef2f2;color:#b91c1c;border-color:#fecaca}
+    .modal-note{
+      background:#f7fbfe;
+      border:1px solid #d7e6f2;
+      border-radius:16px;
+      padding:1rem;
+    }
+    .modal-note .title{
+      font-weight:800;
+      color:#053047;
+    }
+    .modal-note .sub{
+      color:#617789;
+      font-size:.95rem;
+    }
+  </style>
+</head>
+<body>
+  {% include 'customer_sidebar.html' %}
+
+  <div class="page-wrap">
+    <div class="page-header">
+      <img src="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg" alt="Nagonu Logo">
+      <div>
+        <div class="title h4 mb-0">Deposit Funds</div>
+        <div class="page-sub small">Choose Paystack or Manual Top Up to fund your wallet</div>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-center mb-3">
+      <button class="btn btn-outline-primary history-btn btn-icon" type="button" data-bs-toggle="modal" data-bs-target="#depositHistoryModal">
+        <i class="bi bi-clock-history"></i> Deposit History
+      </button>
+    </div>
+
+    <div class="deposit-card p-4 p-md-5">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ 'warning' if category == 'message' else category }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      {% set mt = manual_topup or {} %}
+
+      <ul class="nav nav-pills gap-2 mb-4" id="depositTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link {% if active_tab == 'paystack' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-paystack" type="button" role="tab" {% if not paystack_active %}disabled{% endif %}>Paystack</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link {% if active_tab == 'manual' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-manual" type="button" role="tab" {% if not manual_topup_active %}disabled{% endif %}>Manual Top Up</button>
+        </li>
+      </ul>
+
+      <div class="tab-content">
+        <div class="tab-pane fade {% if active_tab == 'paystack' %}show active{% endif %}" id="tab-paystack" role="tabpanel">
+          {% if paystack_active %}
+          <form id="depositForm" onsubmit="return false">
+            <div class="mb-3">
+              <label for="amount" class="form-label">Amount to Credit (GHS)</label>
+              <input type="number" inputmode="decimal" step="0.01" min="{{ '%.0f'|format(min_paystack_deposit|default(20)) }}" id="amount" class="form-control"
+                     placeholder="e.g. 100.00" autocomplete="off" required>
+
+              <div class="form-text mt-2">
+                Enter the <strong>amount we will credit</strong> to your wallet. A 0.5% processing fee applies.
+              </div>
+              <div class="form-text mt-1">
+                Minimum Paystack deposit: <strong>GHS {{ '%.2f'|format(min_paystack_deposit|default(20)) }}</strong>
+              </div>
+
+              <div class="form-text mt-2">
+                Quick amounts:
+                <span class="amount-chip" role="button" tabindex="0" data-val="20"><i class="bi bi-lightning-charge"></i> ₵20</span>
+                <span class="amount-chip" role="button" tabindex="0" data-val="50"><i class="bi bi-lightning-charge"></i> ₵50</span>
+                <span class="amount-chip" role="button" tabindex="0" data-val="100"><i class="bi bi-lightning-charge"></i> ₵100</span>
+                <span class="amount-chip" role="button" tabindex="0" data-val="200"><i class="bi bi-lightning-charge"></i> ₵200</span>
+              </div>
+            </div>
+
+            <div class="breakdown mb-3" id="feeBox" style="display:none;">
+              <div class="row">
+                <div class="col-7">We will credit</div>
+                <div class="col-5 text-end"><strong id="netOut">₵0.00</strong></div>
+              </div>
+              <div class="row">
+                <div class="col-7">Processing fee (<span id="feeRateTxt">0.5%</span>)</div>
+                <div class="col-5 text-end text-muted" id="feeOut">₵0.00</div>
+              </div>
+              <div class="row">
+                <div class="col-7">You'll pay</div>
+                <div class="col-5 text-end"><strong id="grossOut">₵0.00</strong></div>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Payment Method</label>
+              <div class="d-flex align-items-center gap-2 text-muted">
+                <i class="bi bi-credit-card-2-front"></i> Paystack (Cards • MoMo)
+              </div>
+            </div>
+
+            <div class="d-grid">
+              <button id="payBtn" class="btn btn-primary btn-lg btn-icon" type="button">
+                <span id="payBtnText">Pay Now</span>
+                <span class="spinner-border spinner-border-sm ms-1 d-none" role="status" aria-hidden="true"></span>
+              </button>
+            </div>
+
+            <div class="small text-muted mt-3">
+              Example: to credit <strong>₵100.00</strong>, you'll pay <strong>₵100.50</strong>.
+            </div>
+          </form>
+          {% else %}
+          <div class="alert alert-warning mb-0">
+            Paystack deposit is currently disabled by admin.
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="tab-pane fade {% if active_tab == 'manual' %}show active{% endif %}" id="tab-manual" role="tabpanel">
+          {% if manual_topup_active %}
+            <div class="manual-box mb-4">
+              <div class="d-flex align-items-center gap-2 mb-3">
+                <i class="bi bi-phone text-success fs-4"></i>
+                <div>
+                  <div class="fw-bold">Pay to this MoMo account</div>
+                  <div class="small text-muted">Send the payment first, then submit the form below.</div>
+                </div>
+              </div>
+              <div class="detail-row">
+                <div class="label">Network</div>
+                <div class="value">{{ mt.network or '-' }}</div>
+              </div>
+              <div class="detail-row">
+                <div class="label">MoMo Number</div>
+                <div class="value">
+                  <div class="copy-wrap">
+                    <span id="manualMomoNumber">{{ mt.number or '-' }}</span>
+                    <button type="button" class="copy-btn" id="copyManualMomoBtn">
+                      <i class="bi bi-copy me-1"></i> Copy
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="detail-row">
+                <div class="label">Name</div>
+                <div class="value">{{ mt.name or '-' }}</div>
+              </div>
+            </div>
+
+            <form method="POST" action="{{ url_for('deposit.submit_manual_topup') }}" id="manualTopupForm">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Amount Paid (GHS)</label>
+                  <input type="number" name="amount" class="form-control" min="{{ '%.0f'|format(min_manual_topup|default(50)) }}" step="0.01" placeholder="e.g. 100.00" required id="manualAmountInput">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">MoMo Name Used to Pay</label>
+                  <input type="text" name="payer_name" class="form-control" placeholder="Enter payer name" required id="manualPayerNameInput">
+                </div>
+              </div>
+
+              <div class="form-text mt-2">Minimum manual top up: <strong>GHS {{ '%.2f'|format(min_manual_topup|default(50)) }}</strong>. After payment, click <strong>Paid</strong>. Your submission will stay pending until admin confirms it.</div>
+
+              <div class="d-grid mt-3">
+                <button class="btn btn-success btn-lg btn-icon" type="button" id="manualPaidBtn">
+                  <i class="bi bi-check2-circle"></i> Paid
+                </button>
+              </div>
+            </form>
+          {% else %}
+            <div class="alert alert-warning mb-0">
+              Manual Top Up is currently disabled by admin.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container">
+    <div id="toast" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="d-flex">
+        <div class="toast-body" id="toastMsg">An error occurred.</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="depositHistoryModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content border-0" style="border-radius:18px; overflow:hidden;">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-clock-history me-2"></i>Deposit History</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          {% if deposit_history %}
+            <div class="history-list">
+              {% for item in deposit_history %}
+                {% set st = (item.status or 'pending')|lower %}
+                <div class="history-item">
+                  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                    <div>
+                      <div class="history-ref">{{ item.reference or '-' }}</div>
+                      <div class="history-meta mt-1">
+                        {{ item.gateway or 'Deposit' }}
+                        {% if item.created_at %} · {{ item.created_at.strftime('%d %b %Y, %I:%M %p') }}{% endif %}
+                      </div>
+                    </div>
+                    <div class="text-end">
+                      <div class="fw-bold text-success">GHS {{ '%.2f'|format(item.amount or 0) }}</div>
+                      <div class="mt-2">
+                        {% if st == 'success' %}
+                          <span class="status-badge status-success"><i class="bi bi-check-circle-fill"></i> Credited</span>
+                        {% elif st == 'rejected' %}
+                          <span class="status-badge status-rejected"><i class="bi bi-x-circle-fill"></i> Rejected</span>
+                        {% else %}
+                          <span class="status-badge status-pending"><i class="bi bi-hourglass-split"></i> Pending</span>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-center text-muted py-4">
+              No deposit history yet.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="manualTopupModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content border-0" style="border-radius:18px; overflow:hidden;">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-phone me-2"></i>Manual Top Up</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-note mb-3">
+            <div class="title">Send the amount to the MoMo number below.</div>
+            <div class="sub mt-1">Review the payment details before confirming that you have paid.</div>
+          </div>
+          <div class="detail-row">
+            <div class="label">Amount</div>
+            <div class="value" id="manualModalAmount">GHS 0.00</div>
+          </div>
+          <div class="detail-row">
+            <div class="label">Network</div>
+            <div class="value">{{ mt.network or '-' }}</div>
+          </div>
+          <div class="detail-row">
+            <div class="label">MoMo Number</div>
+            <div class="value">
+              <div class="copy-wrap">
+                <span id="manualModalMomoNumber">{{ mt.number or '-' }}</span>
+                <button type="button" class="copy-btn" id="copyManualModalMomoBtn">
+                  <i class="bi bi-copy me-1"></i> Copy Number
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="detail-row">
+            <div class="label">Name</div>
+            <div class="value">{{ mt.name or '-' }}</div>
+          </div>
+          <div class="detail-row">
+            <div class="label">Payer Name</div>
+            <div class="value" id="manualModalPayerName">-</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-success btn-icon" id="confirmManualPaidBtn">
+            <span>I Have Paid</span>
+            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    (function(){
+      const email = "{{ (email or '')|e }}";
+      const PAYSTACK_PK = "{{ (paystack_pk or '')|e }}";
+      const PAYSTACK_ACTIVE = {{ 'true' if paystack_active else 'false' }};
+      const FEE_RATE = Number("{{ '%.6f'|format(deposit_fee_rate|default(0.005)) }}");
+      const MIN_DEPOSIT = Number("{{ '%.2f'|format(min_paystack_deposit|default(20)) }}");
+
+      const payBtn   = document.getElementById('payBtn');
+      const btnText  = document.getElementById('payBtnText');
+      const spinner  = payBtn ? payBtn.querySelector('.spinner-border') : null;
+      const copyManualMomoBtn = document.getElementById('copyManualMomoBtn');
+      const copyManualModalMomoBtn = document.getElementById('copyManualModalMomoBtn');
+      const manualMomoNumber = document.getElementById('manualMomoNumber');
+      const manualModalMomoNumber = document.getElementById('manualModalMomoNumber');
+      const manualTopupForm = document.getElementById('manualTopupForm');
+      const manualPaidBtn = document.getElementById('manualPaidBtn');
+      const confirmManualPaidBtn = document.getElementById('confirmManualPaidBtn');
+      const manualAmountInput = document.getElementById('manualAmountInput');
+      const manualPayerNameInput = document.getElementById('manualPayerNameInput');
+      const manualModalAmount = document.getElementById('manualModalAmount');
+      const manualModalPayerName = document.getElementById('manualModalPayerName');
+      const manualModalEl = document.getElementById('manualTopupModal');
+      const manualModal = manualModalEl ? new bootstrap.Modal(manualModalEl) : null;
+      const amountEl = document.getElementById('amount');
+      const feeBox   = document.getElementById('feeBox');
+      const netOut   = document.getElementById('netOut');
+      const feeOut   = document.getElementById('feeOut');
+      const grossOut = document.getElementById('grossOut');
+      const feeRateTxt = document.getElementById('feeRateTxt');
+      let manualSubmitting = false;
+
+      if (feeRateTxt) feeRateTxt.textContent = `${(FEE_RATE*100).toFixed(1)}%`;
+
+      const fmt = n => `₵${Number(n || 0).toFixed(2)}`;
+      const roundPesewas = ghs => Math.round(Number(ghs) * 100);
+      const toGhs = pesewas => (pesewas/100).toFixed(2);
+
+      function compute(gNet){
+        const net_pes = roundPesewas(gNet);
+        const fee_pes = Math.round((gNet * FEE_RATE) * 100);
+        const gross_pes = net_pes + fee_pes;
+        return {
+          net_g: Number(toGhs(net_pes)),
+          fee_g: Number(toGhs(fee_pes)),
+          gross_g: Number(toGhs(gross_pes)),
+          gross_pes
+        };
+      }
+
+      function showError(msg){
+        const el = document.getElementById('toast');
+        el.classList.remove('text-bg-success');
+        el.classList.add('text-bg-danger');
+        document.getElementById('toastMsg').textContent = msg;
+        new bootstrap.Toast(el, { delay: 3500 }).show();
+      }
+
+      function showSuccess(msg){
+        const el = document.getElementById('toast');
+        el.classList.remove('text-bg-danger');
+        el.classList.add('text-bg-success');
+        document.getElementById('toastMsg').textContent = msg;
+        new bootstrap.Toast(el, { delay: 2200 }).show();
+      }
+
+      async function copyText(value, successMessage){
+        if (!value || value === '-') {
+          showError('No MoMo number available to copy.');
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(value);
+          showSuccess(successMessage);
+        } catch (_e) {
+          showError('Unable to copy number. Please copy it manually.');
+        }
+      }
+
+      function setLoading(on){
+        if (!payBtn || !spinner) return;
+        payBtn.disabled = !!on;
+        spinner.classList.toggle('d-none', !on);
+      }
+
+      function setManualSubmitting(on){
+        manualSubmitting = !!on;
+        if (manualPaidBtn) manualPaidBtn.disabled = !!on;
+        if (manualAmountInput) manualAmountInput.readOnly = !!on;
+        if (manualPayerNameInput) manualPayerNameInput.readOnly = !!on;
+        if (confirmManualPaidBtn) {
+          confirmManualPaidBtn.disabled = !!on;
+          const label = confirmManualPaidBtn.querySelector('span');
+          if (label) label.textContent = on ? 'Submitting...' : 'I Have Paid';
+          const modalSpinner = confirmManualPaidBtn.querySelector('.spinner-border');
+          if (modalSpinner) modalSpinner.classList.toggle('d-none', !on);
+        }
+      }
+
+      function validateManualTopupForm(){
+        if (!manualAmountInput || !manualPayerNameInput) return false;
+        const amount = parseFloat((manualAmountInput.value || '').replace(/,/g, ''));
+        const payerName = (manualPayerNameInput.value || '').trim();
+        if (!isFinite(amount) || amount < {{ '%.2f'|format(min_manual_topup|default(50)) }}) {
+          showError('Enter a valid manual top up amount.');
+          manualAmountInput.focus();
+          return false;
+        }
+        if (!payerName) {
+          showError('Enter the MoMo name used to pay.');
+          manualPayerNameInput.focus();
+          return false;
+        }
+        if (manualModalAmount) manualModalAmount.textContent = `GHS ${amount.toFixed(2)}`;
+        if (manualModalPayerName) manualModalPayerName.textContent = payerName;
+        return true;
+      }
+
+      function updateBreakdown(){
+        if (!amountEl || !feeBox || !btnText) return;
+        const net = parseFloat((amountEl.value || '').replace(/,/g,''));
+        if (!isFinite(net) || net < MIN_DEPOSIT){
+          feeBox.style.display = 'none';
+          btnText.textContent = 'Pay Now';
+          return;
+        }
+        const { net_g, fee_g, gross_g } = compute(net);
+        netOut.textContent = fmt(net_g);
+        feeOut.textContent = fmt(fee_g);
+        grossOut.textContent = fmt(gross_g);
+        btnText.textContent = `Pay ${fmt(gross_g)}`;
+        feeBox.style.display = '';
+      }
+
+      if (amountEl) {
+        amountEl.addEventListener('input', ()=>{
+          const v = parseFloat(amountEl.value);
+          amountEl.classList.toggle('is-invalid', !(isFinite(v) && v >= MIN_DEPOSIT));
+          updateBreakdown();
+          syncChipActive();
+        });
+      }
+
+      const chips = Array.from(document.querySelectorAll('.amount-chip'));
+      function setAmountFromChip(val){
+        if (!amountEl) return;
+        const n = Number(val);
+        if(!isFinite(n) || n <= 0) return;
+        amountEl.value = n.toFixed(2);
+        amountEl.dispatchEvent(new Event('input', { bubbles: true }));
+        amountEl.focus();
+      }
+      function syncChipActive(){
+        const v = Number((amountEl && amountEl.value) || 0);
+        chips.forEach(c=>{
+          const cv = Number(c.getAttribute('data-val') || 0);
+          c.classList.toggle('active', cv && Math.abs(cv - v) < 0.01);
+        });
+      }
+      chips.forEach(chip=>{
+        const handler = () => setAmountFromChip(chip.getAttribute('data-val'));
+        chip.addEventListener('click', handler);
+        chip.addEventListener('keydown', (e)=>{
+          if(e.key === 'Enter' || e.key === ' '){
+            e.preventDefault();
+            handler();
+          }
+        });
+      });
+
+      if (copyManualMomoBtn && manualMomoNumber) {
+        copyManualMomoBtn.addEventListener('click', async () => {
+          await copyText((manualMomoNumber.textContent || '').trim(), 'MoMo number copied.');
+        });
+      }
+
+      if (copyManualModalMomoBtn && manualModalMomoNumber) {
+        copyManualModalMomoBtn.addEventListener('click', async () => {
+          await copyText((manualModalMomoNumber.textContent || '').trim(), 'MoMo number copied.');
+        });
+      }
+
+      if (manualPaidBtn) {
+        manualPaidBtn.addEventListener('click', () => {
+          if (manualSubmitting) return;
+          if (!validateManualTopupForm()) return;
+          if (manualModal) manualModal.show();
+        });
+      }
+
+      if (confirmManualPaidBtn && manualTopupForm) {
+        confirmManualPaidBtn.addEventListener('click', () => {
+          if (manualSubmitting) return;
+          if (!validateManualTopupForm()) return;
+          setManualSubmitting(true);
+          if (manualModal) manualModal.hide();
+          manualTopupForm.submit();
+        });
+      }
+
+      if (manualTopupForm) {
+        manualTopupForm.addEventListener('submit', (e) => {
+          if (manualSubmitting) return;
+          e.preventDefault();
+          if (!validateManualTopupForm()) return;
+          if (manualModal) manualModal.show();
+        });
+      }
+
+      if (payBtn) {
+        payBtn.addEventListener('click', ()=>{
+          if (!PAYSTACK_ACTIVE){
+            showError('Paystack deposit is currently disabled by admin.');
+            return;
+          }
+          if (!email || email === 'None'){
+            showError('Your email is not set. Please log in again.');
+            return;
+          }
+          if (!PAYSTACK_PK){
+            showError('Payment is not configured. Please contact support.');
+            return;
+          }
+
+          const net = parseFloat(((amountEl && amountEl.value) || '').replace(/,/g,''));
+          if (!isFinite(net) || net < MIN_DEPOSIT){
+            showError('Enter a valid amount (GHS ' + MIN_DEPOSIT.toFixed(2) + ' or more).');
+            if (amountEl) amountEl.focus();
+            return;
+          }
+
+          const { net_g, gross_pes } = compute(net);
+          setLoading(true);
+
+          const handler = PaystackPop.setup({
+            key: PAYSTACK_PK,
+            email: email,
+            amount: gross_pes,
+            currency: "GHS",
+            metadata: {
+              net_amount_ghs: Number(net_g.toFixed(2)),
+              fee_rate: Number(FEE_RATE.toFixed(6)),
+              gross_amount_ghs: Number((gross_pes/100).toFixed(2)),
+              custom_fields: [{ display_name:"Platform", variable_name:"platform", value:"Nagonu Web" }]
+            },
+            callback: function(response){
+              window.location.href = `/verify_transaction?reference=${encodeURIComponent(response.reference)}`;
+            },
+            onClose: function(){
+              setLoading(false);
+            }
+          });
+
+          try { handler.openIframe(); }
+          catch (e) { console.error(e); showError('Unable to open payment window. Please retry.'); setLoading(false); }
+        });
+      }
+
+      updateBreakdown();
+      syncChipActive();
+    })();
+  </script>
+</body>
+</html>
