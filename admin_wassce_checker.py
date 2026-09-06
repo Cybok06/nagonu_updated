@@ -182,6 +182,13 @@ def admin_wassce_checker():
     # Filters from GET params
     filter_status = request.args.get("status")
     filter_type = request.args.get("type")
+    filter_phone = request.args.get("delivered_to", "").strip()
+    normalized_phone = _delivery_phone(filter_phone)
+    phone_error = ""
+    if filter_phone:
+        filter_status = "sold"
+        if not normalized_phone:
+            phone_error = "Enter a valid phone number, for example 0530393625 or +233530393625."
 
     query = {}
     if filter_status in ["sold", "not_sold"]:
@@ -191,6 +198,11 @@ def admin_wassce_checker():
 
     messages = list(wassce_col.find(query).sort("created_at", -1))
     _add_delivery_badges(messages)
+    if filter_phone:
+        messages = [
+            message for message in messages
+            if normalized_phone and message.get("delivery_label") == normalized_phone
+        ]
     for message in messages:
         if message.get("status") != "sold":
             message["sale_channel_label"] = ""
@@ -210,5 +222,7 @@ def admin_wassce_checker():
         messages=messages,
         selected_status=filter_status,
         selected_type=filter_type,
+        selected_phone=filter_phone,
+        phone_error=phone_error,
         checker_prices=prices,
     )

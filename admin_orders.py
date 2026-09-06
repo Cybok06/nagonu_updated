@@ -4,6 +4,7 @@ from bson import ObjectId, Regex
 from db import db, campus_db
 from datetime import datetime, timedelta
 import json
+from ast import literal_eval
 import os
 import re
 import time
@@ -1116,13 +1117,68 @@ def _refund_collections(source: str):
     return balances_col, transactions_col
 
 
+def _is_campus_mtn(item):
+    return str(item.get("serviceName") or "").strip().upper() in {
+        "MTN NORMAL", "MTN NORMA", "MTN EXPRESS",
+    }
+
+
+def _campus_package(value):
+    if isinstance(value, str):
+        try:
+            value = literal_eval(value)
+        except (ValueError, SyntaxError):
+            return None
+    if not isinstance(value, dict):
+        return None
+    try:
+        return int(value["id"]), int(value["volume"])
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+def _campus_missing_base(order, item):
+    """Recover MTN base prices without treating the retail price as cost."""
+    if not _is_campus_mtn(item):
+        return 0.0, "campus_base_unavailable"
+    items = order.get("items") or []
+    indexes = [index for index, candidate in enumerate(items) if candidate is item]
+    if not order.get("order_id") or len(indexes) != 1:
+        return 0.0, "campus_base_unavailable"
+    query = {"provider": "provider_wallet", "direction": "DEBIT",
+             "reason": "ORDER_RESERVE", "order_id": order["order_id"]}
+    if len(items) > 1:
+        query["line_index"] = indexes[0] + 1
+    debits = list(campus_provider_transactions_col.find(query))
+    # More than one debit can mean a reused legacy order ID. Do not guess
+    # or sum unrelated purchases to recover a single line's base price.
+    if len(debits) == 1:
+        amount = round(_money(debits[0].get("amount"), 0.0), 2)
+        if amount > 0:
+            return amount, "campus_original_provider_debit"
+    if debits:
+        return 0.0, "campus_ambiguous_provider_debit"
+    service_id = str(item.get("serviceId") or "")
+    package = _campus_package(item.get("value_obj") or item.get("value"))
+    if not ObjectId.is_valid(service_id) or not package:
+        return 0.0, "campus_base_unavailable"
+    service = campus_services_col.find_one({"_id": ObjectId(service_id)}, {"offers": 1}) or {}
+    matches = [offer for offer in service.get("offers", [])
+               if _campus_package(offer.get("value")) == package]
+    if len(matches) == 1:
+        amount = round(_money(matches[0].get("amount"), 0.0), 2)
+        if amount > 0:
+            return amount, "campus_current_offer_base_fallback"
+    return 0.0, "campus_base_unavailable"
+
+
 def _line_refundable_amount(order: dict, item: dict, source: str = "main") -> Tuple[float, str]:
     """Return the wallet refund amount and the basis used to calculate it."""
     if (source or "").strip().lower() == "campus":
         base = round(_money(item.get("base_amount"), 0.0), 2)
         if base > 0:
             return base, "campus_line_base_amount"
-        return 0.0, "campus_base_unavailable"
+        return _campus_missing_base(order, item)
 
     if not _is_store_order(order):
         return round(_money(item.get("amount"), 0.0), 2), "line_amount"
@@ -1168,46 +1224,50 @@ def _credit_campus_provider_refund(
     debits = list(campus_provider_transactions_col.find(debit_query, {"amount": 1, "line_index": 1, "dedupe_key": 1}))
     debit_amount = round(sum(_money(doc.get("amount"), 0.0) for doc in debits), 2)
     refund_basis = "original_provider_debit"
-    if item_index is None and debit_amount > 0:
-        prior_credits = campus_provider_transactions_col.find(
-            {
-                "provider": "provider_wallet",
-                "direction": "CREDIT",
-                "reason": "ORDER_REFUND",
-                "order_id": order_id,
-            },
-            {"amount": 1},
-        )
-        debit_amount = max(0.0, round(
-            debit_amount - sum(_money(doc.get("amount"), 0.0) for doc in prior_credits),
-            2,
-        ))
-    if debit_amount <= 0:
-        # Some legacy MTN Normal Campus orders pre-date provider-wallet debit
-        # tracking. Their checkout snapshot still contains the exact Campus
-        # base price, so use that narrowly scoped fallback instead of marking
-        # the order refunded without restoring Campus Balance.
-        items = order.get("items") or []
-        target_items = (
-            [items[item_index]]
-            if item_index is not None and 0 <= item_index < len(items)
-            else [item for item in items if not _is_export_skipped_or_duplicate(item)]
-        )
-        is_mtn_normal = bool(target_items) and all(
-            str(item.get("serviceName") or "").strip().lower() == "mtn normal"
-            for item in target_items
-        )
-        fallback_amount = round(sum(_money(item.get("base_amount"), 0.0) for item in target_items), 2)
-        if not is_mtn_normal or fallback_amount <= 0:
-            return 0.0, None
-        debit_amount = fallback_amount
-        refund_basis = "mtn_normal_base_amount_fallback"
-
     scope = f"LINE:{item_index}" if item_index is not None else "ORDER"
     dedupe_key = f"CAMPUS_PROVIDER_REFUND:{order_id}:{scope}"
     existing = campus_provider_transactions_col.find_one({"dedupe_key": dedupe_key}, {"amount": 1})
     if existing:
         return round(_money(existing.get("amount"), 0.0), 2), None
+
+    items = order.get("items") or []
+    target_items = (
+        [items[item_index]]
+        if item_index is not None and 0 <= item_index < len(items)
+        else [item for item in items if not _is_export_skipped_or_duplicate(item)]
+    )
+    if len(items) == 1 and len(debits) > 1 and any(_is_campus_mtn(item) for item in target_items):
+        return 0.0, "multiple Campus debits match this order; refund requires reconciliation"
+    if not debits:
+        if not target_items or not all(_is_campus_mtn(item) for item in target_items):
+            return 0.0, None
+        resolved = [_line_refundable_amount(order, item, "campus") for item in target_items]
+        if any(amount <= 0 for amount, basis in resolved):
+            return 0.0, "Campus MTN base price could not be resolved"
+        debit_amount = round(sum(amount for amount, basis in resolved), 2)
+        refund_basis = (
+            "campus_current_offer_base_fallback"
+            if any(basis == "campus_current_offer_base_fallback" for amount, basis in resolved)
+            else "mtn_normal_base_amount_fallback"
+            if all(str(item.get("serviceName") or "").strip().lower() == "mtn normal" for item in target_items)
+            else "campus_mtn_base_amount_fallback"
+        )
+
+    prior_credits = list(campus_provider_transactions_col.find({
+        "provider": "provider_wallet", "direction": "CREDIT",
+        "reason": "ORDER_REFUND", "order_id": order_id,
+    }))
+    if item_index is not None and len(items) > 1:
+        # A completed whole-order credit also covers this line.
+        if any(credit.get("line_index") is None for credit in prior_credits):
+            return 0.0, None
+        prior_credits = [credit for credit in prior_credits
+                         if credit.get("line_index") == item_index + 1]
+    debit_amount = max(0.0, round(
+        debit_amount - sum(_money(credit.get("amount"), 0.0) for credit in prior_credits), 2,
+    ))
+    if debit_amount <= 0:
+        return 0.0, None
 
     now = datetime.utcnow()
     credit_doc = {
@@ -1718,6 +1778,14 @@ def _apply_status_change(order_ids: List[ObjectId], new_status: str, reason: str
             # credit only the agent-facing base and never the customer markup.
             if new_status == "refunded":
                 is_store_order = _is_store_order(order)
+                campus_amounts = {
+                    idx: _line_refundable_amount(order, item, source)
+                    for idx, item in enumerate(order.get("items") or [])
+                    if source == "campus" and not _is_export_skipped_or_duplicate(item)
+                }
+                if source == "campus" and any(amount <= 0 for amount, basis in campus_amounts.values()):
+                    errors.append(f"{oid}: campus base amount unresolved or ambiguous; wallet was not refunded")
+                    continue
                 refundable_total = round(
                     sum(
                         _line_refundable_amount(order, item, source)[0]
@@ -1726,6 +1794,8 @@ def _apply_status_change(order_ids: List[ObjectId], new_status: str, reason: str
                     ),
                     2,
                 ) if (is_store_order or source == "campus") else round(_money(order.get("charged_amount"), 0.0), 2)
+                if source == "campus":
+                    refundable_total = round(sum(amount for amount, basis in campus_amounts.values()), 2)
                 user_id = order.get("user_id")
                 already_refunded = bool(order.get("refunded_at")) or (old_status == "refunded")
                 prior_line_refunds = sum(
@@ -1776,6 +1846,7 @@ def _apply_status_change(order_ids: List[ObjectId], new_status: str, reason: str
                                 "note": f"{reason.capitalize()} refund",
                                 "order_db_id": oid,
                                 "prior_line_refunds": prior_line_refunds,
+                                "campus_line_refund_bases": {str(idx): basis for idx, (amount, basis) in campus_amounts.items()},
                                 "refund_basis": (
                                     "campus_line_base_amount"
                                     if source == "campus"
@@ -1811,6 +1882,8 @@ def _apply_status_change(order_ids: List[ObjectId], new_status: str, reason: str
                         _line_refundable_amount(order, item, source)[0],
                     )
                     update_doc[f"items.{idx}.refunded_by"] = actor_admin_id
+                    if source == "campus":
+                        update_doc[f"items.{idx}.refund_basis"] = campus_amounts[idx][1]
 
             update_filter = {"_id": oid}
             if not _is_final_order_status(new_status) and not delivered_refund:

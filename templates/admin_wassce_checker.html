@@ -74,10 +74,35 @@
       <div class="mb-3 d-flex flex-wrap gap-2">
         <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker') }}" class="btn btn-outline-secondary btn-sm {% if not selected_status and not selected_type %}active{% endif %}">All</a>
         <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', status='not_sold') }}" class="btn btn-outline-warning btn-sm {% if selected_status == 'not_sold' %}active{% endif %}">Not Sold</a>
-        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', status='sold') }}" class="btn btn-outline-success btn-sm {% if selected_status == 'sold' %}active{% endif %}">Sold</a>
-        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', type='wassce') }}" class="btn btn-outline-primary btn-sm {% if selected_type == 'wassce' %}active{% endif %}">WASSCE</a>
-        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', type='bece') }}" class="btn btn-outline-dark btn-sm {% if selected_type == 'bece' %}active{% endif %}">BECE</a>
+        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', status='sold', delivered_to=selected_phone) }}" class="btn btn-outline-success btn-sm {% if selected_status == 'sold' %}active{% endif %}">Sold</a>
+        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', type='wassce', delivered_to=selected_phone) }}" class="btn btn-outline-primary btn-sm {% if selected_type == 'wassce' %}active{% endif %}">WASSCE</a>
+        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', type='bece', delivered_to=selected_phone) }}" class="btn btn-outline-dark btn-sm {% if selected_type == 'bece' %}active{% endif %}">BECE</a>
       </div>
+
+      <form method="GET" action="{{ url_for('admin_wassce_checker.admin_wassce_checker') }}" class="card card-body shadow-sm mb-4">
+        <input type="hidden" name="status" value="sold">
+        <div class="row g-2 align-items-end">
+          <div class="col-12 col-md-5">
+            <label for="delivered_to" class="form-label fw-semibold">Delivered To</label>
+            <input type="tel" id="delivered_to" name="delivered_to" value="{{ selected_phone }}" placeholder="0530393625" class="form-control{% if phone_error %} is-invalid{% endif %}" aria-describedby="delivery-help{% if phone_error %} delivery-error{% endif %}"{% if phone_error %} aria-invalid="true"{% endif %}>
+            {% if phone_error %}<div id="delivery-error" class="invalid-feedback">{{ phone_error }}</div>{% endif %}
+          </div>
+          <div class="col-12 col-md-3">
+            <label for="delivery_type" class="form-label fw-semibold">Checker Type</label>
+            <select id="delivery_type" name="type" class="form-select">
+              <option value="">WASSCE and BECE</option>
+              <option value="wassce" {% if selected_type == 'wassce' %}selected{% endif %}>WASSCE</option>
+              <option value="bece" {% if selected_type == 'bece' %}selected{% endif %}>BECE</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary">Filter Sold Checkers</button>
+            <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', status='sold') }}" class="btn btn-outline-secondary">Clear</a>
+          </div>
+        </div>
+        <div id="delivery-help" class="form-text">Find all sold checkers for a number. Accepts 0530393625 or +233530393625.</div>
+        {% if selected_phone and not phone_error %}<div class="small mt-2" role="status">{{ messages|length }} sold checker{{ '' if messages|length == 1 else 's' }} found for {{ selected_phone }}.</div>{% endif %}
+      </form>
 
       <!-- Add Message Form -->
       <div class="card shadow-sm mb-4">
@@ -174,7 +199,7 @@
         {% endfor %}
 
         {% if messages|length == 0 %}
-        <p class="text-center text-muted">No messages added yet.</p>
+        <p class="text-center text-muted">{% if selected_phone %}No sold checkers match this number.{% elif selected_status or selected_type %}No checkers match these filters.{% else %}No messages added yet.{% endif %}</p>
         {% endif %}
       </div>
     </div>
