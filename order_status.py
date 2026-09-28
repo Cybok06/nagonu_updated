@@ -1,3 +1,4 @@
+from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS
 import json
 import os
 from datetime import datetime, timedelta
@@ -318,6 +319,8 @@ def _run_auto_deliver_updates() -> Dict[str, Any]:
             changed_lines = 0
 
             for item in items:
+                if item.get("provider") in BUNDLE_PORTAL_PROVIDERS:
+                    continue
                 current_line = _normalize_status(item.get("line_status"))
                 if current_line not in {"pending", "processing", "queued"}:
                     continue

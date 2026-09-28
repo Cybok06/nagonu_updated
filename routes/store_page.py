@@ -22,6 +22,7 @@ from flask import (
 )
 
 from db import db
+from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS, package_size as bundle_portal_package_size
 from phone_number_registry import register_order_phone_numbers_async
 from announcements import get_popup_announcement
 from admin_balance import _normalize_phone as _normalize_sms_phone, _send_sms as _send_arkesel_sms
@@ -2862,6 +2863,9 @@ def _store_checkout_handler(slug: str, body: Dict[str, Any]):
                 if chosen_mtn_express_provider not in SERVICE_PROVIDER_SET:
                     chosen_mtn_express_provider = "datakazina"
 
+            bundle_portal_provider = chosen_mtn_normal_provider or chosen_mtn_express_provider
+            use_bundle_portal = api_allowed and bundle_portal_provider in BUNDLE_PORTAL_PROVIDERS
+
             use_codecraft = bool(
                 api_allowed
                 and (
@@ -2909,12 +2913,13 @@ def _store_checkout_handler(slug: str, body: Dict[str, Any]):
                 api_allowed=api_allowed,
                 use_datakazina=use_datakazina,
                 use_skplug=use_skplug,
+                use_bundle_portal=use_bundle_portal,
                 svc_provider=svc_provider,
                 use_codecraft=use_codecraft,
                 codecraft_network=codecraft_network,
             )
 
-            if not use_datakazina and not use_skplug and not use_codecraft:
+            if not use_datakazina and not use_skplug and not use_codecraft and not use_bundle_portal:
                 total_processing_amount += amt_total
 
                 if not api_allowed:
@@ -3119,6 +3124,91 @@ def _store_checkout_handler(slug: str, body: Dict[str, Any]):
                     "provider_mode": provider_mode,
                     "provider_amount": provider_amount,
                     "service_id": svc_doc["_id"] if svc_doc else None,
+                }
+
+                api_jobs.append(job_payload)
+                continue
+
+            if use_bundle_portal:
+                package_size_gb = bundle_portal_package_size(value_obj, item)
+                bundle_portal_network = BUNDLE_PORTAL_PROVIDERS[bundle_portal_provider]
+
+                if not phone or package_size_gb is None:
+                    total_processing_amount += amt_total
+                    results.append(
+                        {
+                            "phone": phone,
+                            "base_amount": base_amount,
+                            "amount": amt_total,
+                            "profit_amount": profit_amount,
+                            "profit_percent_used": profit_percent_used,
+                            **ported_fields,
+                            **store_profit_field,
+                            "value": item.get("value"),
+                            "value_obj": value_obj,
+                            "serviceId": service_id_raw,
+                            "serviceName": svc_name,
+                            "service_type": svc_type,
+                            "network_id": network_id,
+                            "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                            "line_amount_key": amount_key,
+                            "line_status": "processing",
+                            "api_status": "skipped_missing_fields",
+                            "provider": bundle_portal_provider,
+                            "provider_network": bundle_portal_network,
+                            "api_response": {
+                                "note": "API fields missing; queued for processing",
+                                "got": {
+                                    "phone": bool(phone),
+                                    "network": bundle_portal_network,
+                                    "gb_size": package_size_gb,
+                                },
+                            },
+                        }
+                    )
+                    continue
+
+                external_ref = f"BP_{uuid.uuid4().hex}"
+
+                total_processing_amount += amt_total
+
+                line_record = {
+                    "phone": phone,
+                    "base_amount": base_amount,
+                    "amount": amt_total,
+                    "profit_amount": profit_amount,
+                    "profit_percent_used": profit_percent_used,
+                    **ported_fields,
+                    **store_profit_field,
+                    "value": item.get("value"),
+                    "value_obj": value_obj,
+                    "serviceId": service_id_raw,
+                    "serviceName": svc_name,
+                    "service_type": svc_type,
+                    "provider": bundle_portal_provider,
+                    "provider_reference": None,
+                    "provider_order_id": None,
+                    "provider_request_order_id": external_ref,
+                    "provider_network": bundle_portal_network,
+                    "provider_gb_size": package_size_gb,
+                    "network_id": network_id,
+                    "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                    "line_amount_key": amount_key,
+                    "line_status": "processing",
+                    "api_status": "queued",
+                    "api_response": {"note": "Queued for background API call"},
+                }
+
+                results.append(line_record)
+
+                job_payload = {
+                    "provider_request_order_id": external_ref,
+                    "phone": phone,
+                    "provider": bundle_portal_provider,
+                    "bundle_portal_network": bundle_portal_network,
+                    "bundle_portal_gb_size": package_size_gb,
+                    "service_id": svc_doc["_id"] if svc_doc else None,
+                    "line_index": idx,
                 }
 
                 api_jobs.append(job_payload)

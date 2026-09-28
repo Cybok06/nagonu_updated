@@ -1,0 +1,49 @@
+# Bundle Portal MTN integration
+
+Both **MTN NORMAL** and **MTN EXPRESS** have these independent provider choices in Admin Services:
+
+| Label | Stored provider | Bundle Portal network |
+| --- | --- | --- |
+| Bundle Portal MTN | `bundleportal_mtn` | `mtn` |
+| Bundle Portal MTN2 | `bundleportal_mtn2` | `mtn_2` |
+| Bundle Portal MTN3 | `bundleportal_mtn3` | `mtn_3` |
+
+Switching a service affects new customer-dashboard and store orders. Existing orders retain their original route and reference. The service must be ON/API. Default and Store selling prices remain the prices configured in this app; the integration does not replace them with supplier prices. Bundle sizes must exist in the selected route's catalogue.
+
+## Configuration before enabling
+
+1. Set `BUNDLE_PORTAL_KEY=bp_live_...` in the server environment (or local `.env`).
+2. Deploy the callback endpoint at `https://YOUR_APP_HOST/webhooks/bundleportal`.
+3. Register that exact URL with Bundle Portal using a server-side POST to `https://api.bundleportal.com/v2`, header `x-api-key: YOUR_KEY`, and JSON:
+
+   ```json
+   {"action":"set_webhook","webhook_url":"https://YOUR_APP_HOST/webhooks/bundleportal"}
+   ```
+
+4. Save the returned, one-time `data.webhook_secret` as `BUNDLE_PORTAL_WEBHOOK_SECRET` in the server environment and restart the app. Do not register again unnecessarily: registration rotates the secret. Use `get_webhook` to inspect the existing registration.
+5. Run `python api_test/bundleportal_runtime.py` to inspect the three live catalogues without purchasing anything. Admins can also GET `/admin/services/bundleportal/catalog?network=mtn_2` while logged in.
+6. In Admin Services, choose a Bundle Portal provider for each MTN service and enable API mode. Selecting a Bundle Portal route is blocked until both environment secrets exist. That check cannot verify that the remote webhook URL was registered correctly.
+
+Never expose either secret in frontend code. Fund the provider wallet before accepting live orders. No live purchase is part of the automated tests.
+
+## Delivery and error handling
+
+- Each line gets a unique `BP_...` reference. The shared background worker checks the route's catalogue and recipient eligibility, then submits using that reference.
+- `processing` and `cached` remain processing. A signed `order.completed` callback marks the line delivered and recomputes the parent order status. These lines are excluded from timed auto-delivery and are never polled.
+- Callback signatures use HMAC-SHA256 over the raw body. Route and recipient must match the stored line. Duplicate callbacks do not reapply terminal changes; authenticated events are retained in `bundleportal_events`.
+- A rejection or confirmed failed/cancelled/refunded provider event marks the line failed with `refund_required`. Use the existing **Refunded** action in Admin Orders to credit the local wallet. A provider-wallet refund is not a customer-wallet refund. Store refunds continue to exclude customer markup under the existing refund workflow.
+- Timeouts, 5xx, 409, 429 and pending recipient approval stay processing with `review_required`. The **Retry Bundle Portal** action reuses the original reference and original route; uncertain purchase retries bypass preflight so an existing in-flight order can be returned idempotently. It never switches providers or generates a second reference.
+- The app uses its existing background-thread checkout dispatcher. A server restart can interrupt queued work; admins can retry queued lines. A line stranded in `submitting` must be reconciled against the Bundle Portal dashboard before further action.
+- Bundle Portal v2 does not retry failed webhook deliveries and has no status polling. Monitor the webhook endpoint and reconcile missed callbacks through the provider dashboard and existing admin status controls.
+
+## Verification
+
+Install `requirements-test.txt` in addition to the application's dependencies, then run:
+
+```text
+python -m unittest discover -s tests -p test_bundle_portal.py -v
+```
+
+Tests use an in-memory database and mocked provider/payment calls. They exercise all 12 combinations of two MTN services, three routes, and customer/store checkout, plus admin selection, signed callbacks, failure handling, and idempotency. Live credentials, public webhook registration, and a separately authorized live order are still required for end-to-end provider validation.
+
+Contract reference: supplied Bundle Portal v2 documentation, also published at https://bundleportal.com/api-docs.

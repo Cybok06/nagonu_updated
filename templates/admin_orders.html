@@ -1106,6 +1106,16 @@
       return row && row.is_ussd_order ? '<span class="ussd-badge ms-1"><i class="fa-solid fa-mobile-screen-button"></i> USSD</span>' : '';
     }
 
+    function bundlePortalRetry(line){
+      const item = line.item || {};
+      if (!String(item.provider || '').startsWith('bundleportal_') ||
+          !['queued', 'review_required'].includes(item.api_status) ||
+          !['pending', 'processing'].includes(item.line_status)) return '';
+      return `<form method="POST" action="${adminOrdersUrl}/${encodeURIComponent(line.order_mongo_id_param)}/items/${line.item_index}/bundleportal-retry">
+        <button type="submit" class="btn btn-outline-warning btn-sm" data-confirm="Retry this Bundle Portal request using its original reference?">Retry Bundle Portal</button>
+      </form>`;
+    }
+
     function renderLinesTable(lines){
       if (!linesTbody) return;
       if (!lines.length){
@@ -1173,6 +1183,7 @@
                     </form>
                   `;
                 }).join('')}
+                ${bundlePortalRetry(line)}
                 <button class="btn btn-sm btn-dark" data-quick-schedule="${esc(line.line_id)}" data-kind="line" data-bs-toggle="modal" data-bs-target="#scheduleModal" ${lineIsFinal ? 'disabled title="Delivered lines are final."' : ''}>
                   <i class="fa-solid fa-calendar-plus"></i>
                 </button>
@@ -1454,6 +1465,7 @@
                       </form>
                     `;
                   }).join('')}
+                  ${bundlePortalRetry(line)}
                   <button class="btn btn-dark btn-sm" data-quick-schedule="${esc(line.line_id)}" data-kind="line" data-bs-toggle="modal" data-bs-target="#scheduleModal">
                     <i class="fa-solid fa-calendar-plus"></i> Schedule
                   </button>

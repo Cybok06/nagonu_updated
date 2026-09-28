@@ -16,6 +16,22 @@
 
     .btn-seablue { background-color: var(--sea-blue); border-color: var(--sea-blue); color:#fff; }
     .btn-seablue:hover { filter:brightness(0.95); color:#fff; }
+    .btn-update-service {
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      border: 2px solid #075985;
+      border-radius: .65rem;
+      color: #fff;
+      font-weight: 600;
+      padding: .7rem 1.5rem;
+      box-shadow: 0 3px 8px rgba(3, 105, 161, .22);
+    }
+    .btn-update-service:hover, .btn-update-service:active {
+      background: #075985; border-color: #0c4a6e; color: #fff;
+    }
+    .btn-update-service:focus-visible {
+      background: #0369a1; color: #fff;
+      outline: 3px solid #7dd3fc; outline-offset: 3px;
+    }
     .small-muted { font-size:.9rem; color:#6c757d; }
 
     .svc-card-img { width:100%; height:140px; object-fit:cover; border-radius:12px; background:#f3f6f9; }
@@ -172,6 +188,9 @@
                       <option value="datakazina" {{ 'selected' if provider_val == 'datakazina' else '' }}>DataKazina</option>
                       {% if not is_telecel %}
                         <option value="skplug" {{ 'selected' if provider_val == 'skplug' else '' }}>SkPlug</option>
+                        <option value="bundleportal_mtn" {{ 'selected' if provider_val == 'bundleportal_mtn' else '' }}>Bundle Portal MTN</option>
+                        <option value="bundleportal_mtn2" {{ 'selected' if provider_val == 'bundleportal_mtn2' else '' }}>Bundle Portal MTN2</option>
+                        <option value="bundleportal_mtn3" {{ 'selected' if provider_val == 'bundleportal_mtn3' else '' }}>Bundle Portal MTN3</option>
                       {% endif %}
                       <option value="codecraft" {{ 'selected' if provider_val == 'codecraft' else '' }}>CodeCraft</option>
                     </select>
@@ -321,6 +340,9 @@
                     <option value="datakazina" {{ 'selected' if provider_val == 'datakazina' else '' }}>DataKazina</option>
                     {% if not is_telecel %}
                       <option value="skplug" {{ 'selected' if provider_val == 'skplug' else '' }}>SkPlug</option>
+                      <option value="bundleportal_mtn" {{ 'selected' if provider_val == 'bundleportal_mtn' else '' }}>Bundle Portal MTN</option>
+                      <option value="bundleportal_mtn2" {{ 'selected' if provider_val == 'bundleportal_mtn2' else '' }}>Bundle Portal MTN2</option>
+                      <option value="bundleportal_mtn3" {{ 'selected' if provider_val == 'bundleportal_mtn3' else '' }}>Bundle Portal MTN3</option>
                     {% endif %}
                     <option value="codecraft" {{ 'selected' if provider_val == 'codecraft' else '' }}>CodeCraft</option>
                   </select>
@@ -398,7 +420,8 @@
     <div class="modal fade" id="editServiceModal-{{ sid }}" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
         <div class="modal-content">
-          <form method="post" action="{{ url_for('admin_services.update_service', service_id=sid) }}">
+          <form method="post" action="{{ url_for('admin_services.update_service', service_id=sid) }}" data-pricing-service="{{ sid }}">
+            <input type="hidden" name="pricing_draft_token" value="">
             <div class="modal-header">
               <div class="w-100">
                 <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
@@ -446,6 +469,9 @@
                             <option value="datakazina" {{ 'selected' if provider_val == 'datakazina' else '' }}>DataKazina</option>
                             {% if not is_telecel %}
                               <option value="skplug" {{ 'selected' if provider_val == 'skplug' else '' }}>SkPlug</option>
+                              <option value="bundleportal_mtn" {{ 'selected' if provider_val == 'bundleportal_mtn' else '' }}>Bundle Portal MTN</option>
+                              <option value="bundleportal_mtn2" {{ 'selected' if provider_val == 'bundleportal_mtn2' else '' }}>Bundle Portal MTN2</option>
+                              <option value="bundleportal_mtn3" {{ 'selected' if provider_val == 'bundleportal_mtn3' else '' }}>Bundle Portal MTN3</option>
                             {% endif %}
                             <option value="codecraft" {{ 'selected' if provider_val == 'codecraft' else '' }}>CodeCraft</option>
                           </select>
@@ -622,9 +648,10 @@
 
             <div class="modal-footer">
               <div class="me-auto small text-muted">
-                Tip: If Store Offers is empty, Store will fallback to Default.
+                <div>Tip: If Store Offers is empty, Store will fallback to Default.</div>
+                <div data-pricing-draft-status role="status" aria-live="polite">Price edits are kept in this browser until you update the service.</div>
               </div>
-              <button type="submit" class="btn btn-seablue">Update Service</button>
+              <button type="submit" class="btn btn-update-service">Update Service</button>
             </div>
           </form>
         </div>
@@ -1331,5 +1358,7 @@
       }
     });
   </script>
+  <script id="pricing-draft-config" type="application/json">{{ {'userId': session.get('user_id', '')|string, 'saved': saved_pricing_draft|default(none)}|tojson }}</script>
+  <script src="{{ url_for('static', filename='js/admin_service_pricing_drafts.js') }}"></script>
 </body>
 </html>

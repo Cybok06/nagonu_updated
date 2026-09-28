@@ -1,3 +1,4 @@
+from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS, LABELS as BUNDLE_PORTAL_LABELS
 # admin_orders.py  — Admin Orders + DB-Backed Scheduler (Render-safe) + Bulk Deliver (Selected)
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash, jsonify, make_response, send_file
 from bson import ObjectId, Regex
@@ -40,8 +41,9 @@ ALLOWED_STATUSES   = {"pending", "processing", "delivered", "failed", "completed
 ALLOWED_SORTS      = {"newest", "oldest", "amount_desc", "amount_asc"}
 DEFAULT_PER_PAGE   = 10
 FINAL_STATUS       = "completed"
-API_PROVIDERS = {"codecraft", "datakazina", "skplug"}
+API_PROVIDERS = {"codecraft", "datakazina", "skplug", *BUNDLE_PORTAL_PROVIDERS}
 API_PROVIDER_LABELS = {
+    **BUNDLE_PORTAL_LABELS,
     "codecraft": "CodeCraft",
     "datakazina": "DataKazina",
     "skplug": "SkPlug",
@@ -2085,7 +2087,7 @@ def update_order_line_status(order_id, item_index):
         source, oid = parsed
         orders_collection = _get_orders_collection(source)
 
-        line_id = f"{source}:{oid}:{item_index}" if source == ORDER_SOURCE_CAMPUS else f"{oid}:{item_index}"
+        line_id = f"{source}:{oid}:{item_index}" if source == "campus" else f"{oid}:{item_index}"
         updated, errors = _apply_line_status_change(
             [line_id],
             new_status,

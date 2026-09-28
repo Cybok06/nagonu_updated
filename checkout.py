@@ -5,6 +5,7 @@ import os, uuid, random, string, requests, traceback, json, ast, re, threading, 
 from urllib.parse import quote
 
 from db import db
+from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS, package_size as bundle_portal_package_size
 from phone_number_registry import register_order_phone_numbers_async
 
 checkout_bp = Blueprint("checkout", __name__)
@@ -46,7 +47,7 @@ SKPLUG_API_TOKEN = os.getenv(
 )
 SKPLUG_TIMEOUT = int(os.getenv("SKPLUG_TIMEOUT", "45"))
 
-SERVICE_PROVIDER_CHOICES = ("datakazina", "codecraft", "skplug")
+SERVICE_PROVIDER_CHOICES = ("datakazina", "codecraft", "skplug", *BUNDLE_PORTAL_PROVIDERS)
 SERVICE_PROVIDER_SET = set(SERVICE_PROVIDER_CHOICES)
 PHONE_VERIFICATION_SETTINGS_ID = "PHONE_HISTORY_SETTINGS"
 PHONE_HISTORY_WARNING_MESSAGE = "Delivery may take 24 hrs or more to deliver for this number."
@@ -1663,6 +1664,11 @@ def _background_process_providers(order_id: str, api_jobs: list[dict]):
             if provider == "datakazina":
                 continue
 
+            if provider in BUNDLE_PORTAL_PROVIDERS:
+                from bundle_portal_orders import process_job
+                process_job(orders_col, job_order_id, job)
+                continue
+
             if provider == "skplug":
                 skplug_network = (job.get("skplug_network") or "MTN").strip().upper()
                 skplug_gb_size = job.get("skplug_gb_size")
@@ -2127,6 +2133,9 @@ def _process_checkout_core(
                 if chosen_mtn_express_provider not in SERVICE_PROVIDER_SET:
                     chosen_mtn_express_provider = "datakazina"
 
+            bundle_portal_provider = chosen_mtn_normal_provider or chosen_mtn_express_provider
+            use_bundle_portal = api_allowed and bundle_portal_provider in BUNDLE_PORTAL_PROVIDERS
+
             use_codecraft = bool(
                 api_allowed
                 and (
@@ -2174,6 +2183,7 @@ def _process_checkout_core(
                 api_allowed=api_allowed,
                 use_datakazina=use_datakazina,
                 use_skplug=use_skplug,
+                use_bundle_portal=use_bundle_portal,
                 svc_provider=svc_provider,
                 use_codecraft=use_codecraft,
                 codecraft_network=codecraft_network,
@@ -2227,7 +2237,7 @@ def _process_checkout_core(
                 )
                 continue
 
-            if not use_datakazina and not use_skplug and not use_codecraft:
+            if not use_datakazina and not use_skplug and not use_codecraft and not use_bundle_portal:
                 has_processing = True
                 total_processing_amount += amt_total
 
@@ -2435,6 +2445,93 @@ def _process_checkout_core(
                     "provider_gig": provider_gig,
                     "provider_mode": provider_mode,
                     "provider_amount": provider_amount,
+                    "service_id": svc_doc["_id"],
+                    "line_index": idx,
+                }
+
+                api_jobs.append(job_payload)
+                continue
+
+            if use_bundle_portal:
+                api_requested_total += amt_total
+
+                package_size_gb = bundle_portal_package_size(value_obj, item)
+                bundle_portal_network = BUNDLE_PORTAL_PROVIDERS[bundle_portal_provider]
+
+                if not phone or package_size_gb is None:
+                    has_processing = True
+                    total_processing_amount += amt_total
+                    results.append(
+                        {
+                            "phone": phone,
+                            "base_amount": base_amount,
+                            "amount": amt_total,
+                            "profit_amount": profit_amount,
+                            "profit_percent_used": profit_percent_used,
+                            **ported_fields,
+                            "value": item.get("value"),
+                            "value_obj": value_obj,
+                            "serviceId": service_id_raw,
+                            "serviceName": svc_name,
+                            "service_type": svc_type,
+                            "network_id": network_id,
+                            "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                            "line_amount_key": amount_key,
+                            "line_status": "processing",
+                            "api_status": "skipped_missing_fields",
+                            "provider": bundle_portal_provider,
+                            "provider_network": bundle_portal_network,
+                            "api_response": {
+                                "note": "API fields missing; queued for processing",
+                                "got": {
+                                    "phone": bool(phone),
+                                    "network": bundle_portal_network,
+                                    "gb_size": package_size_gb,
+                                },
+                            },
+                        }
+                    )
+                    continue
+
+                external_ref = f"BP_{uuid.uuid4().hex}"
+
+                has_processing = True
+                total_processing_amount += amt_total
+
+                line_record = {
+                    "phone": phone,
+                    "base_amount": base_amount,
+                    "amount": amt_total,
+                    "profit_amount": profit_amount,
+                    "profit_percent_used": profit_percent_used,
+                    **ported_fields,
+                    "value": item.get("value"),
+                    "value_obj": value_obj,
+                    "serviceId": service_id_raw,
+                    "serviceName": svc_name,
+                    "service_type": svc_type,
+                    "provider": bundle_portal_provider,
+                    "provider_reference": None,
+                    "provider_order_id": None,
+                    "provider_request_order_id": external_ref,
+                    "provider_network": bundle_portal_network,
+                    "provider_gb_size": package_size_gb,
+                    "network_id": network_id,
+                    "bundle_key": ({"kind": bundle_key[0], "value": bundle_key[1]} if bundle_key else None),
+                    "line_amount_key": amount_key,
+                    "line_status": "pending",
+                    "api_status": "queued",
+                    "api_response": {"note": "Queued for background API call"},
+                }
+
+                results.append(line_record)
+
+                job_payload = {
+                    "provider_request_order_id": external_ref,
+                    "phone": phone,
+                    "provider": bundle_portal_provider,
+                    "bundle_portal_network": bundle_portal_network,
+                    "bundle_portal_gb_size": package_size_gb,
                     "service_id": svc_doc["_id"],
                     "line_index": idx,
                 }

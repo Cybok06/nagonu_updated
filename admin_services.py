@@ -1,3 +1,4 @@
+from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS, LABELS as BUNDLE_PORTAL_LABELS
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash, jsonify, Request
 from db import db, campus_db
 from datetime import datetime
@@ -18,9 +19,10 @@ service_offer_prices_col = db["service_offer_prices"]  # {service_id, customer_i
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "uploads")
-SERVICE_PROVIDER_CHOICES = ("datakazina", "codecraft", "skplug")
+SERVICE_PROVIDER_CHOICES = ("datakazina", "codecraft", "skplug", *BUNDLE_PORTAL_PROVIDERS)
 SERVICE_PROVIDER_SET = set(SERVICE_PROVIDER_CHOICES)
 SERVICE_PROVIDER_LABELS = {
+    **BUNDLE_PORTAL_LABELS,
     "datakazina": "DataKazina",
     "codecraft": "CodeCraft",
     "skplug": "SkPlug",
@@ -361,7 +363,10 @@ def manage_services():
             for of in (s.get("offers") or [])
         ]
 
-    return render_template("admin_services.html", services=services)
+    return render_template(
+        "admin_services.html", services=services,
+        saved_pricing_draft=session.pop("saved_pricing_draft", None),
+    )
 
 @admin_services_bp.route("/admin/services/create", methods=["POST"])
 def create_service():
@@ -443,7 +448,14 @@ def update_service(service_id):
     if service_type:
         update_doc["type"] = service_type
 
-    services_col.update_one({"_id": _id}, {"$set": update_doc})
+    result = services_col.update_one({"_id": _id}, {"$set": update_doc})
+    if not result.matched_count:
+        flash("Service not found. Your price draft has been kept in this browser.", "danger")
+        return redirect(url_for("admin_services.manage_services"))
+    session["saved_pricing_draft"] = {
+        "service_id": service_id,
+        "token": request.form.get("pricing_draft_token", ""),
+    }
     flash("Service updated successfully.", "success")
     return redirect(url_for("admin_services.manage_services"))
 
@@ -1035,7 +1047,7 @@ def set_service_provider(service_id):
         return jsonify(
             {
                 "success": False,
-                "error": "provider must be one of: datakazina, codecraft, skplug",
+                "error": "Unsupported service provider",
             }
         ), 400
 
@@ -1051,6 +1063,12 @@ def set_service_provider(service_id):
             {"success": False, "error": "Provider switch only allowed for MTN NORMAL, MTN EXPRESS, or Telecel"}
         ), 400
 
+    if provider in BUNDLE_PORTAL_PROVIDERS and (
+        not os.getenv("BUNDLE_PORTAL_KEY", "").strip()
+        or not os.getenv("BUNDLE_PORTAL_WEBHOOK_SECRET", "").strip()
+    ):
+        return jsonify(success=False, error="Configure BUNDLE_PORTAL_KEY and BUNDLE_PORTAL_WEBHOOK_SECRET before enabling Bundle Portal."), 409
+
     if is_telecel:
         svc_type = (service.get("type") or "").strip().upper()
         if svc_type not in {"ON", "API"}:
@@ -1060,11 +1078,11 @@ def set_service_provider(service_id):
                     "error": "Telecel service type must be 'ON' or 'API' to enable provider routing",
                 }
             ), 400
-        if provider == "skplug":
+        if provider == "skplug" or provider in BUNDLE_PORTAL_PROVIDERS:
             return jsonify(
                 {
                     "success": False,
-                    "error": "SkPlug routing is only supported for MTN services.",
+                    "error": "This provider route is only supported for MTN services.",
                 }
             ), 400
 

@@ -23,6 +23,7 @@ from admin_services import admin_services_bp
 from routes.admin_campus_services import admin_campus_services_bp
 from deposit import deposit_bp
 from checkout import checkout_bp
+from bundle_portal_orders import bundle_portal_bp
 from orders import orders_bp
 from transactions import transactions_bp
 from customer_profile import customer_profile_bp
@@ -133,6 +134,7 @@ def create_app():
     app.register_blueprint(admin_campus_services_bp)
     app.register_blueprint(deposit_bp)
     app.register_blueprint(checkout_bp)
+    app.register_blueprint(bundle_portal_bp)
     app.register_blueprint(orders_bp)
     app.register_blueprint(transactions_bp)
     app.register_blueprint(customer_profile_bp)
