@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin - Campus Balance</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    :root{
+      --ok:#16a34a;--ok-soft:#ecfdf5;
+      --bad:#ef4444;--bad-soft:#fef2f2;
+      --muted:#64748b;--border:#e2e8f0;
+      --card:#ffffff;
+    }
+    body{background:#f8fafc}
+    .balance-card{background:linear-gradient(135deg,#0ea5e9 0%,#2563eb 100%);color:#fff;border:0}
+    .balance-value{font-size:2.2rem;font-weight:800;letter-spacing:.4px}
+    .badge-credit{background:var(--ok-soft);color:var(--ok);border:1px solid #a7f3d0}
+    .badge-debit{background:var(--bad-soft);color:var(--bad);border:1px solid #fecaca}
+    .table td,.table th{vertical-align:middle}
+    .filter-card{border:1px solid var(--border)}
+  </style>
+</head>
+<body>
+  {% include 'admin_sidebar.html' %}
+
+  <div class="container py-4">
+    <div class="d-flex align-items-center mb-3">
+      <i class="bi bi-wallet2 me-2 fs-4 text-primary"></i>
+      <h3 class="mb-0">Campus Balance</h3>
+    </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col-12 col-lg-4">
+        <div class="card balance-card h-100">
+          <div class="card-body">
+            <div class="small text-white-50">Provider Wallet</div>
+            <div class="balance-value">GHS {{ "%.2f"|format(balance or 0) }}</div>
+            <div class="small text-white-50">Last updated automatically</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-lg-8">
+        <div class="row g-3">
+          <div class="col-12 col-md-6">
+            <div class="card h-100">
+              <div class="card-body">
+                <h5 class="card-title text-success"><i class="bi bi-plus-circle me-1"></i>Deposit</h5>
+                <form method="POST" action="{{ url_for('admin_campus_balance.campus_balance_deposit') }}">
+                  <div class="mb-2">
+                    <label class="form-label">Amount (GHS)</label>
+                    <input type="number" step="0.01" min="0" name="amount" class="form-control" required>
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label">Note (optional)</label>
+                    <input type="text" name="note" class="form-control" placeholder="Reason or note">
+                  </div>
+                  <button class="btn btn-success w-100" type="submit">Deposit</button>
+                </form>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="card h-100">
+              <div class="card-body">
+                <h5 class="card-title text-danger"><i class="bi bi-dash-circle me-1"></i>Withdraw</h5>
+                <form method="POST" action="{{ url_for('admin_campus_balance.campus_balance_withdraw') }}">
+                  <div class="mb-2">
+                    <label class="form-label">Amount (GHS)</label>
+                    <input type="number" step="0.01" min="0" name="amount" class="form-control" required>
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label">Note (optional)</label>
+                    <input type="text" name="note" class="form-control" placeholder="Reason or note">
+                  </div>
+                  <button class="btn btn-danger w-100" type="submit">Withdraw</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="get" class="card mb-3 filter-card">
+      <div class="card-body">
+        <div class="row g-3 align-items-end">
+          <div class="col-12 col-md-2">
+            <label class="form-label">Direction</label>
+            <select name="direction" class="form-select">
+              <option value="all" {% if direction=='all' %}selected{% endif %}>All</option>
+              <option value="credit" {% if direction=='credit' %}selected{% endif %}>Credit</option>
+              <option value="debit" {% if direction=='debit' %}selected{% endif %}>Debit</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-2">
+            <label class="form-label">From</label>
+            <input type="date" name="date_from" value="{{ date_from }}" class="form-control">
+          </div>
+          <div class="col-12 col-md-2">
+            <label class="form-label">To</label>
+            <input type="date" name="date_to" value="{{ date_to }}" class="form-control">
+          </div>
+          <div class="col-12 col-md-3">
+            <label class="form-label">Reason contains</label>
+            <input type="text" name="reason" value="{{ reason_q }}" class="form-control" placeholder="MANUAL_TOPUP">
+          </div>
+          <div class="col-12 col-md-3">
+            <label class="form-label">Reference / Order ID</label>
+            <input type="text" name="ref" value="{{ ref_q }}" class="form-control" placeholder="Search">
+          </div>
+          <div class="col-12 col-md-2">
+            <label class="form-label">Per Page</label>
+            <select name="per_page" class="form-select">
+              {% for n in [10,20,30,50,100] %}
+                <option value="{{ n }}" {% if (per_page or 20)|int == n %}selected{% endif %}>{{ n }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12 col-md-3 d-flex gap-2">
+            <button class="btn btn-primary flex-grow-1" type="submit">
+              <i class="bi bi-funnel me-1"></i>Apply
+            </button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('admin_campus_balance.view_campus_balance') }}">Reset</a>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer text-muted small">
+        Showing page {{ page }} of {{ total_pages }} - {{ total_count }} total transactions
+      </div>
+    </form>
+
+    <div class="table-responsive">
+      <table class="table table-bordered align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Date</th>
+            <th>Direction</th>
+            <th class="text-end">Amount (GHS)</th>
+            <th>Reason</th>
+            <th>Reference</th>
+            <th>Order ID</th>
+            <th>Line</th>
+            <th>Meta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in transactions %}
+            {% set dir = (t.get('direction') or '').upper() %}
+            {% set meta = t.get('meta') or {} %}
+            <tr>
+              <td>
+                {% if t.get('created_at') %}
+                  {{ t['created_at'].strftime('%d %b %Y, %I:%M %p') }}
+                {% else %}
+                  <span class="text-muted">N/A</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if dir == 'CREDIT' %}
+                  <span class="badge badge-credit">CREDIT</span>
+                {% elif dir == 'DEBIT' %}
+                  <span class="badge badge-debit">DEBIT</span>
+                {% else %}
+                  <span class="badge text-bg-secondary">N/A</span>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                {{ "%.2f"|format(t.get('amount') or 0) }}
+              </td>
+              <td><span class="badge text-bg-light border">{{ t.get('reason') or 'N/A' }}</span></td>
+              <td>{{ t.get('reference') or 'N/A' }}</td>
+              <td>{{ t.get('order_id') or 'N/A' }}</td>
+              <td>{{ t.get('line_index') if t.get('line_index') is not none else '—' }}</td>
+              <td class="small text-muted">
+                {% if meta.get('service_name') %}<div>Service: {{ meta.get('service_name') }}</div>{% endif %}
+                {% if meta.get('value') %}<div>Value: {{ meta.get('value') }}</div>{% endif %}
+                {% if meta.get('service_provider') %}<div>Provider: {{ meta.get('service_provider') }}</div>{% endif %}
+                {% if not meta.get('service_name') and not meta.get('value') and not meta.get('service_provider') %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          {% if not transactions %}
+            <tr><td colspan="8" class="text-center text-muted">No transactions found.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if total_pages > 1 %}
+      <nav class="mt-3">
+        <ul class="pagination">
+          {% set args = request.args.to_dict() %}
+          {% set prev_page = page - 1 %}
+          {% set next_page = page + 1 %}
+
+          <li class="page-item {{ 'disabled' if page <= 1 }}">
+            {% set _ = args.update({'page': 1}) %}
+            <a class="page-link" href="{{ url_for('admin_campus_balance.view_campus_balance', **args) }}">&laquo; First</a>
+          </li>
+          <li class="page-item {{ 'disabled' if page <= 1 }}">
+            {% set _ = args.update({'page': prev_page if page > 1 else 1}) %}
+            <a class="page-link" href="{{ url_for('admin_campus_balance.view_campus_balance', **args) }}">Prev</a>
+          </li>
+          {% for p in range(1, total_pages + 1) %}
+            <li class="page-item {{ 'active' if p == page }}">
+              {% set _ = args.update({'page': p}) %}
+              <a class="page-link" href="{{ url_for('admin_campus_balance.view_campus_balance', **args) }}">{{ p }}</a>
+            </li>
+          {% endfor %}
+          <li class="page-item {{ 'disabled' if page >= total_pages }}">
+            {% set _ = args.update({'page': next_page if page < total_pages else total_pages}) %}
+            <a class="page-link" href="{{ url_for('admin_campus_balance.view_campus_balance', **args) }}">Next</a>
+          </li>
+          <li class="page-item {{ 'disabled' if page >= total_pages }}">
+            {% set _ = args.update({'page': total_pages}) %}
+            <a class="page-link" href="{{ url_for('admin_campus_balance.view_campus_balance', **args) }}">Last &raquo;</a>
+          </li>
+        </ul>
+      </nav>
+    {% endif %}
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
