@@ -22,7 +22,7 @@ from flask import (
 )
 
 from db import db
-from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS, package_size as bundle_portal_package_size
+from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS, package_size as bundle_portal_package_size, supports_service as bundle_portal_supports_service
 from phone_number_registry import register_order_phone_numbers_async
 from announcements import get_popup_announcement
 from admin_balance import _normalize_phone as _normalize_sms_phone, _send_sms as _send_arkesel_sms
@@ -2863,8 +2863,8 @@ def _store_checkout_handler(slug: str, body: Dict[str, Any]):
                 if chosen_mtn_express_provider not in SERVICE_PROVIDER_SET:
                     chosen_mtn_express_provider = "datakazina"
 
-            bundle_portal_provider = chosen_mtn_normal_provider or chosen_mtn_express_provider
-            use_bundle_portal = api_allowed and bundle_portal_provider in BUNDLE_PORTAL_PROVIDERS
+            bundle_portal_provider = chosen_mtn_normal_provider or chosen_mtn_express_provider or svc_provider
+            use_bundle_portal = api_allowed and bundle_portal_supports_service(bundle_portal_provider, svc_doc)
 
             use_codecraft = bool(
                 api_allowed

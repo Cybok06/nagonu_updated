@@ -128,6 +128,22 @@ class BundlePortalOrderTests(unittest.TestCase):
         self.assertEqual(self.callback(recipient='0240000000').status_code, 400)
         self.assertEqual(self.document()['status'], 'processing')
 
+    def test_ishare_webhook_alias_updates_the_correct_line(self):
+        self.db.orders.update_one({'order_id': 'ORDER1'}, {'$set': {
+            'items.0.provider': 'bundleportal_ishare', 'items.0.provider_network': 'airteltigo',
+            'items.0.phone': '0271234567',
+        }})
+        self.assertEqual(self.callback(network='ishare', recipient='0271234567').status_code, 200)
+        self.assertEqual(self.document()['status'], 'delivered')
+
+    def test_telecel_webhook_updates_the_correct_line(self):
+        self.db.orders.update_one({'order_id': 'ORDER1'}, {'$set': {
+            'items.0.provider': 'bundleportal_telecel', 'items.0.provider_network': 'telecel',
+            'items.0.phone': '0201234567',
+        }})
+        self.assertEqual(self.callback(network='telecel', recipient='0201234567').status_code, 200)
+        self.assertEqual(self.document()['status'], 'delivered')
+
     def test_provider_refund_after_delivery_does_not_claim_local_wallet_refund(self):
         self.callback()
         self.assertEqual(self.callback('refunded').status_code, 200)
@@ -218,14 +234,16 @@ class BundlePortalCheckoutRoutingTests(unittest.TestCase):
         self.thread = p.start()
         self.addCleanup(p.stop)
 
-    def test_customer_and_store_use_selected_route_for_both_mtn_services(self):
-        for service_name in ('MTN NORMAL', 'MTN EXPRESS'):
+    def test_customer_and_store_use_selected_route_for_supported_services(self):
+        for service_name in ('MTN NORMAL', 'MTN EXPRESS', 'AT iShare', 'Telecel', 'Vodafone'):
             for provider, network in api.PROVIDERS.items():
+                if not api.supports_service(provider, {'name': service_name}):
+                    continue
                 for channel in ('customer', 'store'):
                     with self.subTest(service=service_name, provider=provider, channel=channel):
                         self.db.orders.delete_many({})
                         sid = self.db.services.insert_one({'name': service_name, 'provider': provider, 'type': 'API', 'status': 'OPEN', 'offers': []}).inserted_id
-                        cart = [{'serviceId': str(sid), 'serviceName': service_name, 'phone': '0241234567',
+                        cart = [{'serviceId': str(sid), 'serviceName': service_name, 'phone': '0271234567' if service_name == 'AT iShare' else ('0201234567' if service_name in ('Telecel', 'Vodafone') else '0241234567'),
                                  'amount': 20, 'base_amount': 18, 'value_obj': {'volume': 5000}, 'value': '5GB'}]
                         with self.client.session_transaction() as sess:
                             sess['user_id'] = str(self.user_id)
@@ -260,9 +278,42 @@ class BundlePortalCheckoutRoutingTests(unittest.TestCase):
         express = self.db.services.insert_one({'name': 'MTN EXPRESS', 'type': 'API'}).inserted_id
         for sid in (normal, express):
             for provider in api.PROVIDERS:
+                if not api.supports_service(provider, {'name': 'MTN NORMAL'}):
+                    continue
                 response = self.client.post(f'/admin/services/{sid}/provider', json={'provider': provider})
                 self.assertEqual(response.status_code, 200, response.get_json())
                 self.assertEqual(self.db.services.find_one({'_id': sid})['provider'], provider)
+
+    @patch.dict(os.environ, {'BUNDLE_PORTAL_KEY': 'test-key', 'BUNDLE_PORTAL_WEBHOOK_SECRET': 'test-secret'})
+    def test_ishare_switch_and_wrong_product_rejection(self):
+        with self.client.session_transaction() as sess:
+            sess['role'] = 'admin'
+        for name, provider, expected in (
+            ('AT iShare', 'bundleportal_ishare', 200),
+            ('AT iShare', 'bundleportal_mtn', 400),
+            ('MTN NORMAL', 'bundleportal_ishare', 400),
+            ('AT Bigtime', 'bundleportal_ishare', 400),
+            ('AT Bigtime', 'codecraft', 200),
+            ('Telecel', 'bundleportal_telecel', 200),
+            ('Vodafone', 'bundleportal_telecel', 200),
+            ('Telecel', 'bundleportal_mtn', 400),
+            ('Telecel', 'bundleportal_ishare', 400),
+            ('MTN NORMAL', 'bundleportal_telecel', 400),
+            ('AT iShare', 'bundleportal_telecel', 400),
+        ):
+            with self.subTest(name=name, provider=provider):
+                sid = self.db.services.insert_one({'name': name, 'type': 'API'}).inserted_id
+                response = self.client.post(f'/admin/services/{sid}/provider', json={'provider': provider})
+                self.assertEqual(response.status_code, expected, response.get_json())
+
+    @patch.dict(os.environ, {'BUNDLE_PORTAL_KEY': 'test-key', 'BUNDLE_PORTAL_WEBHOOK_SECRET': 'test-secret'})
+    def test_telecel_off_service_cannot_enable_provider(self):
+        with self.client.session_transaction() as sess:
+            sess['role'] = 'admin'
+        sid = self.db.services.insert_one({'name': 'Telecel', 'type': 'OFF'}).inserted_id
+        response = self.client.post(f'/admin/services/{sid}/provider', json={'provider': 'bundleportal_telecel'})
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn('provider', self.db.services.find_one({'_id': sid}))
 
     def test_timed_auto_delivery_does_not_deliver_bundle_portal_lines(self):
         self.db.order_auto_update_settings.insert_one({

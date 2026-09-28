@@ -1,4 +1,4 @@
-# Bundle Portal MTN integration
+# Bundle Portal service integration
 
 Both **MTN NORMAL** and **MTN EXPRESS** have these independent provider choices in Admin Services:
 
@@ -7,6 +7,12 @@ Both **MTN NORMAL** and **MTN EXPRESS** have these independent provider choices 
 | Bundle Portal MTN | `bundleportal_mtn` | `mtn` |
 | Bundle Portal MTN2 | `bundleportal_mtn2` | `mtn_2` |
 | Bundle Portal MTN3 | `bundleportal_mtn3` | `mtn_3` |
+| Bundle Portal AT iShare | `bundleportal_ishare` | `airteltigo` (alias `ishare`) |
+| Bundle Portal Telecel | `bundleportal_telecel` | `telecel` |
+
+Telecel (including legacy Vodafone service names) supports **Bundle Portal Telecel** in each Admin Services provider selector. Turn the service ON/API before switching. Customer and store checkout use the wallet-funded `get_bundles` / `place_order` catalogue with `network: telecel`, and the existing key, webhook secret, retry, and refund workflows. No additional environment variables are needed. The separate preloaded `share_telecel` API is not used.
+
+AT iShare uses the wallet-funded `get_bundles` / `place_order` catalogue, not the separate preloaded share-balance API. It is selectable only on the AT iShare service, uses the existing credentials and webhook, and works for customer and store orders. The AT Bigtime selector shows a disabled Bundle Portal option: the supplied documentation does not specify a Bigtime network or catalogue. Confirm its route with Bundle Portal before enabling it; do not substitute the iShare catalogue for Bigtime. CodeCraft remains selectable for existing AT services.
 
 Switching a service affects new customer-dashboard and store orders. Existing orders retain their original route and reference. The service must be ON/API. Default and Store selling prices remain the prices configured in this app; the integration does not replace them with supplier prices. Bundle sizes must exist in the selected route's catalogue.
 
@@ -21,7 +27,7 @@ Switching a service affects new customer-dashboard and store orders. Existing or
    ```
 
 4. Save the returned, one-time `data.webhook_secret` as `BUNDLE_PORTAL_WEBHOOK_SECRET` in the server environment and restart the app. Do not register again unnecessarily: registration rotates the secret. Use `get_webhook` to inspect the existing registration.
-5. Run `python api_test/bundleportal_runtime.py` to inspect the three live catalogues without purchasing anything. Admins can also GET `/admin/services/bundleportal/catalog?network=mtn_2` while logged in.
+5. Run `python api_test/bundleportal_runtime.py` to inspect the supported live catalogues without purchasing anything. Admins can also GET `/admin/services/bundleportal/catalog?network=mtn_2` while logged in.
 6. In Admin Services, choose a Bundle Portal provider for each MTN service and enable API mode. Selecting a Bundle Portal route is blocked until both environment secrets exist. That check cannot verify that the remote webhook URL was registered correctly.
 
 Never expose either secret in frontend code. Fund the provider wallet before accepting live orders. No live purchase is part of the automated tests.
@@ -44,6 +50,6 @@ Install `requirements-test.txt` in addition to the application's dependencies, t
 python -m unittest discover -s tests -p test_bundle_portal.py -v
 ```
 
-Tests use an in-memory database and mocked provider/payment calls. They exercise all 12 combinations of two MTN services, three routes, and customer/store checkout, plus admin selection, signed callbacks, failure handling, and idempotency. Live credentials, public webhook registration, and a separately authorized live order are still required for end-to-end provider validation.
+Tests use an in-memory database and mocked provider/payment calls. They exercise all 12 combinations of two MTN services, three routes, and customer/store checkout, plus AT iShare on both checkout paths, admin selection, wrong-product rejection, signed callbacks, failure handling, and idempotency. Live credentials, public webhook registration, and a separately authorized live order are still required for end-to-end provider validation.
 
 Contract reference: supplied Bundle Portal v2 documentation, also published at https://bundleportal.com/api-docs.

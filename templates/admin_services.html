@@ -142,7 +142,7 @@
                     <span class="svc-chip">Manual Pricing</span>
                     <span class="svc-chip">Default Offers: {{ count_default }}</span>
                     <span class="svc-chip">Store Offers: {{ count_store }}</span>
-                    {% if is_mtn_normal or is_mtn_express or is_telecel %}
+                    {% if is_mtn_normal or is_mtn_express or is_telecel or svc.at_service_kind %}
                       <span class="svc-chip" data-role="provider-chip">Provider: {{ svc.provider_label or provider_val }}</span>
                     {% endif %}
                   </div>
@@ -181,18 +181,27 @@
                           onclick="toggleType('{{ sid }}', '{{ t }}', this)">
                     {{ 'Turn ON (API)' if t=='OFF' else 'Turn OFF' }}
                   </button>
-                  {% if is_mtn_normal or is_mtn_express or is_telecel %}
+                  {% if is_mtn_normal or is_mtn_express or is_telecel or svc.at_service_kind %}
                     <select class="form-select form-select-sm mtn-provider-select"
                             data-sid="{{ sid }}"
                             style="min-width:180px">
+                      {% if not svc.at_service_kind %}
                       <option value="datakazina" {{ 'selected' if provider_val == 'datakazina' else '' }}>DataKazina</option>
-                      {% if not is_telecel %}
+                      {% endif %}
+                      {% if is_mtn_normal or is_mtn_express %}
                         <option value="skplug" {{ 'selected' if provider_val == 'skplug' else '' }}>SkPlug</option>
                         <option value="bundleportal_mtn" {{ 'selected' if provider_val == 'bundleportal_mtn' else '' }}>Bundle Portal MTN</option>
                         <option value="bundleportal_mtn2" {{ 'selected' if provider_val == 'bundleportal_mtn2' else '' }}>Bundle Portal MTN2</option>
                         <option value="bundleportal_mtn3" {{ 'selected' if provider_val == 'bundleportal_mtn3' else '' }}>Bundle Portal MTN3</option>
                       {% endif %}
                       <option value="codecraft" {{ 'selected' if provider_val == 'codecraft' else '' }}>CodeCraft</option>
+                      {% if is_telecel %}
+                        <option value="bundleportal_telecel" {{ 'selected' if provider_val == 'bundleportal_telecel' else '' }}>Bundle Portal Telecel</option>
+                      {% elif svc.at_service_kind == 'ishare' %}
+                        <option value="bundleportal_ishare" {{ 'selected' if provider_val == 'bundleportal_ishare' else '' }}>Bundle Portal AT iShare</option>
+                      {% elif svc.at_service_kind == 'bigtime' %}
+                        <option disabled>Bundle Portal Bigtime ? awaiting provider route</option>
+                      {% endif %}
                     </select>
                     <div data-provider-save="{{ sid }}" class="small text-muted"></div>
                   {% endif %}
@@ -327,24 +336,33 @@
           </div>
 
           <div class="modal-body">
-            {% if is_mtn_normal or is_mtn_express or is_telecel %}
+            {% if is_mtn_normal or is_mtn_express or is_telecel or svc.at_service_kind %}
               <div class="border rounded p-3 mb-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
                 <div>
-                  <div class="fw-semibold">Provider Routing (MTN NORMAL / MTN EXPRESS / Telecel)</div>
-                  <div class="text-muted small">Switch provider for MTN NORMAL / MTN EXPRESS / Telecel orders.</div>
+                  <div class="fw-semibold">Provider Routing (MTN / Telecel / AT iShare / AT Bigtime)</div>
+                  <div class="text-muted small">Switch provider for MTN / Telecel / AT iShare / AT Bigtime orders.</div>
                 </div>
                 <div class="d-flex align-items-center gap-2">
                   <select class="form-select form-select-sm mtn-provider-select"
                           data-sid="{{ sid }}"
                           style="min-width:180px">
+                    {% if not svc.at_service_kind %}
                     <option value="datakazina" {{ 'selected' if provider_val == 'datakazina' else '' }}>DataKazina</option>
-                    {% if not is_telecel %}
+                    {% endif %}
+                    {% if is_mtn_normal or is_mtn_express %}
                       <option value="skplug" {{ 'selected' if provider_val == 'skplug' else '' }}>SkPlug</option>
                       <option value="bundleportal_mtn" {{ 'selected' if provider_val == 'bundleportal_mtn' else '' }}>Bundle Portal MTN</option>
                       <option value="bundleportal_mtn2" {{ 'selected' if provider_val == 'bundleportal_mtn2' else '' }}>Bundle Portal MTN2</option>
                       <option value="bundleportal_mtn3" {{ 'selected' if provider_val == 'bundleportal_mtn3' else '' }}>Bundle Portal MTN3</option>
                     {% endif %}
                     <option value="codecraft" {{ 'selected' if provider_val == 'codecraft' else '' }}>CodeCraft</option>
+                      {% if is_telecel %}
+                        <option value="bundleportal_telecel" {{ 'selected' if provider_val == 'bundleportal_telecel' else '' }}>Bundle Portal Telecel</option>
+                      {% elif svc.at_service_kind == 'ishare' %}
+                        <option value="bundleportal_ishare" {{ 'selected' if provider_val == 'bundleportal_ishare' else '' }}>Bundle Portal AT iShare</option>
+                      {% elif svc.at_service_kind == 'bigtime' %}
+                        <option disabled>Bundle Portal Bigtime ? awaiting provider route</option>
+                      {% endif %}
                   </select>
                   <div data-provider-save="{{ sid }}" class="small text-muted"></div>
                 </div>
@@ -461,19 +479,28 @@
                     <input type="text" name="service_name" value="{{ svc.name }}" class="form-control" required>
 
                     <div class="row g-3 mt-1"></div>
-            {% if is_mtn_normal or is_mtn_express or is_telecel %}
+            {% if is_mtn_normal or is_mtn_express or is_telecel or svc.at_service_kind %}
               <div class="row g-3 mt-2">
                 <div class="col-sm-6">
-                          <label class="form-label">Provider (MTN NORMAL / MTN EXPRESS / Telecel)</label>
+                          <label class="form-label">Provider (MTN / Telecel / AT iShare / AT Bigtime)</label>
                           <select class="form-select mtn-provider-select" data-sid="{{ sid }}">
+                            {% if not svc.at_service_kind %}
                             <option value="datakazina" {{ 'selected' if provider_val == 'datakazina' else '' }}>DataKazina</option>
-                            {% if not is_telecel %}
+                            {% endif %}
+                            {% if is_mtn_normal or is_mtn_express %}
                               <option value="skplug" {{ 'selected' if provider_val == 'skplug' else '' }}>SkPlug</option>
                               <option value="bundleportal_mtn" {{ 'selected' if provider_val == 'bundleportal_mtn' else '' }}>Bundle Portal MTN</option>
                               <option value="bundleportal_mtn2" {{ 'selected' if provider_val == 'bundleportal_mtn2' else '' }}>Bundle Portal MTN2</option>
                               <option value="bundleportal_mtn3" {{ 'selected' if provider_val == 'bundleportal_mtn3' else '' }}>Bundle Portal MTN3</option>
                             {% endif %}
                             <option value="codecraft" {{ 'selected' if provider_val == 'codecraft' else '' }}>CodeCraft</option>
+                      {% if is_telecel %}
+                        <option value="bundleportal_telecel" {{ 'selected' if provider_val == 'bundleportal_telecel' else '' }}>Bundle Portal Telecel</option>
+                      {% elif svc.at_service_kind == 'ishare' %}
+                        <option value="bundleportal_ishare" {{ 'selected' if provider_val == 'bundleportal_ishare' else '' }}>Bundle Portal AT iShare</option>
+                      {% elif svc.at_service_kind == 'bigtime' %}
+                        <option disabled>Bundle Portal Bigtime ? awaiting provider route</option>
+                      {% endif %}
                           </select>
                           <div data-provider-save="{{ sid }}" class="small text-muted mt-1"></div>
                         </div>

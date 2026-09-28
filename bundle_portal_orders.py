@@ -7,7 +7,7 @@ import os
 from flask import Blueprint, jsonify, request, session, flash, redirect, url_for
 from bson import ObjectId
 
-from bundle_portal import PROVIDERS, call, submit
+from bundle_portal import PROVIDERS, call, submit, canonical_network
 
 bundle_portal_bp = Blueprint("bundle_portal", __name__)
 FINAL_LINES = {"delivered", "completed", "refunded"}
@@ -122,7 +122,7 @@ def webhook():
     if not order:
         return jsonify(success=False, error="Order not found"), 404
     item = next(i for i in order["items"] if i.get("provider_request_order_id") == reference and i.get("provider") in PROVIDERS)
-    if payload.get("network") != PROVIDERS[item["provider"]] or payload.get("recipient") != item.get("phone"):
+    if canonical_network(payload.get("network")) != PROVIDERS[item["provider"]] or payload.get("recipient") != item.get("phone"):
         return jsonify(success=False, error="Order details do not match"), 400
     # Persist authenticated callbacks for support/reconciliation (v2 does not retry).
     db["bundleportal_events"].update_one(

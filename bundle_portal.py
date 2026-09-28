@@ -9,13 +9,39 @@ PROVIDERS = {
     "bundleportal_mtn": "mtn",
     "bundleportal_mtn2": "mtn_2",
     "bundleportal_mtn3": "mtn_3",
+    "bundleportal_ishare": "airteltigo",
+    "bundleportal_telecel": "telecel",
 }
 LABELS = {
     "bundleportal_mtn": "Bundle Portal MTN",
     "bundleportal_mtn2": "Bundle Portal MTN2",
     "bundleportal_mtn3": "Bundle Portal MTN3",
+    "bundleportal_ishare": "Bundle Portal AT iShare",
+    "bundleportal_telecel": "Bundle Portal Telecel",
 }
 API_URL = "https://api.bundleportal.com/v2"
+
+
+def at_service_kind(service):
+    name = re.sub(r"[^a-z0-9]", "", str((service or {}).get("name") or "").lower())
+    if name in {"atishare", "airteltigoishare", "ishare"}:
+        return "ishare"
+    if name in {"atbigtime", "airteltigobigtime"}:
+        return "bigtime"
+    return None
+
+
+def supports_service(provider, service):
+    if provider == "bundleportal_telecel":
+        names = " ".join(str((service or {}).get(key) or "") for key in ("name", "service_network", "network")).lower()
+        return "telecel" in names or "vodafone" in names
+    if provider == "bundleportal_ishare":
+        return at_service_kind(service) == "ishare"
+    return provider in PROVIDERS and str((service or {}).get("name") or "").strip().lower() in {"mtn normal", "mtn express"}
+
+
+def canonical_network(network):
+    return {"ishare": "airteltigo", "mtn_1": "mtn"}.get(network, network)
 
 
 def configured():
@@ -89,7 +115,7 @@ def submit(provider, recipient, size, reference, retry_purchase=False):
     if not isinstance(bundle_data, dict) or not isinstance(bundle_data.get("bundles"), list):
         return {"success": False, "code": "unknown_outcome", "message": "Invalid Bundle Portal catalogue response."}
     available = [bundle for bundle in bundle_data["bundles"] if isinstance(bundle, dict)]
-    if not any(str(b.get("network", network)) == network and _same_size(b.get("size_gb"), size) for b in available):
+    if not any(canonical_network(b.get("network", network)) == network and _same_size(b.get("size_gb"), size) for b in available):
         return {"success": False, "code": "bundle_unavailable", "message": "Bundle size is unavailable on the selected Bundle Portal route."}
     verification = call("verify_number", network=network, recipient=recipient)
     if verification.get("success") is not True:

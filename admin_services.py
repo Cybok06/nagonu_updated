@@ -1,4 +1,4 @@
-from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS, LABELS as BUNDLE_PORTAL_LABELS
+from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS, LABELS as BUNDLE_PORTAL_LABELS, at_service_kind, supports_service as bundle_portal_supports_service
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash, jsonify, Request
 from db import db, campus_db
 from datetime import datetime
@@ -343,6 +343,7 @@ def manage_services():
     for s in services:
         s["_id_str"] = str(s["_id"])
         s["provider_label"] = _provider_label(s.get("provider"))
+        s["at_service_kind"] = at_service_kind(s)
         s["display_on"] = _service_display_on(s)
         # compute value_text for default + store
         for key in ("offers", "store_offers"):
@@ -1058,10 +1059,16 @@ def set_service_provider(service_id):
     is_mtn_normal = _is_mtn_normal_service(service, _id)
     is_mtn_express = _is_mtn_express_service(service)
     is_telecel = _is_telecel_service(service)
-    if not is_mtn_normal and not is_mtn_express and not is_telecel:
+    at_kind = at_service_kind(service)
+    if not is_mtn_normal and not is_mtn_express and not is_telecel and not at_kind:
         return jsonify(
-            {"success": False, "error": "Provider switch only allowed for MTN NORMAL, MTN EXPRESS, or Telecel"}
+            {"success": False, "error": "Provider switch only allowed for MTN, Telecel, AT iShare, or AT Bigtime services"}
         ), 400
+
+    if provider in BUNDLE_PORTAL_PROVIDERS and not bundle_portal_supports_service(provider, service):
+        return jsonify(success=False, error="This Bundle Portal route does not support this service."), 400
+    if at_kind and provider not in {"codecraft", "bundleportal_ishare"}:
+        return jsonify(success=False, error="This provider does not support AT services."), 400
 
     if provider in BUNDLE_PORTAL_PROVIDERS and (
         not os.getenv("BUNDLE_PORTAL_KEY", "").strip()
@@ -1078,7 +1085,7 @@ def set_service_provider(service_id):
                     "error": "Telecel service type must be 'ON' or 'API' to enable provider routing",
                 }
             ), 400
-        if provider == "skplug" or provider in BUNDLE_PORTAL_PROVIDERS:
+        if provider == "skplug" or (provider in BUNDLE_PORTAL_PROVIDERS and provider != "bundleportal_telecel"):
             return jsonify(
                 {
                     "success": False,
