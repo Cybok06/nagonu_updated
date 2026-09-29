@@ -9,12 +9,13 @@ from flask import Blueprint, render_template, session, redirect, url_for, reques
 from bson import ObjectId
 
 from db import campus_db
+from bundle_portal import PROVIDERS as BP_PROVIDERS, supports_service as bp_supports, LABELS as BP_LABELS
 
 admin_campus_services_bp = Blueprint("admin_campus_services", __name__)
 
 campus_services_col = campus_db["services"]
 
-ALLOWED_PROVIDERS = {"codecraft", "datakazina"}
+ALLOWED_PROVIDERS = {"codecraft", "datakazina", *BP_PROVIDERS}
 _ALLOWED_TYPES = {"API", "OFF"}
 
 
@@ -245,7 +246,7 @@ def view_campus_services():
                     v = of.get("value")
                     of["value_text"] = _compute_value_text_from_mtn_string(v) if isinstance(v, str) else "-"
 
-    return render_template("campus_services.html", services=services)
+    return render_template("campus_services.html", services=services, bp_labels=BP_LABELS, bp_supports=bp_supports)
 
 
 @admin_campus_services_bp.route("/admin/campus-services/<service_id>/update", methods=["POST"])
@@ -305,8 +306,13 @@ def set_campus_service_provider(service_id):
 
     payload = request.get_json(silent=True) or {}
     provider = (payload.get("provider") or "").strip().lower()
+    service = campus_services_col.find_one({"_id": _id})
+    if not service:
+        return jsonify(success=False, error="Service not found"), 404
+    if provider in BP_PROVIDERS and not bp_supports(provider, service):
+        return jsonify(success=False, error="Bundle Portal route does not match this service"), 400
     if provider not in ALLOWED_PROVIDERS:
-        return jsonify({"success": False, "error": "provider must be codecraft or datakazina"}), 400
+        return jsonify({"success": False, "error": "Unsupported Campus provider"}), 400
 
     res = campus_services_col.update_one(
         {"_id": _id},

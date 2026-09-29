@@ -5,6 +5,8 @@ import os, uuid, random, string, requests, traceback, json, ast, re, threading, 
 from urllib.parse import quote
 
 from db import db
+from pymongo import timeout as mongo_timeout
+from pymongo.errors import PyMongoError
 from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS, package_size as bundle_portal_package_size, supports_service as bundle_portal_supports_service
 from phone_number_registry import register_order_phone_numbers_async
 
@@ -726,13 +728,16 @@ def _normalize_verification_network(value: str | None) -> str:
 
 def _existing_mtn_history_enforced() -> bool:
     try:
-        doc = phone_verification_settings_col.find_one(
-            {"_id": PHONE_VERIFICATION_SETTINGS_ID},
-            {"require_existing_mtn_history": 1},
-        ) or {}
+        with mongo_timeout(2):
+            doc = phone_verification_settings_col.find_one(
+                {"_id": PHONE_VERIFICATION_SETTINGS_ID},
+                {"require_existing_mtn_history": 1},
+            ) or {}
         if "require_existing_mtn_history" not in doc:
             return True
         return bool(doc.get("require_existing_mtn_history"))
+    except PyMongoError:
+        raise
     except Exception:
         return True
 
@@ -835,7 +840,7 @@ def _check_phone_history_requirement(
 ) -> dict:
     normalized_phone = _normalize_phone_for_blocking(phone)
     required = _requires_existing_mtn_history(service_name, service_network, network)
-    enforced = _existing_mtn_history_enforced()
+    enforced = _existing_mtn_history_enforced() if required else False
     if not enforced:
         return {
             "required": False,
@@ -867,7 +872,7 @@ def _check_phone_history_requirement(
             "allow_order": True,
             "warning": False,
             "warning_message": "",
-            "enforcement_enabled": _existing_mtn_history_enforced(),
+            "enforcement_enabled": enforced,
             "phone": normalized_phone,
             "message": "Number verified.",
         }
@@ -886,7 +891,7 @@ def _check_phone_history_requirement(
             "allow_order": True,
             "warning": False,
             "warning_message": "",
-            "enforcement_enabled": _existing_mtn_history_enforced(),
+            "enforcement_enabled": enforced,
             "phone": normalized_phone,
             "message": "Number approved for ordering.",
         }
@@ -918,17 +923,11 @@ def _phone_has_existing_order(phone: str) -> bool:
     keys = _phone_history_match_keys(phone)
     if not keys:
         return False
-    match = {
-        "$or": [
-            {"items.phone": {"$in": keys}},
-            {"phone": {"$in": keys}},
-            {"customer_phone": {"$in": keys}},
-        ]
-    }
-    try:
-        return bool(orders_col.find_one(match, {"_id": 1}))
-    except Exception:
-        return False
+    with mongo_timeout(3):
+        for field in ("items.phone", "phone", "customer_phone"):
+            if orders_col.find_one({field: {"$in": keys}}, {"_id": 1}, max_time_ms=1500):
+                return True
+    return False
 
 
 def _is_mtn_normal_service(service_id_raw, svc_doc) -> bool:
@@ -952,19 +951,25 @@ def verify_existing_order_phone():
             message="Phone must be 0xxxxxxxxx.",
         ), 400
 
-    result = _check_phone_history_requirement(
-        phone,
-        service_name,
-        service_network,
-        network,
-        source=source,
-    )
-    first_time = _first_time_alert_for_phone(
-        phone,
-        service_name=service_name,
-        service_network=service_network,
-        network=network,
-    )
+    try:
+        with mongo_timeout(4):
+            result = _check_phone_history_requirement(
+                phone,
+                service_name,
+                service_network,
+                network,
+                source=source,
+            )
+            first_time = {"enabled": False, "is_new": False, "message": ""}
+            if result["enforcement_enabled"]:
+                first_time = _first_time_alert_for_phone(
+                    phone,
+                    service_name=service_name,
+                    service_network=service_network,
+                    network=network,
+                )
+    except PyMongoError:
+        return jsonify(success=False, message="Verification is temporarily unavailable. Please try again."), 503
     if first_time["enabled"] and first_time["is_new"]:
         # First-Time Alert is an acknowledge-and-proceed mode. When enabled it
         # replaces the hard block for new numbers with the admin's warning.

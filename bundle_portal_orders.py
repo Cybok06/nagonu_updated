@@ -119,6 +119,13 @@ def webhook():
     order = collection.find_one({"items": {"$elemMatch": {
         "provider_request_order_id": reference, "provider": {"$in": list(PROVIDERS)},
     }}})
+    if not order and reference.startswith("BPC_"):
+        # One shared Bundle Portal account delivers both sites to this webhook.
+        from db import campus_db
+        collection = campus_db["orders"]
+        order = collection.find_one({"items": {"$elemMatch": {
+            "provider_request_order_id": reference, "provider": {"$in": list(PROVIDERS)},
+        }}})
     if not order:
         return jsonify(success=False, error="Order not found"), 404
     item = next(i for i in order["items"] if i.get("provider_request_order_id") == reference and i.get("provider") in PROVIDERS)

@@ -38,6 +38,7 @@
         <select id="providerFilter" class="form-select" style="max-width:220px">
           <option value="">All Providers</option>
           <option value="codecraft">CodeCraft</option>
+{% for key, label in bp_labels.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
         </select>
       </div>
     </div>
@@ -82,6 +83,9 @@
                           data-sid="{{ sid }}"
                           style="min-width:180px">
                     <option value="codecraft" {{ 'selected' if provider_val == 'codecraft' else '' }}>CodeCraft</option>
+{% for key, label in bp_labels.items() %}{% if bp_supports(key, svc) %}
+<option value="{{ key }}" {{ 'selected' if provider_val == key else '' }}>{{ label }}</option>
+{% endif %}{% endfor %}
                   </select>
                   <div id="providerSave-{{ sid }}" class="small text-muted"></div>
                 </div>

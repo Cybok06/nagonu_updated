@@ -20,6 +20,8 @@ def ensure_orders_indexes(database, database_name: str) -> None:
         ([("total_amount", ASCENDING)], "total_amount_asc"),
         ([("items.serviceName", ASCENDING)], "items_service_name"),
         ([("items.phone", ASCENDING)], "items_phone"),
+        ([("phone", ASCENDING)], "phone_history_phone"),
+        ([("customer_phone", ASCENDING)], "phone_history_customer_phone"),
         ([("items.provider", ASCENDING), ("items.line_status", ASCENDING)], "items_provider_line_status"),
     ]
 

@@ -1691,6 +1691,16 @@
       if (phoneVerifyModal && phoneVerifyPendingCount === 0) phoneVerifyModal.hide();
     }
 
+    // Bootstrap ignores hide() while the opening fade is still running.
+    if (phoneVerifyModalEl) phoneVerifyModalEl.addEventListener('shown.bs.modal', () => {
+      if (phoneVerifyPendingCount === 0) phoneVerifyModal.hide();
+    });
+
+    function verificationNotNeeded(inputEl, statusEl, okEl) {
+      setPhoneVerificationState(inputEl, statusEl, okEl, 'bypassed', '');
+      return true;
+    }
+
     function showDeliveryDelayWarning(cacheKey, message) {
       if (!deliveryDelayModal || !cacheKey || deliveryDelayAckCache[cacheKey]) return Promise.resolve(true);
       return new Promise((resolve) => {
@@ -1767,6 +1777,9 @@
         setPhoneVerificationState(inputEl, statusEl, okEl, "failed", "Phone must be 0xxxxxxxxx.");
         return false;
       }
+      if (!needsExistingOrderVerification(serviceLike)) {
+        return verificationNotNeeded(inputEl, statusEl, okEl);
+      }
       const cacheKey = [
         normalizedPhone,
         String(serviceLike && serviceLike.name || serviceLike && serviceLike.serviceName || "").toLowerCase(),
@@ -1792,9 +1805,16 @@
 
       setPhoneVerificationState(inputEl, statusEl, okEl, "checking", "Verifying number...");
       showPhoneVerifyLoader();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      let loaderReleased = false;
+      const releaseLoader = () => {
+        if (!loaderReleased) { loaderReleased = true; hidePhoneVerifyLoader(); }
+      };
       const verifyPromise = (async () => {
         try {
         const res = await fetch("/api/phone/verify-existing-order", {
+          signal: controller.signal,
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
@@ -1807,6 +1827,12 @@
           })
         });
         const data = await res.json().catch(() => ({}));
+        clearTimeout(timeoutId);
+        releaseLoader();
+        if (!res.ok) throw new Error(data.message || 'Verification unavailable');
+        if (data.required === false && data.enforcement_enabled === false) {
+          return verificationNotNeeded(inputEl, statusEl, okEl);
+        }
         if (data && (data.verified || data.allow_order)) {
           phoneVerifyCache[cacheKey] = {
             verified: !!data.verified,
@@ -1826,13 +1852,14 @@
         setPhoneVerificationState(inputEl, statusEl, okEl, "failed", (data && data.message) || "Number not in our database so you cant place order.");
         return false;
         } catch (_err) {
-        setPhoneVerificationState(inputEl, statusEl, okEl, "failed", "Unable to verify number right now.");
+        setPhoneVerificationState(inputEl, statusEl, okEl, "failed", "Verification could not finish. Please try again.");
         return false;
         } finally {
           if (phoneVerifyCache[cacheKey] && phoneVerifyCache[cacheKey].promise) {
             delete phoneVerifyCache[cacheKey].promise;
           }
-          hidePhoneVerifyLoader();
+          clearTimeout(timeoutId);
+          releaseLoader();
         }
       })();
       phoneVerifyCache[cacheKey] = phoneVerifyCache[cacheKey] || {};

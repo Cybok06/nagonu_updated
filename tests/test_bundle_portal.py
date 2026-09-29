@@ -128,6 +128,16 @@ class BundlePortalOrderTests(unittest.TestCase):
         self.assertEqual(self.callback(recipient='0240000000').status_code, 400)
         self.assertEqual(self.document()['status'], 'processing')
 
+    def test_shared_webhook_routes_campus_reference_to_campus_database(self):
+        campus = sys.modules['db'].campus_db
+        document = self.document()
+        document.pop('_id')
+        document['items'][0]['provider_request_order_id'] = 'BPC_test'
+        campus.orders.insert_one(document)
+        self.assertEqual(self.callback(order_id='BPC_test').status_code, 200)
+        self.assertEqual(campus.orders.find_one({})['status'], 'delivered')
+        self.assertEqual(self.document()['status'], 'processing')
+
     def test_ishare_webhook_alias_updates_the_correct_line(self):
         self.db.orders.update_one({'order_id': 'ORDER1'}, {'$set': {
             'items.0.provider': 'bundleportal_ishare', 'items.0.provider_network': 'airteltigo',
