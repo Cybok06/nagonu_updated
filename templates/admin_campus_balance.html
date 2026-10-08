@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin • Campus Data Balance</title>
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#f8fafc;--bg-2:#eef2f7;--card:#ffffff;--border:#e2e8f0;
+      --text:#0b1b2b;--muted:#64748b;--primary:#2563eb;
+      --shadow:0 8px 24px rgba(2,10,28,.08);
+      --radius:16px;
+    }
+    body{background:linear-gradient(135deg,var(--bg) 0%,var(--bg-2) 100%);color:var(--text);
+      font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+    .container{max-width:1200px}
+    .card{border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+    .balance-card{padding:1rem 1.25rem}
+    .balance-title{font-weight:800;color:var(--primary);letter-spacing:.3px}
+    .balance-amt{font-size:2rem;font-weight:800}
+    .chip{display:inline-flex;align-items:center;gap:.4rem;background:#eef2ff;color:#3730a3;
+      padding:.35rem .6rem;border-radius:999px;border:1px solid #c7d2fe;font-size:.8rem}
+    .muted{color:var(--muted)}
+    .table-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+      box-shadow:var(--shadow);overflow:hidden}
+    thead th{background:linear-gradient(135deg,#2563eb 0%,#1d4ed8 100%);color:#fff;border:none}
+    .dir-credit{color:#16a34a;font-weight:700}
+    .dir-debit{color:#dc2626;font-weight:700}
+  </style>
+</head>
+<body>
+  {% include 'admin_sidebar.html' %}
+
+  <div class="container py-3 py-md-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+      <div>
+        <h2 class="mb-1"><i class="fa-solid fa-database me-2"></i>Campus Data Balance</h2>
+        <div class="muted">Manage provider balances and view transactions</div>
+      </div>
+      <div class="chip"><i class="fa-solid fa-layer-group"></i> Providers: {{ cards|length }}</div>
+    </div>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            <i class="fas fa-info-circle me-2"></i>{{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Balance Cards -->
+    <div class="row g-3 mb-4">
+      {% for c in cards %}
+      <div class="col-12 col-md-4">
+        <div class="card balance-card">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="balance-title text-capitalize">{{ c.provider }}</div>
+              <div class="balance-amt">GHS {{ '%.2f'|format(c.balance or 0) }}</div>
+              <div class="small muted">
+                Updated: {{ c.updated_at.strftime('%Y-%m-%d %H:%M') if c.updated_at else '—' }}
+              </div>
+            </div>
+            <button class="btn btn-outline-primary btn-sm"
+                    data-provider="{{ c.provider }}"
+                    data-bs-toggle="modal"
+                    data-bs-target="#historyModal">
+              <i class="fa-regular fa-clock me-1"></i> History
+            </button>
+          </div>
+          <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-success w-50"
+                    data-provider="{{ c.provider }}"
+                    data-bs-toggle="modal"
+                    data-bs-target="#depositModal">
+              <i class="fa-solid fa-arrow-down me-1"></i> Deposit
+            </button>
+            <button class="btn btn-danger w-50"
+                    data-provider="{{ c.provider }}"
+                    data-bs-toggle="modal"
+                    data-bs-target="#withdrawModal">
+              <i class="fa-solid fa-arrow-up me-1"></i> Withdraw
+            </button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Transactions -->
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <h5 class="mb-0"><i class="fa-solid fa-list me-2"></i>Transactions</h5>
+      <form method="get" class="d-flex gap-2 align-items-center">
+        <select name="provider" class="form-select form-select-sm">
+          <option value="">All Providers</option>
+          {% for c in cards %}
+            <option value="{{ c.provider }}" {% if provider_filter==c.provider %}selected{% endif %}>
+              {{ c.provider }}
+            </option>
+          {% endfor %}
+        </select>
+        <select name="limit" class="form-select form-select-sm">
+          {% for n in [50,100,200,500] %}
+            <option value="{{ n }}" {% if limit==n %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-sm btn-outline-primary" type="submit">Apply</button>
+      </form>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Amount</th>
+              <th>Direction</th>
+              <th>Reason</th>
+              <th>Order</th>
+              <th>Reference</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in transactions %}
+              <tr>
+                <td class="text-capitalize">{{ t.provider }}</td>
+                <td>GHS {{ '%.2f'|format(t.amount or 0) }}</td>
+                <td>
+                  {% if (t.direction or '').upper() == 'CREDIT' %}
+                    <span class="dir-credit">CREDIT</span>
+                  {% else %}
+                    <span class="dir-debit">DEBIT</span>
+                  {% endif %}
+                </td>
+                <td>{{ t.reason or '—' }}</td>
+                <td>{{ t.order_id or '—' }}</td>
+                <td><code>{{ t.reference or '—' }}</code></td>
+                <td>{{ t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '—' }}</td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="7" class="text-center text-muted py-4">No transactions found.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deposit Modal -->
+  <div class="modal fade" id="depositModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="POST" id="depositForm">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-arrow-down me-2"></i>Deposit</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Amount (GHS)</label>
+            <input type="number" step="0.01" min="0" class="form-control" name="amount" required>
+          </div>
+          <div class="mb-0">
+            <label class="form-label">Note (optional)</label>
+            <input type="text" class="form-control" name="note" maxlength="240">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-success" type="submit">Deposit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Withdraw Modal -->
+  <div class="modal fade" id="withdrawModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="POST" id="withdrawForm">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-arrow-up me-2"></i>Withdraw</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Amount (GHS)</label>
+            <input type="number" step="0.01" min="0" class="form-control" name="amount" required>
+          </div>
+          <div class="mb-0">
+            <label class="form-label">Note (optional)</label>
+            <input type="text" class="form-control" name="note" maxlength="240">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-danger" type="submit">Withdraw</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- History Modal -->
+  <div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-regular fa-clock me-2"></i>Provider History</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div id="historyBody" class="small text-muted">Loading...</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const depositForm = document.getElementById('depositForm');
+    const withdrawForm = document.getElementById('withdrawForm');
+    const historyBody = document.getElementById('historyBody');
+
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-provider]');
+      if (!btn) return;
+      const provider = btn.getAttribute('data-provider');
+      if (btn.closest('#depositModal') || btn.id === 'depositModal') return;
+      if (depositForm && btn.dataset.bsTarget === '#depositModal') {
+        depositForm.action = `/admin/campus-balances/deposit/${provider}`;
+      }
+      if (withdrawForm && btn.dataset.bsTarget === '#withdrawModal') {
+        withdrawForm.action = `/admin/campus-balances/withdraw/${provider}`;
+      }
+      if (btn.dataset.bsTarget === '#historyModal') {
+        loadHistory(provider);
+      }
+    });
+
+    async function loadHistory(provider){
+      historyBody.innerHTML = '<div class="text-center text-muted py-3">Loading...</div>';
+      try{
+        const res = await fetch(`/admin/campus-balances/history/${provider}`, {credentials:'same-origin'});
+        const data = await res.json();
+        if (!data.success) throw new Error('failed');
+        if (!data.logs.length){
+          historyBody.innerHTML = '<div class="text-center text-muted py-3">No history found.</div>';
+          return;
+        }
+        historyBody.innerHTML = `
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Amount</th>
+                  <th>Direction</th>
+                  <th>Reason</th>
+                  <th>Order</th>
+                  <th>Reference</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.logs.map(t => `
+                  <tr>
+                    <td class="text-capitalize">${t.provider}</td>
+                    <td>GHS ${Number(t.amount || 0).toFixed(2)}</td>
+                    <td>${t.direction || '-'}</td>
+                    <td>${t.reason || '-'}</td>
+                    <td>${t.order_id || '-'}</td>
+                    <td><code>${t.reference || '-'}</code></td>
+                    <td>${t.created_at || '-'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }catch(e){
+        historyBody.innerHTML = '<div class="text-danger">Failed to load history.</div>';
+      }
+    }
+  </script>
+</body>
+</html>
