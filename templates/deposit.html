@@ -97,20 +97,21 @@
   </style>
 </head>
 <body>
-  {% include 'customer_sidebar.html' %}
+  {% if not deposit_token %}{% include 'customer_sidebar.html' %}{% endif %}
 
   <div class="page-wrap">
     <div class="page-header">
       <img src="https://res.cloudinary.com/dcmewvlyx/image/upload/v1754392905/Ngonu_Logo_xntvbm.jpg" alt="Nagonu Logo">
       <div>
         <div class="title h4 mb-0">Deposit Funds</div>
+        {% if agent_name %}<div class="fw-semibold">Agent: {{ agent_name }}</div>{% endif %}
         <div class="page-sub small">Choose Paystack or Manual Top Up to fund your wallet</div>
       </div>
     </div>
 
     <div class="d-flex justify-content-center mb-3">
       <button class="btn btn-outline-primary history-btn btn-icon" type="button" data-bs-toggle="modal" data-bs-target="#depositHistoryModal">
-        <i class="bi bi-clock-history"></i> Deposit History
+        <i class="bi bi-clock-history"></i> History
       </button>
     </div>
 
@@ -233,7 +234,7 @@
               </div>
             </div>
 
-            <form method="POST" action="{{ url_for('deposit.submit_manual_topup') }}" id="manualTopupForm">
+            <form method="POST" action="{{ manual_submit_url }}" id="manualTopupForm">
               <div class="row g-3">
                 <div class="col-md-6">
                   <label class="form-label">Amount Paid (GHS)</label>
@@ -290,6 +291,9 @@
                       <div class="history-ref">{{ item.reference or '-' }}</div>
                       <div class="history-meta mt-1">
                         {{ item.gateway or 'Deposit' }}
+                        {% if deposit_token and item.source == 'agent_deposit_page' and st not in ['success', 'failed'] %}
+                          <a class="ms-2" href="{{ url_for('deposit.verify_shared_deposit', token=deposit_token, reference=item.reference) }}">Check payment</a>
+                        {% endif %}
                         {% if item.created_at %} · {{ item.created_at.strftime('%d %b %Y, %I:%M %p') }}{% endif %}
                       </div>
                     </div>
@@ -298,8 +302,8 @@
                       <div class="mt-2">
                         {% if st == 'success' %}
                           <span class="status-badge status-success"><i class="bi bi-check-circle-fill"></i> Credited</span>
-                        {% elif st == 'rejected' %}
-                          <span class="status-badge status-rejected"><i class="bi bi-x-circle-fill"></i> Rejected</span>
+                        {% elif st in ['rejected', 'failed'] %}
+                          <span class="status-badge status-rejected"><i class="bi bi-x-circle-fill"></i> {{ 'Failed' if st == 'failed' else 'Rejected' }}</span>
                         {% else %}
                           <span class="status-badge status-pending"><i class="bi bi-hourglass-split"></i> Pending</span>
                         {% endif %}
@@ -373,7 +377,8 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     (function(){
-      const email = "{{ (email or '')|e }}";
+      const email = {{ (email or '')|tojson }};
+      const initializeUrl = {{ (payment_initialize_url or '')|tojson }};
       const PAYSTACK_PK = "{{ (paystack_pk or '')|e }}";
       const PAYSTACK_ACTIVE = {{ 'true' if paystack_active else 'false' }};
       const FEE_RATE = Number("{{ '%.6f'|format(deposit_fee_rate|default(0.005)) }}");
@@ -581,13 +586,13 @@
       }
 
       if (payBtn) {
-        payBtn.addEventListener('click', ()=>{
+        payBtn.addEventListener('click', async ()=>{
           if (!PAYSTACK_ACTIVE){
             showError('Paystack deposit is currently disabled by admin.');
             return;
           }
           if (!email || email === 'None'){
-            showError('Your email is not set. Please log in again.');
+            showError(initializeUrl ? 'The agent must add an email address before accepting Paystack deposits.' : 'Your email is not set. Please log in again.');
             return;
           }
           if (!PAYSTACK_PK){
@@ -605,6 +610,21 @@
           const { net_g, gross_pes } = compute(net);
           setLoading(true);
 
+          if (initializeUrl) {
+            try {
+              const res = await fetch(initializeUrl, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({amount: net_g.toFixed(2)})
+              });
+              const data = await res.json();
+              if (!res.ok || !data.ok) throw new Error(data.error || 'Could not start payment.');
+              window.location.assign(data.authorization_url);
+            } catch (error) {
+              showError(error.message || 'Could not start payment. Please try again.');
+              setLoading(false);
+            }
+            return;
+          }
           const handler = PaystackPop.setup({
             key: PAYSTACK_PK,
             email: email,

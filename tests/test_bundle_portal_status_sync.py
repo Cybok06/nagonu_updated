@@ -149,6 +149,53 @@ class BundlePortalStatusSyncTests(unittest.TestCase):
         self.assertEqual(summary['updated_orders'], 1)
         self.assertEqual(self.db.orders.find_one({})['status'], 'delivered')
 
+    def test_diagnostic_read_only_shows_response_without_updating(self):
+        self.add_order(self.db.orders)
+        self.add_event()
+        before = self.db.orders.find_one({})
+        report = self.module.inspect_bundle_portal_order(self.db.orders, before, apply=False)
+        self.assertEqual(report['lines'][0]['reason'], 'matching_settlement_available')
+        self.assertEqual(report['lines'][0]['selected_status_response']['status'], 'completed')
+        self.assertEqual(report['summary']['updated_lines'], 0)
+        self.assertEqual(before, self.db.orders.find_one({}))
+        self.invalidate.assert_not_called()
+
+    def test_diagnostic_explains_missing_reference_and_mismatch(self):
+        self.add_order(self.db.orders)
+        self.add_event(recipient='0551234567')
+        report = self.module.inspect_bundle_portal_order(self.db.orders, self.db.orders.find_one({}))
+        self.assertEqual(report['lines'][0]['reason'], 'no_matching_settlement')
+        self.assertEqual(report['lines'][0]['stored_receipts'], 1)
+        self.db.orders.update_one({}, {'$unset': {'items.0.provider_request_order_id': ''}})
+        report = self.module.inspect_bundle_portal_order(self.db.orders, self.db.orders.find_one({}))
+        self.assertEqual(report['lines'][0]['reason'], 'missing_reference')
+
+    def test_diagnostic_selects_latest_order_across_databases(self):
+        from test_bundle_portal_status import run_diagnostics
+        self.add_order(self.db.orders, 'older')
+        self.add_order(self.campus.orders, 'newer')
+        self.db.orders.update_one({}, {'$set': {'created_at': datetime(2026, 10, 1)}})
+        self.campus.orders.update_one({}, {'$set': {'created_at': datetime(2026, 10, 9)}})
+        reports = run_diagnostics([('main', self.db.orders), ('campus', self.campus.orders)],
+                                  self.db.bundleportal_events, self.module.inspect_bundle_portal_order)
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(reports[0]['order_id'], 'newer')
+        self.assertEqual(reports[0]['source'], 'campus')
+        self.assertEqual(reports[0]['lines'][0]['reason'], 'awaiting_webhook')
+        reports = run_diagnostics([('main', self.db.orders)], self.db.bundleportal_events,
+                                  self.module.inspect_bundle_portal_order, order_id='older')
+        self.assertEqual(reports[0]['order_id'], 'older')
+
+    def test_diagnostic_apply_uses_real_update_logic(self):
+        from test_bundle_portal_status import run_diagnostics
+        self.add_order(self.db.orders)
+        self.add_event()
+        reports = run_diagnostics([('main', self.db.orders)], self.db.bundleportal_events,
+                                  self.module.inspect_bundle_portal_order, apply=True)
+        self.assertEqual(reports[0]['summary']['updated_lines'], 1)
+        self.assertEqual(reports[0]['status_after'], 'delivered')
+        self.assertEqual(reports[0]['lines'][0]['line_status_after'], 'delivered')
+
 
 if __name__ == '__main__':
     unittest.main()

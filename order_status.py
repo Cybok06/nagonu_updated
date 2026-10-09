@@ -188,46 +188,77 @@ def _apply_codecraft_status_to_item(item, status_raw, payload, now, order=None):
         item["line_status"] = status
 
 
+def inspect_bundle_portal_order(collection, order, events_col=None, apply=False):
+    """Inspect or reconcile one order using the same authenticated-event logic."""
+    from bundle_portal_orders import apply_status_event, refresh_order, line_reference, event_matches, settlement_time
+    if events_col is None:
+        events_col = db["bundleportal_events"]
+    summary = {"checked_lines": 0, "updated_lines": 0, "awaiting_webhook": 0}
+    lines = []
+    for index, item in enumerate(order.get("items") or []):
+        if item.get("provider") not in BUNDLE_PORTAL_PROVIDERS:
+            continue
+        reference = line_reference(item)
+        report = {
+            "item_index": index, "provider": item.get("provider"), "reference": reference,
+            "recipient": item.get("phone"), "line_status": item.get("line_status"),
+            "api_status": item.get("api_status"), "purchase_response": item.get("api_response"),
+            "last_status_response": item.get("provider_status_payload"),
+            "changed": False,
+        }
+        lines.append(report)
+        if item.get("line_status") in {"refunded", "completed"}:
+            report["reason"] = "protected_local_final_status"
+            continue
+        summary["checked_lines"] += 1
+        receipts = list(events_col.find({"payload.order_id": reference}).sort("received_at", -1)) if reference else []
+        candidates = [event for event in receipts
+                      if event_matches(item, event.get("payload") or {})
+                      and (event.get("payload") or {}).get("status") in {"completed", "failed", "cancelled", "refunded"}
+                      and (event.get("payload") or {}).get("event") == "order." + (event.get("payload") or {}).get("status", "")]
+        candidates.sort(key=lambda event: (
+            settlement_time(event.get("payload") or {}) or datetime.min.replace(tzinfo=timezone.utc),
+            int((event.get("payload") or {}).get("status") == "refunded")), reverse=True)
+        report["stored_receipts"] = len(receipts)
+        report["matching_receipts"] = len(candidates)
+        report["latest_receipt_response"] = (receipts[0].get("payload") if receipts else None)
+        event = candidates[0] if candidates else None
+        if not event:
+            report["reason"] = "missing_reference" if not reference else "no_matching_settlement" if receipts else "awaiting_webhook"
+            summary["awaiting_webhook"] += int(item.get("line_status") in {"pending", "processing", "queued", "cached"})
+            continue
+        report["selected_status_response"] = event.get("payload") or {}
+        report["reason"] = "matching_settlement_available"
+        if apply:
+            report["changed"] = apply_status_event(collection, order, item, event.get("payload") or {})
+            summary["updated_lines"] += int(report["changed"])
+            report["reason"] = "updated" if report["changed"] else "already_applied_or_guarded"
+    if apply:
+        refresh_order(collection, order["order_id"])
+        current = collection.find_one({"_id": order["_id"]}, {"status": 1, "items": 1}) or {}
+        if current.get("status") != order.get("status"):
+            summary["updated_orders"] = 1
+        for report in lines:
+            current_items = current.get("items") or []
+            if report["item_index"] < len(current_items):
+                report["line_status_after"] = current_items[report["item_index"]].get("line_status")
+    else:
+        current = order
+    return {"order_id": order.get("order_id"), "mongo_id": str(order.get("_id")),
+            "status_before": order.get("status"), "status_after": current.get("status"),
+            "apply": apply, "summary": summary, "lines": lines}
+
+
 def _run_bundle_portal_status_sync():
     """Reconcile authenticated local callbacks; Bundle Portal v2 cannot be polled."""
-    from bundle_portal_orders import apply_status_event, refresh_order, invalidate_orders, line_reference, event_matches, settlement_time
-    now = datetime.utcnow()
+    from bundle_portal_orders import invalidate_orders
     summary = {"checked_lines": 0, "updated_lines": 0, "awaiting_webhook": 0}
-    active = ["pending", "processing", "queued", "cached"]
-    events_col = db["bundleportal_events"]
     for collection in (orders_col, campus_orders_col):
-        query = {"items": {"$elemMatch": {
-            "provider": {"$in": list(BUNDLE_PORTAL_PROVIDERS)},
-        }}}
+        query = {"items": {"$elemMatch": {"provider": {"$in": list(BUNDLE_PORTAL_PROVIDERS)}}}}
         for order in collection.find(query):
-            for item in order.get("items") or []:
-                if item.get("provider") not in BUNDLE_PORTAL_PROVIDERS or item.get("line_status") in {"refunded", "completed"}:
-                    continue
-                summary["checked_lines"] += 1
-                reference = line_reference(item)
-                candidates = list(events_col.find({"payload.order_id": reference}).sort("received_at", -1)) if reference else []
-                # Invalid or delayed older receipts must not hide a valid settlement.
-                candidates = [e for e in candidates
-                              if event_matches(item, e.get("payload") or {})
-                              and (e.get("payload") or {}).get("status") in {"completed", "failed", "cancelled", "refunded"}
-                              and (e.get("payload") or {}).get("event") == "order." + (e.get("payload") or {}).get("status", "")]
-                candidates.sort(key=lambda e: (
-                    settlement_time(e.get("payload") or {}) or datetime.min.replace(tzinfo=timezone.utc),
-                    int((e.get("payload") or {}).get("status") == "refunded")), reverse=True)
-                event = candidates[0] if candidates else None
-                if not event:
-                    summary["awaiting_webhook"] += int(item.get("line_status") in active)
-                    continue
-                if apply_status_event(collection, order, item, event.get("payload") or {}):
-                    summary["updated_lines"] += 1
-            # Repair stale parent status even if a previous callback already
-            # updated the line before a restart or cache failure.
-            before = order.get("status")
-            refresh_order(collection, order["order_id"])
-            current = collection.find_one({"_id": order["_id"]}, {"status": 1})
-            if current and current.get("status") != before:
-                summary.setdefault("updated_orders", 0)
-                summary["updated_orders"] += 1
+            result = inspect_bundle_portal_order(collection, order, apply=True)
+            for key, value in result["summary"].items():
+                summary[key] = summary.get(key, 0) + value
     if summary["updated_lines"] or summary.get("updated_orders"):
         invalidate_orders()
     jlog("bundleportal_status_sync_summary", **summary)
@@ -487,7 +518,9 @@ def _scheduled_sync_job():
 status_sync_scheduler = None
 auto_update_scheduler = None
 
-if STATUS_SYNC_ACTIVE:
+START_STATUS_SCHEDULERS = os.getenv("ORDER_STATUS_START_SCHEDULERS", "1").strip().lower() not in {"0", "false", "no"}
+
+if STATUS_SYNC_ACTIVE and START_STATUS_SCHEDULERS:
     status_sync_scheduler = BackgroundScheduler(timezone="UTC")
     status_sync_scheduler.add_job(
         _scheduled_sync_job,
@@ -504,18 +537,19 @@ if STATUS_SYNC_ACTIVE:
     except Exception:
         jlog("order_status_scheduler_start_failed", error=traceback.format_exc())
 
-auto_update_scheduler = BackgroundScheduler(timezone="UTC")
-auto_update_scheduler.add_job(
-    _scheduled_auto_update_job,
-    "interval",
-    minutes=1,
-    max_instances=1,
-    coalesce=True,
-    id="order_auto_update",
-)
+if START_STATUS_SCHEDULERS:
+    auto_update_scheduler = BackgroundScheduler(timezone="UTC")
+    auto_update_scheduler.add_job(
+        _scheduled_auto_update_job,
+        "interval",
+        minutes=1,
+        max_instances=1,
+        coalesce=True,
+        id="order_auto_update",
+    )
 
-try:
-    auto_update_scheduler.start()
-    jlog("auto_update_scheduler_started", interval_minutes=1)
-except Exception:
-    jlog("auto_update_scheduler_start_failed", error=traceback.format_exc())
+    try:
+        auto_update_scheduler.start()
+        jlog("auto_update_scheduler_started", interval_minutes=1)
+    except Exception:
+        jlog("auto_update_scheduler_start_failed", error=traceback.format_exc())

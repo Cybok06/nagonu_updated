@@ -244,7 +244,10 @@ def _build_query_from_params(args):
     query = {}
 
     if status_filter and status_filter in ALLOWED_STATUSES:
-        query["status"] = status_filter
+        status_values = [status_filter]
+        if status_filter in {"delivered", "completed"}:
+            status_values = ["delivered", "completed"]
+        query["$or"] = [{"status": {"$in": status_values}}, {"items.line_status": {"$in": status_values}}]
     if paid_from:
         if paid_from == "paystack":
             query["paid_from"] = {"$in": ["paystack", "paystack_inline"]}
@@ -379,7 +382,7 @@ def _serialize_line(line: dict) -> dict:
         "line_id": line.get("line_id"),
         "source": line.get("source") or "main",
         "user": _serialize_user(line.get("user") or {}),
-        "item": _serialize_item(line.get("item") or {}),
+        "item": _serialize_item({**(line.get("item") or {}), "line_status": _effective_export_line_status(line.get("status"), line.get("item") or {})}),
         "paid_from": line.get("paid_from") or "",
         "is_store_order": bool(line.get("is_store_order")),
         "store_slug": line.get("store_slug") or "",
@@ -419,8 +422,9 @@ def _build_orders_cache_key(args) -> str:
     for k in keys:
         normalized[k] = (args.get(k) or "").strip()
     normalized["source"] = _normalize_source_filter(normalized.get("source"))
-    normalized["view"] = (normalized.get("view") or "lines").strip().lower()
+    normalized["view"] = "lines"
     normalized["cv"] = _get_orders_cache_version()
+    normalized["schema"] = "individual-items-v1"
     payload = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
     return f"admin_orders:data:{payload}"
 
@@ -428,6 +432,20 @@ def _etag_for_payload(payload: dict) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return f"\"{digest}\""
+
+def _filter_order_lines(lines, args):
+    status = _normalize_line_status(args.get("status"))
+    filters = [("serviceName", args.get("item_service")), ("value", args.get("item_offer")), ("phone", args.get("item_phone"))]
+    result = []
+    for line in lines:
+        item = line.get("item") or {}
+        if status and _effective_export_line_status(line.get("status"), item) != status:
+            continue
+        if any(value and not re.search(value, str(item.get(field) or ""), re.I) for field, value in filters):
+            continue
+        result.append(line)
+    return result
+
 
 def _build_orders_data_payload(args) -> dict:
     sort = (args.get("sort") or "newest").strip().lower()
@@ -460,9 +478,8 @@ def _build_orders_data_payload(args) -> dict:
         sort_spec = [("total_amount", 1), ("created_at", -1)]
 
     source_filter = _normalize_source_filter(args.get("source"))
-    view_mode = (args.get("view") or "lines").strip().lower()
-    if view_mode not in {"lines", "orders"}:
-        view_mode = "lines"
+    # Each recipient has independent status controls, including legacy bulk records.
+    view_mode = "lines"
 
     projection = {
         "order_id": 1,
@@ -518,6 +535,7 @@ def _build_orders_data_payload(args) -> dict:
             _prepare_order(o, src, order_lines, col, user_map=user_map, persist_changes=False)
         orders = page_orders
 
+    order_lines = _filter_order_lines(order_lines, args)
     payload = {
         "ok": True,
         "view_mode": view_mode,
@@ -1375,7 +1393,7 @@ def _apply_line_status_change(line_ids: List[str], new_status: str, api_status: 
                     errors.append(f"{oid}:{idx}: item not found")
                     continue
                 item = items[idx]
-                current_line = _normalize_line_status(item.get("line_status"))
+                current_line = _effective_export_line_status(order.get("status"), item)
                 campus_line = target_source == "campus" or orders_collection is campus_orders_col
                 if campus_line and current_line == "refunded":
                     if new_status != "refunded":
@@ -1802,9 +1820,8 @@ def admin_view_orders():
     except Exception:
         pass
 
-    view_mode = (request.args.get("view") or "lines").strip().lower()
-    if view_mode not in {"lines", "orders"}:
-        view_mode = "lines"
+    # Each recipient has independent status controls, including legacy bulk records.
+    view_mode = "lines"
 
     sort = (request.args.get("sort") or "newest").strip().lower()
     if sort not in ALLOWED_SORTS:

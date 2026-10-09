@@ -22,6 +22,7 @@ from flask import (
 )
 
 from db import db
+from bulk_orders import split_documents, persist_store_bulk, load_batch
 from bundle_portal import PROVIDERS as BUNDLE_PORTAL_PROVIDERS, package_size as bundle_portal_package_size, supports_service as bundle_portal_supports_service
 from phone_number_registry import register_order_phone_numbers_async
 from announcements import get_popup_announcement
@@ -2221,11 +2222,14 @@ def _store_checkout_handler(slug: str, body: Dict[str, Any]):
         if ps_ref:
             prior = orders_col.find_one({"store_slug": slug, "paystack_reference": ps_ref})
             if prior:
+                if prior.get("batch_order_id"):
+                    prior = load_batch(orders_col, prior["batch_order_id"], store_slug=slug) or prior
                 return jsonify(
                     {
                         "success": True,
                         "message": f"?. Order already created. Order ID: {prior.get('order_id')}",
                         "order_id": prior.get("order_id"),
+                        "order_ids": prior.get("order_ids") or [prior.get("order_id")],
                         "status": prior.get("status"),
                         "charged_amount": prior.get("charged_amount"),
                         "profit_amount_total": prior.get("profit_amount_total", 0.0),
@@ -3428,15 +3432,23 @@ def _store_checkout_handler(slug: str, body: Dict[str, Any]):
             },
         }
 
-        if _checkout_helpers.get("order_fn"):
-            try:
-                _checkout_helpers["order_fn"](orders_col, order_doc)
-            except Exception:
-                orders_col.insert_one(order_doc)
+        documents = split_documents(order_doc)
+        if len(results) > 1:
+            documents = persist_store_bulk(db, order_doc)
+        elif _checkout_helpers.get("order_fn"):
+            _checkout_helpers["order_fn"](orders_col, order_doc)
         else:
             orders_col.insert_one(order_doc)
 
-        register_order_phone_numbers_async(order_doc)
+        reference_orders = {item.get("provider_request_order_id"): document["order_id"]
+                            for document in documents for item in document["items"]
+                            if item.get("provider_request_order_id")}
+        for job in api_jobs:
+            job["order_id"] = reference_orders.get(job.get("provider_request_order_id"), order_id)
+            if len(documents) > 1:
+                job["line_index"] = 0
+        for document in documents:
+            register_order_phone_numbers_async(document)
 
         _send_mashup_order_sms_async(order_id, created_now, results)
 
@@ -3476,6 +3488,7 @@ def _store_checkout_handler(slug: str, body: Dict[str, Any]):
                 "success": True,
                 "message": f"?. Order received and is processing. Order ID: {order_id}",
                 "order_id": order_id,
+                "order_ids": [d["order_id"] for d in documents],
                 "status": "processing",
                 "charged_amount": round(total_processing_amount, 2),
                 "profit_amount_total": round(profit_amount_total, 2),
@@ -3636,6 +3649,11 @@ def api_store_order(order_id: str):
             },
         )
         if not doc:
+            doc = load_batch(orders_col, order_id)
+            if doc:
+                allowed = {"order_id", "order_ids", "store_slug", "status", "total_amount", "charged_amount", "profit_amount_total", "items", "created_at", "updated_at"}
+                doc = {key: value for key, value in doc.items() if key in allowed}
+        if not doc:
             return jsonify({"success": False, "message": "Order not found"}), 404
 
         # datetime safe
@@ -3658,10 +3676,10 @@ def api_store_order_by_ref(slug: str):
 
         doc = orders_col.find_one(
             {"store_slug": slug, "paystack_reference": ref},
-            {"order_id": 1, "store_slug": 1},
+            {"order_id": 1, "batch_order_id": 1, "store_slug": 1},
         )
         if doc:
-            return jsonify({"success": True, "exists": True, "order_id": doc.get("order_id")}), 200
+            return jsonify({"success": True, "exists": True, "order_id": doc.get("batch_order_id") or doc.get("order_id")}), 200
         return jsonify({"success": True, "exists": False}), 200
     except Exception:
         return jsonify({"success": False, "message": "Server error"}), 500

@@ -283,14 +283,7 @@
       </div>
 
       <div class="actions-bar">
-        <div class="btn-group" role="group" aria-label="View mode">
-          <a href="{{ view_line_url }}" class="btn btn-outline-primary btn-icon {% if (view_mode or '') != 'orders' %}active{% endif %}">
-            <i class="fa-solid fa-list"></i> Line View
-          </a>
-          <a href="{{ view_order_url }}" class="btn btn-outline-primary btn-icon {% if (view_mode or '') == 'orders' %}active{% endif %}">
-            <i class="fa-solid fa-layer-group"></i> Order View
-          </a>
-        </div>
+        <span class="chip"><i class="fa-solid fa-list"></i> Individual orders</span>
 
         <!-- Filters toggle (all sizes) -->
         <button class="btn btn-outline-secondary btn-icon" id="toggleFilters" aria-expanded="false" aria-controls="filtersCard">

@@ -51,10 +51,12 @@ def persist_bulk(database, order, transaction=None):
         return session.with_transaction(commit)
 
 
-def load_batch(collection, batch_id, user_id=None):
+def load_batch(collection, batch_id, user_id=None, store_slug=None):
     query = {"batch_order_id": batch_id}
     if user_id is not None:
         query['user_id'] = user_id
+    if store_slug is not None:
+        query['store_slug'] = store_slug
     children = list(collection.find(query).sort('batch_position', 1))
     if not children:
         return None
@@ -67,3 +69,13 @@ def load_batch(collection, batch_id, user_id=None):
     statuses = [c.get('status') for c in children if c.get('status') != 'skipped']
     order['status'] = statuses[0] if statuses and len(set(statuses)) == 1 else 'processing' if statuses else 'skipped'
     return order
+
+
+def persist_store_bulk(database, order):
+    """Persist paid store items atomically without debiting an agent wallet."""
+    documents = split_documents(order)
+    with database.client.start_session() as session:
+        def commit(active_session):
+            database.orders.insert_many(deepcopy(documents), session=active_session)
+            return documents
+        return session.with_transaction(commit)

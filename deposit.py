@@ -1,7 +1,8 @@
-from flask import Blueprint, render_template, session, redirect, url_for, request, flash
+from flask import Blueprint, render_template, session, redirect, url_for, request, flash, jsonify, abort
 from bson import ObjectId
 from datetime import datetime, timedelta
-import requests, json, uuid
+import requests, json, uuid, secrets, math
+from decimal import Decimal, ROUND_HALF_UP
 
 from db import db
 from admin_balance import ARKESEL_API_KEY, SENDER_ID, _normalize_phone, _send_sms
@@ -119,15 +120,51 @@ def admin_manual_deposits():
     )
 
 
-@deposit_bp.route("/deposit")
-def deposit_page():
-    if session.get("role") != "customer" or "user_id" not in session:
-        return redirect(url_for("login.login"))
+def _deposit_user(token=None):
+    if token:
+        user = users_col.find_one({"deposit_page_token": token, "role": "customer", "status": {"$ne": "deleted"}})
+        if not user:
+            abort(404)
+        return user
+    if session.get("role") != "customer" or not session.get("user_id"):
+        return None
+    try:
+        return users_col.find_one({"_id": ObjectId(session["user_id"]), "role": "customer", "status": {"$ne": "deleted"}})
+    except Exception:
+        return None
 
-    email = session.get("email")
-    if not email:
-        user = users_col.find_one({"_id": ObjectId(session["user_id"])})
-        email = user.get("email", "") if user else ""
+
+def _deposit_url(token=None, **kwargs):
+    return url_for("deposit.shared_deposit_page", token=token, **kwargs) if token else url_for("deposit.deposit_page", **kwargs)
+
+
+@deposit_bp.route("/agent/api/deposit-page", methods=["POST"])
+def generate_deposit_page():
+    user = _deposit_user()
+    if not user:
+        return jsonify(ok=False, error="Please log in as an agent."), 401
+    token = user.get("deposit_page_token")
+    if not token:
+        candidate = secrets.token_urlsafe(32)
+        users_col.update_one(
+            {"_id": user["_id"], "$or": [{"deposit_page_token": {"$exists": False}}, {"deposit_page_token": None}, {"deposit_page_token": ""}]},
+            {"$set": {"deposit_page_token": candidate, "deposit_page_created_at": datetime.utcnow()}},
+        )
+        token = users_col.find_one({"_id": user["_id"]})["deposit_page_token"]
+    return jsonify(ok=True, deposit_url=_deposit_url(token, _external=True))
+
+
+@deposit_bp.route("/deposit/agent/<token>")
+def shared_deposit_page(token):
+    return deposit_page(token)
+
+
+@deposit_bp.route("/deposit")
+def deposit_page(token=None):
+    user = _deposit_user(token)
+    if not user:
+        return redirect(url_for("login.login"))
+    email = user.get("email", "")
 
     admin_doc = _get_active_admin() or {}
     manual_topup = admin_doc.get("manual_topup") or {}
@@ -144,14 +181,18 @@ def deposit_page():
     active_tab = requested_tab or ("manual" if manual_active else ("paystack" if paystack_active else "manual"))
     deposit_history = list(
         transactions_col.find(
-            {"user_id": ObjectId(session["user_id"]), "type": "deposit"},
+            {"user_id": user["_id"], "type": "deposit"},
             {"amount": 1, "reference": 1, "status": 1, "gateway": 1, "source": 1, "created_at": 1},
         ).sort("created_at", -1).limit(25)
     )
 
     return render_template(
         "deposit.html",
-        user_id=session["user_id"],
+        user_id=str(user["_id"]),
+        deposit_token=token,
+        agent_name=_full_name(user) if token else "",
+        manual_submit_url=url_for("deposit.shared_manual_topup", token=token) if token else url_for("deposit.submit_manual_topup"),
+        payment_initialize_url=url_for("deposit.initialize_deposit", token=token) if token else "",
         email=email,
         paystack_pk=PAYSTACK_PUBLIC_KEY,     # ✅ send hardcoded PK to UI
         deposit_fee_rate=DEPOSIT_FEE_RATE,   # 0.5% sent to UI
@@ -166,35 +207,36 @@ def deposit_page():
 
 
 @deposit_bp.route("/deposit/manual", methods=["POST"])
-def submit_manual_topup():
-    if session.get("role") != "customer" or "user_id" not in session:
+def submit_manual_topup(token=None):
+    user = _deposit_user(token)
+    if not user:
         return redirect(url_for("login.login"))
 
     admin_doc = _get_active_admin() or {}
     manual_topup = admin_doc.get("manual_topup") or {}
     if not manual_topup.get("active"):
         flash("Manual Top Up is not available right now.", "danger")
-        return redirect(url_for("deposit.deposit_page"))
+        return redirect(_deposit_url(token))
 
     payer_name = (request.form.get("payer_name") or "").strip()
     amount_raw = (request.form.get("amount") or "").strip()
 
     if not payer_name:
         flash("Enter the MoMo name you used to pay.", "danger")
-        return redirect(url_for("deposit.deposit_page", tab="manual"))
+        return redirect(_deposit_url(token, tab="manual"))
 
     try:
         amount = _r2(float(amount_raw))
     except Exception:
         amount = 0.0
 
-    if amount < MIN_MANUAL_TOPUP_GHS:
+    if not math.isfinite(amount) or amount < MIN_MANUAL_TOPUP_GHS:
         flash(f"Minimum manual top up is GHS {MIN_MANUAL_TOPUP_GHS:.2f}.", "danger")
-        return redirect(url_for("deposit.deposit_page", tab="manual"))
+        return redirect(_deposit_url(token, tab="manual"))
 
     existing_pending = transactions_col.find_one(
         {
-            "user_id": ObjectId(session["user_id"]),
+            "user_id": user["_id"],
             "source": "manual_topup",
             "status": "pending",
         },
@@ -202,14 +244,14 @@ def submit_manual_topup():
     )
     if existing_pending:
         flash("You already have a pending manual top up. Wait for it to be confirmed or rejected before sending another one.", "warning")
-        return redirect(url_for("deposit.deposit_page", tab="manual"))
+        return redirect(_deposit_url(token, tab="manual"))
 
     reference = f"MTU-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
-    user_doc = users_col.find_one({"_id": ObjectId(session["user_id"])}) or {}
+    user_doc = users_col.find_one({"_id": user["_id"]}) or {}
     confirm_link = url_for("deposit.confirm_manual_topup_page", reference=reference, _external=True)
 
     transactions_col.insert_one({
-        "user_id": ObjectId(session["user_id"]),
+        "user_id": user["_id"],
         "amount": amount,
         "reference": reference,
         "status": "pending",
@@ -241,7 +283,7 @@ def submit_manual_topup():
             pass
 
     flash("Manual top up submitted. Please wait while admin confirms your payment.", "success")
-    return redirect(url_for("deposit.deposit_page", tab="manual"))
+    return redirect(_deposit_url(token, tab="manual"))
 
 
 @deposit_bp.route("/admin/manual-topup/<reference>/confirm", methods=["GET"])
@@ -374,6 +416,9 @@ def verify_transaction():
     reference = request.args.get("reference", type=str)
     user_id = session.get("user_id")
 
+    # Shared-page payments can only be credited through their stored owner.
+    if reference and reference.startswith("ADP-"):
+        abort(400)
     if not reference or not user_id:
         flash("❌ Invalid deposit request", "danger")
         return redirect(url_for("customer_dashboard.customer_dashboard"))
@@ -473,3 +518,93 @@ def verify_transaction():
         flash("❌ Could not verify payment. Please try again.", "danger")
 
     return redirect(url_for("customer_dashboard.customer_dashboard"))
+
+@deposit_bp.route("/deposit/agent/<token>/manual", methods=["POST"])
+def shared_manual_topup(token):
+    return submit_manual_topup(token)
+
+
+@deposit_bp.after_request
+def private_deposit_response(response):
+    if request.path.startswith("/deposit/agent/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
+
+
+@deposit_bp.route("/deposit/agent/<token>/initialize", methods=["POST"])
+def initialize_deposit(token):
+    user = _deposit_user(token)
+    admin = _get_active_admin() or {}
+    if not (admin.get("deposit_methods") or {}).get("paystack_active", True):
+        return jsonify(ok=False, error="Paystack deposit is currently disabled."), 400
+    try:
+        net = Decimal(str((request.get_json(silent=True) or {}).get("amount", ""))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if not net.is_finite() or net < Decimal(str(MIN_PAYSTACK_DEPOSIT_GHS)) or net > Decimal("1000000"):
+            raise ValueError()
+    except Exception:
+        return jsonify(ok=False, error=f"Enter an amount from GHS {MIN_PAYSTACK_DEPOSIT_GHS:.2f} to GHS 1,000,000."), 400
+    email = user.get("email")
+    if not email:
+        return jsonify(ok=False, error="The agent must add an email address before accepting Paystack deposits."), 400
+    gross_pesewas = int((net * (Decimal("1") + Decimal(str(DEPOSIT_FEE_RATE))) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    reference = "ADP-" + uuid.uuid4().hex
+    transactions_col.insert_one({
+        "reference": reference, "user_id": user["_id"], "amount": float(net),
+        "gross_pesewas": gross_pesewas, "currency": "GHS", "type": "deposit",
+        "gateway": "Paystack", "source": "agent_deposit_page", "status": "pending",
+        "created_at": datetime.utcnow(),
+    })
+    try:
+        result = requests.post("https://api.paystack.co/transaction/initialize", headers={"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}, json={
+            "email": email, "amount": gross_pesewas, "currency": "GHS", "reference": reference,
+            "callback_url": url_for("deposit.verify_shared_deposit", token=token, _external=True),
+        }, timeout=20)
+        result.raise_for_status()
+        payload = result.json()
+        authorization_url = (payload.get("data") or {}).get("authorization_url")
+        if not payload.get("status") or not authorization_url:
+            raise ValueError("Payment initialization failed")
+        return jsonify(ok=True, authorization_url=authorization_url)
+    except Exception:
+        transactions_col.update_one({"reference": reference, "status": "pending"}, {"$set": {"status": "failed"}})
+        return jsonify(ok=False, error="Could not start payment. Please try again."), 502
+
+
+@deposit_bp.route("/deposit/agent/<token>/verify")
+def verify_shared_deposit(token):
+    user = _deposit_user(token)
+    reference = (request.args.get("reference") or "").strip()
+    txn = transactions_col.find_one({"reference": reference, "user_id": user["_id"], "source": "agent_deposit_page"})
+    if not txn:
+        flash("Invalid deposit reference.", "danger")
+        return redirect(_deposit_url(token))
+    if txn.get("status") == "success":
+        flash("This deposit has already been credited.", "success")
+        return redirect(_deposit_url(token))
+    try:
+        result = requests.get(f"https://api.paystack.co/transaction/verify/{reference}", headers={"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}, timeout=20)
+        result.raise_for_status()
+        payload = result.json()
+        data = payload.get("data") or {}
+        if not payload.get("status") or data.get("status") != "success":
+            flash("Payment has not completed. Please try again after completing payment.", "warning")
+            return redirect(_deposit_url(token))
+        if data.get("reference") != reference or data.get("currency") != "GHS" or data.get("amount") != txn["gross_pesewas"]:
+            raise ValueError("Payment does not match deposit")
+        now = datetime.utcnow()
+        transactions_col.update_one({"_id": txn["_id"], "status": {"$ne": "success"}}, {"$set": {"status": "processing", "verified_at": now}})
+        # The wallet remembers each applied reference in the same atomic write as
+        # the increment. Concurrent callbacks and retries cannot credit twice.
+        balance = balances_col.find_one({"user_id": user["_id"]}, {"_id": 1})
+        balance_id = balance["_id"] if balance else user["_id"]
+        balances_col.update_one({"_id": balance_id}, {"$setOnInsert": {"user_id": user["_id"], "amount": 0}}, upsert=True)
+        balances_col.update_one({"_id": balance_id, "applied_deposit_references": {"$ne": reference}}, {
+            "$inc": {"amount": txn["amount"]}, "$addToSet": {"applied_deposit_references": reference}, "$set": {"updated_at": now},
+        })
+        transactions_col.update_one({"_id": txn["_id"]}, {"$set": {"status": "success", "credited_at": now, "updated_at": now}})
+        flash(f"Deposit successful! Agent wallet credited with GHS {txn['amount']:.2f}.", "success")
+    except Exception:
+        flash("Could not verify payment. Reopen this payment confirmation link to retry.", "danger")
+    return redirect(_deposit_url(token))

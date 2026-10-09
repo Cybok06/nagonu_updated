@@ -207,6 +207,13 @@ def admin_wassce_checker():
     # Filters from GET params
     filter_status = request.args.get("status")
     filter_type = request.args.get("type")
+    search_phone = (request.args.get("phone") or "").strip()
+    normalized_phone = re.sub(r"\D", "", search_phone)
+    if normalized_phone.startswith("233") and len(normalized_phone) == 12:
+        normalized_phone = "0" + normalized_phone[3:]
+    search_error = ""
+    if search_phone and (not re.fullmatch(r"[+\d\s().-]+", search_phone) or not re.fullmatch(r"0\d{9}", normalized_phone)):
+        search_error = "Enter a complete phone number, for example 0241234567 or +233241234567."
 
     query = {}
     if filter_status in ["sold", "not_sold"]:
@@ -214,8 +221,14 @@ def admin_wassce_checker():
     if filter_type in ["wassce", "bece"]:
         query["type"] = filter_type
 
-    messages = list(wassce_col.find(query).sort("created_at", -1))
+    if search_phone and not filter_status:
+        query["status"] = "sold"
+    messages = [] if search_error else list(wassce_col.find(query).sort("created_at", -1))
     _attach_sale_details(messages)
+    if search_phone:
+        # Filter the resolved recipient, including legacy purchase/user records.
+        # Store-owner numbers must never match a recipient search.
+        messages = [m for m in messages if m.get("buyer_phone") == normalized_phone]
 
     return render_template(
         "admin_wassce_checker.html",
@@ -223,4 +236,6 @@ def admin_wassce_checker():
         selected_status=filter_status,
         selected_type=filter_type,
         checker_prices=prices,
+        search_phone=search_phone,
+        search_error=search_error,
     )

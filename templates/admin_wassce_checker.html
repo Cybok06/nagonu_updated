@@ -69,13 +69,31 @@
         </div>
       </div>
 
+      <div class="card shadow-sm mb-3">
+        <div class="card-body">
+          <form method="GET" action="{{ url_for('admin_wassce_checker.admin_wassce_checker') }}" role="search">
+            <label for="buyerPhoneSearch" class="form-label fw-semibold">Search checkers bought by phone number</label>
+            <div class="d-flex flex-wrap gap-2">
+              <input id="buyerPhoneSearch" name="phone" type="tel" class="form-control flex-grow-1" style="flex-basis:240px" value="{{ search_phone or '' }}" placeholder="0241234567 or +233241234567" aria-describedby="buyerSearchHelp{% if search_error %} buyerSearchError{% endif %}" {% if search_error %}aria-invalid="true"{% endif %}>
+              {% if selected_status %}<input type="hidden" name="status" value="{{ selected_status }}">{% endif %}
+              {% if selected_type %}<input type="hidden" name="type" value="{{ selected_type }}">{% endif %}
+              <button class="btn btn-primary" type="submit">Search</button>
+              {% if search_phone %}<a class="btn btn-outline-secondary" href="{{ url_for('admin_wassce_checker.admin_wassce_checker', status=selected_status or '', type=selected_type or '') }}">Clear Search</a>{% endif %}
+            </div>
+            <div id="buyerSearchHelp" class="form-text">Find WASSCE and BECE purchases by the buyer or delivery number across all sales channels.</div>
+            {% if search_error %}<div id="buyerSearchError" class="text-danger mt-2" role="alert">{{ search_error }}</div>{% endif %}
+          </form>
+          {% if search_phone and not search_error %}<div class="small text-muted mt-2" role="status">{{ messages|length }} checker{{ '' if messages|length == 1 else 's' }} found for <strong>{{ search_phone }}</strong>.</div>{% endif %}
+        </div>
+      </div>
+
       <!-- Filter Buttons -->
       <div class="mb-3 d-flex flex-wrap gap-2">
-        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker') }}" class="btn btn-outline-secondary btn-sm {% if not selected_status and not selected_type %}active{% endif %}">All</a>
-        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', status='not_sold') }}" class="btn btn-outline-warning btn-sm {% if selected_status == 'not_sold' %}active{% endif %}">Not Sold</a>
-        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', status='sold') }}" class="btn btn-outline-success btn-sm {% if selected_status == 'sold' %}active{% endif %}">Sold</a>
-        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', type='wassce') }}" class="btn btn-outline-primary btn-sm {% if selected_type == 'wassce' %}active{% endif %}">WASSCE</a>
-        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', type='bece') }}" class="btn btn-outline-dark btn-sm {% if selected_type == 'bece' %}active{% endif %}">BECE</a>
+        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', phone=search_phone or '') }}" class="btn btn-outline-secondary btn-sm {% if not selected_status and not selected_type %}active{% endif %}">All</a>
+        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', status='not_sold', phone=search_phone or '') }}" class="btn btn-outline-warning btn-sm {% if selected_status == 'not_sold' %}active{% endif %}">Not Sold</a>
+        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', status='sold', phone=search_phone or '') }}" class="btn btn-outline-success btn-sm {% if selected_status == 'sold' %}active{% endif %}">Sold</a>
+        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', type='wassce', phone=search_phone or '') }}" class="btn btn-outline-primary btn-sm {% if selected_type == 'wassce' %}active{% endif %}">WASSCE</a>
+        <a href="{{ url_for('admin_wassce_checker.admin_wassce_checker', type='bece', phone=search_phone or '') }}" class="btn btn-outline-dark btn-sm {% if selected_type == 'bece' %}active{% endif %}">BECE</a>
       </div>
 
       <!-- Add Message Form -->
@@ -185,7 +203,7 @@
         {% endfor %}
 
         {% if messages|length == 0 %}
-        <p class="text-center text-muted">No messages added yet.</p>
+        <p class="text-center text-muted">{% if search_error %}Correct the phone number to search for purchases.{% elif search_phone %}No checkers found for this phone number with the selected filters.{% else %}No checkers match the selected filters.{% endif %}</p>
         {% endif %}
       </div>
     </div>

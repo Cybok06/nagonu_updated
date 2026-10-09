@@ -96,3 +96,31 @@ class BulkOrderTests(unittest.TestCase):
             self.persist()
         self.assertEqual(self.db.balances.find_one({})['amount'], 100)
         self.assertEqual(self.db.orders.count_documents({}), 0)
+
+    def test_store_bulk_preserves_payment_and_never_debits_agent_wallet(self):
+        from bulk_orders import persist_store_bulk
+        self.order.update(store_slug='shop', paid_from='paystack_inline', paystack_reference='PS-paid')
+        with patch.object(self.db.client, 'start_session') as start:
+            start.return_value.__enter__.return_value.with_transaction.side_effect = self.run_transaction
+            documents = persist_store_bulk(self.db, self.order)
+        self.assertEqual(self.db.balances.find_one({})['amount'], 100)
+        self.assertEqual(self.db.transactions.count_documents({}), 0)
+        self.assertEqual(self.db.orders.count_documents({}), 2)
+        self.assertEqual([len(doc['items']) for doc in documents], [1, 1])
+        self.assertEqual([doc['charged_amount'] for doc in documents], [10, 20])
+        self.assertEqual([doc['paystack_reference'] for doc in documents], ['PS-paid', 'PS-paid'])
+        self.assertEqual(load_batch(self.db.orders, 'BATCH', store_slug='shop')['charged_amount'], 30)
+        self.assertIsNone(load_batch(self.db.orders, 'BATCH', store_slug='another-shop'))
+
+    def test_store_bulk_failure_rolls_back_all_order_records(self):
+        from bulk_orders import persist_store_bulk
+        real_insert = self.db.orders.insert_many
+        def interrupted(documents, **kwargs):
+            real_insert(documents[:1], **kwargs)
+            raise RuntimeError('interrupted')
+        with patch.object(self.db.client, 'start_session') as start, patch.object(self.db.orders, 'insert_many', side_effect=interrupted):
+            start.return_value.__enter__.return_value.with_transaction.side_effect = self.run_transaction
+            with self.assertRaises(RuntimeError):
+                persist_store_bulk(self.db, self.order)
+        self.assertEqual(self.db.orders.count_documents({}), 0)
+        self.assertEqual(self.db.balances.find_one({})['amount'], 100)

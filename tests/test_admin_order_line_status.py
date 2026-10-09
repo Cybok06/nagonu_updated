@@ -114,6 +114,44 @@ class AdminOrderLineStatusTests(unittest.TestCase):
         self.main.find_one.assert_not_called()
         self.campus.find_one.assert_not_called()
 
+    def test_legacy_bulk_status_update_changes_only_selected_item(self):
+        self.main.find_one.return_value = {
+            '_id': self.oid, 'status': 'processing',
+            'items': [{'line_status': 'processing', 'amount': 10}, {'line_status': 'processing', 'amount': 20}],
+        }
+        self.main.update_one.return_value.matched_count = 1
+        result = self.post_status('delivered', index=1)
+        self.assertEqual(result.status_code, 302)
+        update = self.main.update_one.call_args.args[1]['$set']
+        self.assertEqual(update['items.1.line_status'], 'delivered')
+        self.assertNotIn('items.0.line_status', update)
+        self.assertNotIn('status', update)
+
+    def test_grouped_view_parameter_returns_individual_items(self):
+        import mongomock
+        collection = mongomock.MongoClient().db.orders
+        collection.insert_one({'_id': self.oid, 'order_id': 'LEGACY-30', 'total_amount': 30, 'status': 'processing',
+                               'items': [{'phone': '0241111111', 'amount': 10, 'line_status': 'pending'},
+                                         {'phone': '0242222222', 'amount': 20, 'line_status': 'processing'}]})
+        with patch.object(self.orders, 'orders_col', collection), patch.object(self.orders, '_load_users_for_orders', return_value={}):
+            data = self.orders._build_orders_data_payload({'view': 'orders', 'source': 'main'})
+        self.assertEqual(data['view_mode'], 'lines')
+        self.assertEqual(data['orders'], [])
+        self.assertEqual([line['item']['amount'] for line in data['order_lines']], [10, 20])
+        self.assertEqual([line['item_index'] for line in data['order_lines']], [0, 1])
+        self.assertNotEqual(data['order_lines'][0]['line_id'], data['order_lines'][1]['line_id'])
+        with patch.object(self.orders, 'orders_col', collection), patch.object(self.orders, '_load_users_for_orders', return_value={}):
+            data = self.orders._build_orders_data_payload({'source': 'main', 'status': 'pending'})
+        self.assertEqual(len(data['order_lines']), 1)
+        self.assertEqual(data['order_lines'][0]['item']['phone'], '0241111111')
+
+    def test_legacy_missing_line_status_uses_parent_status(self):
+        data = self.orders._serialize_line({'status': 'completed', 'item': {'amount': 10}})
+        self.assertEqual(data['item']['line_status'], 'delivered')
+        self.main.find_one.return_value = {'_id': self.oid, 'status': 'completed', 'items': [{'amount': 10}]}
+        self.post_status('processing')
+        self.main.update_one.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

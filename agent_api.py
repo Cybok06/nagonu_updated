@@ -239,7 +239,10 @@ def agent_api_access():
 
     doc = api_keys_col.find_one({"user_id": oid})
     api_key = doc.get("key") if doc else ""
-    return render_template("agent_api_access.html", api_key=api_key)
+    user = users_col.find_one({"_id": oid}, {"deposit_page_token": 1}) or {}
+    token = user.get("deposit_page_token")
+    deposit_url = url_for("deposit.shared_deposit_page", token=token, _external=True) if token else ""
+    return render_template("agent_api_access.html", api_key=api_key, deposit_url=deposit_url)
 
 @agent_api_bp.route("/agent/api/generate", methods=["POST"])
 def agent_api_generate():

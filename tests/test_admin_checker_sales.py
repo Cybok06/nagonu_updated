@@ -113,6 +113,86 @@ class AdminCheckerSalesTests(unittest.TestCase):
         self.attach([row])
         self.assertEqual(row['buyer_phone'], 'Unavailable')
 
+class AdminCheckerPhoneSearchTests(unittest.TestCase):
+    def setUp(self):
+        import mongomock
+        from flask import Flask, request, redirect, url_for, flash, session, render_template
+        from datetime import datetime
+        from jinja2 import ChoiceLoader, DictLoader
+        self.db = mongomock.MongoClient().test
+        self.app = Flask(__name__, template_folder=str(ROOT / 'templates'))
+        self.app.secret_key = 'test'
+        self.app.jinja_loader = ChoiceLoader([DictLoader({'admin_sidebar.html': ''}), self.app.jinja_loader])
+        self.app.add_url_rule('/login', endpoint='login.login', view_func=lambda: 'Login')
+        self.app.add_url_rule('/results', endpoint='purchase_checker.public_results_checker', view_func=lambda: '')
+        tree = ast.parse((ROOT / 'admin_wassce_checker.py').read_text(encoding='utf-8'))
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
+        for node in functions:
+            node.decorator_list = []
+        env = dict(db=self.db, wassce_col=self.db.wassce_checker,
+                   checker_settings_col=self.db.results_checker_settings, ObjectId=ObjectId,
+                   re=re, datetime=datetime, request=request, redirect=redirect,
+                   url_for=url_for, flash=flash, session=session, render_template=render_template)
+        exec(compile(ast.Module(body=functions, type_ignores=[]), 'admin_wassce_checker.py', 'exec'), env)
+        self.app.add_url_rule('/admin/wassce_checker', endpoint='admin_wassce_checker.admin_wassce_checker', view_func=env['admin_wassce_checker'], methods=['GET', 'POST'])
+        self.client = self.app.test_client()
+        with self.client.session_transaction() as current:
+            current['role'] = 'admin'
+        owner, dashboard = ObjectId(), ObjectId()
+        self.db.users.insert_many([{'_id': owner, 'phone': '0201234567'}, {'_id': dashboard, 'phone': '+233241234567'}])
+        self.db.stores.insert_one({'slug': 'shop', 'owner_id': owner, 'name': 'Shop'})
+        self.rows = [
+            dict(_id=ObjectId(), status='sold', type='wassce', sold_channel='store_page', sold_to_store='shop', sold_phone='0241234567', message='MATCH-STORE'),
+            dict(_id=ObjectId(), status='sold', type='bece', sold_channel='customer_dashboard', sold_to=dashboard, message='MATCH-DASHBOARD'),
+            dict(_id=ObjectId(), status='sold', type='bece', sold_channel='public_results_checker', message='MATCH-PUBLIC'),
+            dict(_id=ObjectId(), status='sold', type='wassce', sold_phone='0551234567', message='OTHER-BUYER'),
+            dict(_id=ObjectId(), status='not_sold', type='wassce', message='UNSOLD'),
+        ]
+        for row in self.rows:
+            row.update(amount=20, profit=2, created_at=datetime(2026, 10, 9))
+        self.db.wassce_checker.insert_many(self.rows)
+        self.db.public_checker_purchases.insert_one({'checker_id': str(self.rows[2]['_id']), 'phone': '0241234567'})
+
+    def test_search_across_channels_and_phone_formats(self):
+        for number in ['0241234567', '+233 24 123 4567', '233241234567', '024-123-4567']:
+            result = self.client.get('/admin/wassce_checker', query_string={'phone': number})
+            self.assertEqual(result.status_code, 200)
+            html = result.get_data(as_text=True)
+            for message in ['MATCH-STORE', 'MATCH-DASHBOARD', 'MATCH-PUBLIC', '3 checkers found']:
+                self.assertIn(message, html)
+            for message in ['OTHER-BUYER', 'UNSOLD']:
+                self.assertNotIn(message, html)
+            self.assertIn('Clear Search', html)
+            if number == '0241234567':
+                self.assertIn('phone=024', html)
+
+    def test_type_filter_and_no_results(self):
+        html = self.client.get('/admin/wassce_checker?phone=0241234567&type=bece').get_data(as_text=True)
+        self.assertIn('2 checkers found', html)
+        self.assertNotIn('MATCH-STORE', html)
+        html = self.client.get('/admin/wassce_checker?phone=0201234567').get_data(as_text=True)
+        self.assertIn('No checkers found for this phone number', html)
+        self.assertNotIn('MATCH-STORE', html)
+        html = self.client.get('/admin/wassce_checker?phone=0241234567&status=not_sold').get_data(as_text=True)
+        self.assertIn('0 checkers found', html)
+
+    def test_invalid_search_does_not_show_inventory(self):
+        for number in ['024', 'abc0241234567', '<script>', '.*']:
+            html = self.client.get('/admin/wassce_checker', query_string={'phone': number}).get_data(as_text=True)
+            self.assertIn('Enter a complete phone number', html)
+            self.assertNotIn('MATCH-STORE', html)
+            self.assertNotIn('UNSOLD', html)
+
+    def test_clear_and_authorization(self):
+        html = self.client.get('/admin/wassce_checker').get_data(as_text=True)
+        self.assertIn('UNSOLD', html)
+        self.assertIn('OTHER-BUYER', html)
+        with self.client.session_transaction() as current:
+            current['role'] = 'customer'
+        result = self.client.get('/admin/wassce_checker?phone=0241234567')
+        self.assertEqual(result.status_code, 302)
+        self.assertIn('/login', result.location)
+
 
 if __name__ == '__main__':
     unittest.main()
