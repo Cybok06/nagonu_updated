@@ -159,6 +159,37 @@ def shared_deposit_page(token):
     return deposit_page(token)
 
 
+def _deposit_history_context(user, token=None, page=1):
+    page_size = 10
+    query = {"user_id": user["_id"], "type": "deposit"}
+    total = transactions_col.count_documents(query)
+    pages = max(1, (total + page_size - 1) // page_size)
+    try:
+        page = max(1, min(int(page), pages))
+    except (ValueError, TypeError):
+        page = 1
+    history = list(transactions_col.find(query, {
+        "amount": 1, "reference": 1, "status": 1, "gateway": 1, "source": 1, "created_at": 1,
+    }).sort([("created_at", -1), ("_id", -1)]).skip((page - 1) * page_size).limit(page_size))
+    return dict(deposit_history=history, history_page=page, history_pages=pages,
+                history_total=total, deposit_token=token,
+                history_url=url_for("deposit.shared_deposit_history", token=token) if token else url_for("deposit.deposit_history"))
+
+
+@deposit_bp.route("/deposit/history")
+def deposit_history():
+    user = _deposit_user()
+    if not user:
+        return jsonify(error="Please log in to view deposit history."), 401
+    response = render_template("_deposit_history.html", **_deposit_history_context(user, page=request.args.get("page", 1)))
+    return response, 200, {"Cache-Control": "no-store"}
+
+
+@deposit_bp.route("/deposit/agent/<token>/history")
+def shared_deposit_history(token):
+    return render_template("_deposit_history.html", **_deposit_history_context(_deposit_user(token), token, request.args.get("page", 1)))
+
+
 @deposit_bp.route("/deposit")
 def deposit_page(token=None):
     user = _deposit_user(token)
@@ -179,17 +210,11 @@ def deposit_page(token=None):
     if requested_tab == "paystack" and not paystack_active:
         requested_tab = ""
     active_tab = requested_tab or ("manual" if manual_active else ("paystack" if paystack_active else "manual"))
-    deposit_history = list(
-        transactions_col.find(
-            {"user_id": user["_id"], "type": "deposit"},
-            {"amount": 1, "reference": 1, "status": 1, "gateway": 1, "source": 1, "created_at": 1},
-        ).sort("created_at", -1).limit(25)
-    )
+    history_context = _deposit_history_context(user, token)
 
     return render_template(
         "deposit.html",
         user_id=str(user["_id"]),
-        deposit_token=token,
         agent_name=_full_name(user) if token else "",
         manual_submit_url=url_for("deposit.shared_manual_topup", token=token) if token else url_for("deposit.submit_manual_topup"),
         payment_initialize_url=url_for("deposit.initialize_deposit", token=token) if token else "",
@@ -202,7 +227,7 @@ def deposit_page(token=None):
         manual_topup_active=manual_active,
         paystack_active=paystack_active,
         active_tab=active_tab,
-        deposit_history=deposit_history,
+        **history_context,
     )
 
 

@@ -109,7 +109,10 @@
       </div>
     </div>
 
-    <div class="d-flex justify-content-center mb-3">
+    <div class="d-flex justify-content-center flex-wrap gap-2 mb-3">
+      <a id="depositBackBtn" class="btn btn-outline-secondary history-btn btn-icon" href="/agent/api">
+        <i class="bi bi-arrow-left"></i> Back
+      </a>
       <button class="btn btn-outline-primary history-btn btn-icon" type="button" data-bs-toggle="modal" data-bs-target="#depositHistoryModal">
         <i class="bi bi-clock-history"></i> History
       </button>
@@ -274,50 +277,14 @@
   </div>
 
   <div class="modal fade" id="depositHistoryModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
       <div class="modal-content border-0" style="border-radius:18px; overflow:hidden;">
         <div class="modal-header">
           <h5 class="modal-title"><i class="bi bi-clock-history me-2"></i>Deposit History</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
-        <div class="modal-body">
-          {% if deposit_history %}
-            <div class="history-list">
-              {% for item in deposit_history %}
-                {% set st = (item.status or 'pending')|lower %}
-                <div class="history-item">
-                  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-                    <div>
-                      <div class="history-ref">{{ item.reference or '-' }}</div>
-                      <div class="history-meta mt-1">
-                        {{ item.gateway or 'Deposit' }}
-                        {% if deposit_token and item.source == 'agent_deposit_page' and st not in ['success', 'failed'] %}
-                          <a class="ms-2" href="{{ url_for('deposit.verify_shared_deposit', token=deposit_token, reference=item.reference) }}">Check payment</a>
-                        {% endif %}
-                        {% if item.created_at %} · {{ item.created_at.strftime('%d %b %Y, %I:%M %p') }}{% endif %}
-                      </div>
-                    </div>
-                    <div class="text-end">
-                      <div class="fw-bold text-success">GHS {{ '%.2f'|format(item.amount or 0) }}</div>
-                      <div class="mt-2">
-                        {% if st == 'success' %}
-                          <span class="status-badge status-success"><i class="bi bi-check-circle-fill"></i> Credited</span>
-                        {% elif st in ['rejected', 'failed'] %}
-                          <span class="status-badge status-rejected"><i class="bi bi-x-circle-fill"></i> {{ 'Failed' if st == 'failed' else 'Rejected' }}</span>
-                        {% else %}
-                          <span class="status-badge status-pending"><i class="bi bi-hourglass-split"></i> Pending</span>
-                        {% endif %}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              {% endfor %}
-            </div>
-          {% else %}
-            <div class="text-center text-muted py-4">
-              No deposit history yet.
-            </div>
-          {% endif %}
+        <div class="modal-body" id="depositHistoryBody" aria-live="polite">
+          {% include '_deposit_history.html' %}
         </div>
       </div>
     </div>
@@ -377,6 +344,41 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     (function(){
+      document.getElementById('depositBackBtn').addEventListener('click', function(event){
+        if (window.history.length > 1) {
+          event.preventDefault();
+          window.history.back();
+        }
+      });
+      const historyBody = document.getElementById('depositHistoryBody');
+      let historyLoading = false;
+      historyBody.addEventListener('click', async function(event){
+        const link = event.target.closest('[data-history-page]');
+        if (!link) return;
+        event.preventDefault();
+        if (historyLoading) return;
+        historyLoading = true;
+        historyBody.setAttribute('aria-busy', 'true');
+        try {
+          const response = await fetch(link.href, {credentials: 'same-origin'});
+          if (!response.ok || response.redirected) throw new Error('Could not load history. Please try again.');
+          historyBody.innerHTML = await response.text();
+          historyBody.scrollTop = 0;
+        } catch (error) {
+          let alert = historyBody.querySelector('[data-history-error]');
+          if (!alert) {
+            alert = document.createElement('div');
+            alert.className = 'alert alert-danger mt-2';
+            alert.setAttribute('data-history-error', '');
+            alert.setAttribute('role', 'alert');
+            historyBody.appendChild(alert);
+          }
+          alert.textContent = error.message;
+        } finally {
+          historyLoading = false;
+          historyBody.removeAttribute('aria-busy');
+        }
+      });
       const email = {{ (email or '')|tojson }};
       const initializeUrl = {{ (payment_initialize_url or '')|tojson }};
       const PAYSTACK_PK = "{{ (paystack_pk or '')|e }}";

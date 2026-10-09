@@ -74,7 +74,7 @@
       </div>
       <div class="cardx p-4 mb-4">
         <div class="fw-semibold mb-2">Your Deposit Page</div>
-        <p class="text-muted small">Accept deposits into your Nagonu wallet from any external app. Anyone with this link can fund your wallet and view your latest 25 deposits.</p>
+        <p class="text-muted small">Accept deposits into your Nagonu wallet from any external app. Anyone with this link can fund your wallet and view your deposit history.</p>
         <div class="input-group mb-3">
           <input id="depositUrlInput" type="text" class="form-control" value="{{ deposit_url or '' }}" readonly aria-label="Your deposit page link">
           <button id="copyDepositBtn" class="btn btn-outline-success" type="button" {% if not deposit_url %}disabled{% endif %}>Copy Link</button>

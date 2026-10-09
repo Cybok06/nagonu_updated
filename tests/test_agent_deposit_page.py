@@ -1,4 +1,4 @@
-﻿"""Isolated deposit integration checks; no live database or payment calls."""
+"""Isolated deposit integration checks; no live database or payment calls."""
 import importlib.util
 import sys
 import types
@@ -145,6 +145,37 @@ class DepositPageTests(unittest.TestCase):
         self.assertEqual(deposit.balances_col.count_documents({}), 0)
         self.client.get('/deposit/agent/owner-token/verify?reference=unknown')
         self.assertEqual(deposit.balances_col.count_documents({}), 0)
+
+    def test_history_paginates_all_deposits_newest_first(self):
+        from datetime import datetime, timedelta
+        for index in range(27):
+            deposit.transactions_col.insert_one({'user_id': self.owner, 'type': 'deposit', 'amount': 20,
+                'reference': f'PAGE-REF-{index:02d}', 'created_at': datetime(2026, 10, 1) + timedelta(minutes=index)})
+        deposit.transactions_col.insert_one({'user_id': self.other, 'type': 'deposit', 'amount': 99, 'reference': 'PRIVATE-OTHER'})
+        with self.app.test_request_context('/'):
+            first = deposit._deposit_history_context({'_id': self.owner}, 'owner-token', 1)
+            last = deposit._deposit_history_context({'_id': self.owner}, 'owner-token', 3)
+        self.assertEqual(first['history_total'], 27)
+        self.assertEqual(first['history_pages'], 3)
+        self.assertEqual([row['reference'] for row in first['deposit_history']], [f'PAGE-REF-{index:02d}' for index in range(26, 16, -1)])
+        self.assertEqual(len(last['deposit_history']), 7)
+        self.login(self.other)
+        html = self.client.get('/deposit/agent/owner-token/history?page=2').get_data(as_text=True)
+        self.assertIn('Page 2 of 3', html)
+        self.assertIn('PAGE-REF-16', html)
+        self.assertNotIn('PAGE-REF-26', html)
+        self.assertNotIn('PRIVATE-OTHER', html)
+        self.assertLess(html.index('PAGE-REF-16'), html.index('PAGE-REF-07'))
+
+    def test_history_authentication_and_invalid_pages(self):
+        self.assertEqual(self.client.get('/deposit/history').status_code, 401)
+        self.assertEqual(self.client.get('/deposit/agent/invalid/history').status_code, 404)
+        for page in ['bad', '-1', '999999']:
+            result = self.client.get('/deposit/agent/owner-token/history?page=' + page)
+            self.assertEqual(result.status_code, 200)
+            self.assertIn('No deposit history yet.', result.get_data(as_text=True))
+            self.assertEqual(result.headers['Cache-Control'], 'no-store')
+
 
 if __name__ == '__main__':
     unittest.main()
