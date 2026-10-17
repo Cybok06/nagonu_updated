@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Profile</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcmewvlyx/image/upload/v1755183040/logo_qmykvn.jpg">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    .profile-shell{max-width:1120px;margin:0 auto;}
+    .profile-card{border:0;border-radius:22px;box-shadow:0 18px 50px rgba(15,23,42,.08);}
+    .avatar-stage{
+      width:112px;height:112px;border-radius:50%;overflow:hidden;
+      border:4px solid rgba(14,165,233,.18);background:#e2e8f0;
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 12px 30px rgba(14,165,233,.18);
+    }
+    .avatar-stage img{width:100%;height:100%;object-fit:cover;display:block;}
+    .avatar-fallback{font-size:2.5rem;color:#0369a1;}
+    .section-kicker{font-size:.78rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#0ea5e9;}
+    .nav-pills .nav-link{border-radius:999px;font-weight:700;}
+    .nav-pills .nav-link.active{background:#0ea5e9;}
+    .info-pill{display:inline-flex;align-items:center;gap:.45rem;border:1px solid #d7e7f2;background:#f8fbfe;border-radius:999px;padding:.5rem .8rem;}
+  </style>
+</head>
+<body>
+  {% include 'admin_sidebar.html' %}
+
+  <div class="customer-content">
+    <div class="profile-shell">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+        <div>
+          <div class="section-kicker">Admin Settings</div>
+          <h2 class="mb-1">Admin Profile</h2>
+          <div class="text-muted">Manage your password, payment settings, and order SMS alerts.</div>
+        </div>
+      </div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ 'warning' if category == 'message' else category }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <div class="row g-4">
+        <div class="col-lg-4">
+          <div class="card profile-card h-100">
+            <div class="card-body p-4">
+              <div class="d-flex flex-column align-items-center text-center">
+                <div class="avatar-stage mb-3">
+                  {% if admin.avatar_url %}
+                    <img src="{{ admin.avatar_url }}" alt="Admin avatar">
+                  {% else %}
+                    <div class="avatar-fallback"><i class="bi bi-person-circle"></i></div>
+                  {% endif %}
+                </div>
+                <h4 class="mb-1">{{ admin.name or admin.username or 'Administrator' }}</h4>
+                <div class="text-muted mb-3">@{{ admin.username }}</div>
+                <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2">Admin Account</span>
+              </div>
+
+              <hr class="my-4">
+
+              {% set mt = admin.manual_topup or {} %}
+              <ul class="list-group list-group-flush">
+                <li class="list-group-item px-0"><strong>Username:</strong> {{ admin.username }}</li>
+                <li class="list-group-item px-0"><strong>Email:</strong> {{ admin.email or 'N/A' }}</li>
+                <li class="list-group-item px-0"><strong>Status:</strong> {{ (admin.status or 'active')|capitalize }}</li>
+                <li class="list-group-item px-0"><strong>Role:</strong> {{ admin.role|capitalize }}</li>
+                <li class="list-group-item px-0">
+                  <strong>Manual Top Up:</strong>
+                  {% if mt.active %}
+                    <span class="badge bg-success">Active</span>
+                  {% else %}
+                    <span class="badge bg-secondary">Inactive</span>
+                  {% endif %}
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-8">
+          <div class="card profile-card">
+            <div class="card-body p-4">
+              {% set active_tab = request.args.get('tab') or 'password' %}
+              {% set mt = admin.manual_topup or {} %}
+              {% set dm = admin.deposit_methods or {} %}
+              {% set order_sms = admin.order_sms or {} %}
+
+              <ul class="nav nav-pills gap-2 mb-4" id="adminProfileTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link {% if active_tab == 'password' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-password" type="button" role="tab">Password</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link {% if active_tab == 'manual-topup' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-manual-topup" type="button" role="tab">Manual Top Up</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link {% if active_tab == 'order-sms' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-order-sms" type="button" role="tab">Order SMS</button>
+                </li>
+              </ul>
+
+              <div class="tab-content">
+                <div class="tab-pane fade {% if active_tab == 'password' %}show active{% endif %}" id="tab-password" role="tabpanel">
+                  <h5 class="mb-3"><i class="bi bi-shield-lock me-2 text-danger"></i>Change Password</h5>
+                  <form method="POST" id="adminPasswordForm">
+                    <input type="hidden" name="action" value="password">
+                    <div class="row g-3">
+                      <div class="col-12">
+                        <label class="form-label">Current Password</label>
+                        <input type="password" name="current_password" class="form-control" required>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">New Password</label>
+                        <input type="password" name="new_password" class="form-control" id="new_password" required>
+                        <div class="form-text" id="strength_msg">Use at least 8 characters with letters and numbers.</div>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">Confirm New Password</label>
+                        <input type="password" name="confirm_password" class="form-control" id="confirm_password" required>
+                        <div class="form-text" id="match_msg">Passwords must match.</div>
+                      </div>
+                    </div>
+                    <button type="submit" class="btn btn-dark mt-3">
+                      <i class="bi bi-arrow-repeat me-1"></i> Update Password
+                    </button>
+                  </form>
+                </div>
+
+                <div class="tab-pane fade {% if active_tab == 'manual-topup' %}show active{% endif %}" id="tab-manual-topup" role="tabpanel">
+                  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                    <h5 class="mb-0"><i class="bi bi-phone me-2 text-success"></i>Manual Top Up Settings</h5>
+                    <span class="info-pill">
+                      <i class="bi bi-info-circle"></i>
+                      {% if mt.active %}Customers can currently submit manual payments.{% else %}Customers cannot submit manual payments right now.{% endif %}
+                    </span>
+                  </div>
+
+                  <form method="POST">
+                    <input type="hidden" name="action" value="manual_topup">
+                    <div class="form-check form-switch mb-2">
+                      <input class="form-check-input" type="checkbox" role="switch" id="paystack_active" name="paystack_active" {% if dm.paystack_active is not sameas false %}checked{% endif %}>
+                      <label class="form-check-label" for="paystack_active">Enable Paystack</label>
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                      <input class="form-check-input" type="checkbox" role="switch" id="manual_active" name="manual_active" {% if mt.active %}checked{% endif %}>
+                      <label class="form-check-label" for="manual_active">Enable Manual Top Up</label>
+                    </div>
+
+                    <div class="row g-3">
+                      <div class="col-md-4">
+                        <label class="form-label">Network</label>
+                        <input type="text" name="manual_network" class="form-control" placeholder="e.g. MTN" value="{{ mt.network or '' }}">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">MoMo Number</label>
+                        <input type="text" name="manual_number" class="form-control" placeholder="e.g. 055xxxxxxx" value="{{ mt.number or '' }}">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Recipient Name</label>
+                        <input type="text" name="manual_name" class="form-control" placeholder="Name customers should pay to" value="{{ mt.name or '' }}">
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label">Top Up SMS Notification Number</label>
+                        <input type="text" name="manual_notification_number" class="form-control" placeholder="e.g. 055xxxxxxx" value="{{ mt.notification_number or '' }}">
+                      </div>
+                    </div>
+
+                    <div class="form-text mt-2">You can enable or disable Paystack and Manual Top Up independently. The notification number receives the SMS link for each manual top-up request.</div>
+
+                    <button type="submit" class="btn btn-success mt-3">
+                      <i class="bi bi-save me-1"></i> Save Manual Top Up Settings
+                    </button>
+                  </form>
+                </div>
+
+                <div class="tab-pane fade {% if active_tab == 'order-sms' %}show active{% endif %}" id="tab-order-sms" role="tabpanel">
+                  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                    <h5 class="mb-0"><i class="bi bi-chat-dots me-2 text-primary"></i>Order SMS Settings</h5>
+                    <span class="info-pill">
+                      <i class="bi bi-lightning-charge"></i>
+                      Mash Up Data orders only
+                    </span>
+                  </div>
+
+                  <form method="POST">
+                    <input type="hidden" name="action" value="order_sms">
+                    <div class="row g-3">
+                      <div class="col-md-7">
+                        <label class="form-label">Order SMS Number</label>
+                        <input type="text" name="order_sms_number" class="form-control" placeholder="e.g. 0553226196" value="{{ order_sms.number or '' }}">
+                        <div class="form-text">Receives MTN Mash Up Data order alerts in this format: <strong>0530393625 10GB</strong>.</div>
+                      </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary mt-3">
+                      <i class="bi bi-save me-1"></i> Save Order SMS Settings
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const newPass = document.getElementById("new_password");
+      const confirmPass = document.getElementById("confirm_password");
+      const strengthMsg = document.getElementById("strength_msg");
+      const matchMsg = document.getElementById("match_msg");
+
+      function validateStrength() {
+        if (!newPass || !strengthMsg) return;
+        const value = newPass.value || "";
+        const ok = value.length >= 8 && /[A-Za-z]/.test(value) && /\d/.test(value);
+        strengthMsg.textContent = ok ? "Password strength looks good." : "Use at least 8 characters with letters and numbers.";
+        strengthMsg.className = ok ? "form-text text-success" : "form-text text-danger";
+        validateMatch();
+      }
+
+      function validateMatch() {
+        if (!confirmPass || !matchMsg || !newPass) return;
+        const ok = !!confirmPass.value && confirmPass.value === newPass.value;
+        matchMsg.textContent = ok ? "Passwords match." : "Passwords must match.";
+        matchMsg.className = ok ? "form-text text-success" : "form-text text-danger";
+      }
+
+      if (newPass) newPass.addEventListener("input", validateStrength);
+      if (confirmPass) confirmPass.addEventListener("input", validateMatch);
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

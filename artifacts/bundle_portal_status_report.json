@@ -1,0 +1,6 @@
+{
+  "ok": false,
+  "error_type": "ConfigurationError",
+  "message": "MongoDB Atlas DNS lookup timed out before an order could be read.",
+  "reason": "database_dns_timeout"
+}
