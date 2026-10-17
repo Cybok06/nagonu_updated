@@ -463,6 +463,7 @@
                 <input class="form-check-input" type="checkbox" id="checkAll">
               </th>
               <th><i class="fas fa-receipt me-1"></i>Order ID</th>
+              <th>Source</th>
               <th><i class="fas fa-user me-1"></i>Customer</th>
               <th><i class="fas fa-shopping-cart me-1"></i>Item</th>
               <th><i class="fas fa-money-bill-wave me-1"></i>Amount (&#8373;)</th>
@@ -502,6 +503,7 @@
                 <input class="form-check-input" type="checkbox" id="checkAll">
               </th>
               <th><i class="fas fa-receipt me-1"></i>Order ID</th>
+              <th>Source</th>
               <th><i class="fas fa-user me-1"></i>Customer</th>
               <th><i class="fas fa-shopping-cart me-1"></i>Items</th>
               <th><i class="fas fa-money-bill-wave me-1"></i>Total (&#8373;)</th>
@@ -1121,7 +1123,7 @@
     function renderLinesTable(lines){
       if (!linesTbody) return;
       if (!lines.length){
-        linesTbody.innerHTML = renderEmptyTable(10, 'order lines');
+        linesTbody.innerHTML = renderEmptyTable(11, 'order lines');
         return;
       }
       const qs = preservedQuery();
@@ -1144,6 +1146,7 @@
               ${ussdBadge(line)}
               ${line.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
             </td>
+            <td class="text-center"><span class="badge bg-light text-dark border">${esc(line.order_origin || "Customer Dashboard")}</span></td>
             <td>
               <div class="fw-semibold">${esc(line.user?.first_name || '')} ${esc(line.user?.last_name || '')}</div>
               <div class="small text-muted">
@@ -1199,7 +1202,7 @@
     function renderOrdersTable(orders){
       if (!ordersTbody) return;
       if (!orders.length){
-        ordersTbody.innerHTML = renderEmptyTable(11, 'orders');
+        ordersTbody.innerHTML = renderEmptyTable(12, 'orders');
         return;
       }
       const qs = preservedQuery();
@@ -1231,6 +1234,7 @@
               ${ussdBadge(order)}
               ${order.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
             </td>
+            <td class="text-center"><span class="badge bg-light text-dark border">${esc(order.order_origin || "Customer Dashboard")}</span></td>
             <td>
               <div class="fw-semibold">${esc(order.user?.first_name || '')} ${esc(order.user?.last_name || '')}</div>
               <div class="small text-muted">
@@ -1339,6 +1343,7 @@
                     ${ussdBadge(order)}
                     ${order.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
                   </div>
+                  <div class="small mt-1">Source: <strong>${esc(order.order_origin || "Customer Dashboard")}</strong></div>
                   <div class="meta">
                     ${esc(order.user?.first_name || '')} ${esc(order.user?.last_name || '')} &bull;
                     <i class="fa-regular fa-clock"></i> ${esc(order.created_at_display || 'N/A')}
@@ -1422,6 +1427,7 @@
                     ${ussdBadge(line)}
                     ${line.source === 'campus' ? '<span class="badge bg-info text-dark ms-1">Campus Data</span>' : ''}
                   </div>
+                  <div class="small mt-1">Source: <strong>${esc(line.order_origin || "Customer Dashboard")}</strong></div>
                   <div class="meta">
                     ${esc(line.user?.first_name || '')} ${esc(line.user?.last_name || '')} &bull;
                     <i class="fa-regular fa-clock"></i> ${esc(line.created_at_display || 'N/A')}

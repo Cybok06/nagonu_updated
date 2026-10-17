@@ -357,6 +357,7 @@ def _serialize_order(order: dict) -> dict:
         "order_id_param": order.get("order_id_param"),
         "order_id_key": str(order.get("_id")) if order.get("_id") is not None else "",
         "source": order.get("source") or "main",
+        "order_origin": _order_origin(order),
         "user": _serialize_user(order.get("user") or {}),
         "items": [_serialize_item(i) for i in (order.get("items") or [])],
         "total_amount": order.get("total_amount") or 0,
@@ -381,6 +382,7 @@ def _serialize_line(line: dict) -> dict:
         "item_index": line.get("item_index"),
         "line_id": line.get("line_id"),
         "source": line.get("source") or "main",
+        "order_origin": line.get("order_origin") or _order_origin(line),
         "user": _serialize_user(line.get("user") or {}),
         "item": _serialize_item({**(line.get("item") or {}), "line_status": _effective_export_line_status(line.get("status"), line.get("item") or {})}),
         "paid_from": line.get("paid_from") or "",
@@ -488,6 +490,8 @@ def _build_orders_data_payload(args) -> dict:
         "paid_from": 1,
         "store_slug": 1,
         "debug.store_checkout": 1,
+        "api_source": 1,
+        "api_reference_id": 1,
         "created_at": 1,
         "status": 1,
         "total_amount": 1,
@@ -1116,6 +1120,14 @@ def _is_store_order(order: dict) -> bool:
     )
 
 
+def _order_origin(order: dict) -> str:
+    if order.get('is_store_order') or _is_store_order(order):
+        return 'Store'
+    if order.get('api_source') == 'agent_api' or order.get('api_reference_id'):
+        return 'Agent API'
+    return 'Customer Dashboard'
+
+
 def _decorate_order_source(order: dict, source: str) -> None:
     order["source"] = source
     order["source_label"] = "Campus Data" if source == "campus" else "Main"
@@ -1261,6 +1273,7 @@ def _prepare_order(order: dict, source: str, order_lines: List[dict], orders_col
             "user": order.get("user") or {},
             "paid_from": order.get("paid_from"),
             "is_store_order": _is_store_order(order),
+            "order_origin": _order_origin(order),
             "store_slug": order.get("store_slug"),
             "ussd": order.get("ussd"),
             "created_at": order.get("created_at"),
